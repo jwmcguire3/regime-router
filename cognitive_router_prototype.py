@@ -1182,6 +1182,21 @@ class OutputValidator:
         "team",
     }
 
+    GENERIC_PRESSURE_WORDS = {
+        "execute",
+        "execution",
+        "implement",
+        "implementation",
+        "roadmap",
+        "timeline",
+        "deliverable",
+        "milestone",
+        "resourcing",
+        "coordination",
+        "alignment",
+        "rollout",
+    }
+
     REQUIRED_SIGNAL_WORDS = {
         "expand",
         "define",
@@ -1322,7 +1337,8 @@ class OutputValidator:
         artifact_tokens = self._tokenize(all_text)
         task_text = task.lower()
 
-        active_signals = set(task_signals or extract_structural_signals(task))
+        extracted_signals = set(extract_structural_signals(task))
+        active_signals = extracted_signals | set(task_signals or [])
         if active_signals:
             forbidden_hits = sorted(t for t in self.FORBIDDEN_GENERIC if t in artifact_tokens)
             if forbidden_hits:
@@ -1356,6 +1372,35 @@ class OutputValidator:
                 if token_count < 6:
                     failures.append("supporting_structure is too thin")
 
+            if active_signals:
+                if "central_claim" in flat_fields and self._signal_overlap_count(flat_fields["central_claim"], list(active_signals)) < 1:
+                    failures.append(
+                        "central_claim is not anchored to the task's structural signals"
+                    )
+                if "organizing_idea" in flat_fields and self._signal_overlap_count(flat_fields["organizing_idea"], list(active_signals)) < 1:
+                    failures.append(
+                        "organizing_idea is not anchored to the task's structural signals"
+                    )
+                if "key_tensions" in flat_fields and self._signal_overlap_count(flat_fields["key_tensions"], list(active_signals)) < 1:
+                    failures.append(
+                        "key_tensions are not tied to the task's structural signals"
+                    )
+
+                if "pressure_points" in flat_fields:
+                    pressure_text = flat_fields["pressure_points"].lower()
+                    generic_pressure_hits = sorted(
+                        word for word in self.GENERIC_PRESSURE_WORDS if word in pressure_text
+                    )
+                    if generic_pressure_hits:
+                        failures.append(
+                            "pressure_points use generic execution language instead of frame pressure tests: "
+                            + ", ".join(generic_pressure_hits[:4])
+                        )
+                    if self._signal_overlap_count(flat_fields["pressure_points"], list(active_signals)) < 1:
+                        failures.append(
+                            "pressure_points do not test the frame against the task's original structural signals"
+                        )
+
         if stage == Stage.EXPLORATION:
             forbidden_hits = sorted(t for t in self.FORBIDDEN_GENERIC if t in artifact_tokens)
             if forbidden_hits:
@@ -1382,6 +1427,25 @@ class OutputValidator:
         if not ta or not tb:
             return 0.0
         return len(ta & tb) / len(ta | tb)
+
+    def _signal_overlap_count(self, text: str, signals: List[str]) -> int:
+        signal_tokens = {
+            STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED: {"expand", "define"},
+            STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL: {"concrete", "small"},
+            STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED: {"fragment", "spine"},
+        }
+        text_tokens = self._tokenize(text)
+        overlap_count = 0
+        for signal in signals:
+            expected = signal_tokens.get(signal)
+            if expected:
+                if text_tokens & expected:
+                    overlap_count += 1
+                continue
+            fallback_tokens = self._tokenize(signal.replace("_", " "))
+            if fallback_tokens and text_tokens & fallback_tokens:
+                overlap_count += 1
+        return overlap_count
 # ============================================================
 # Evolution engine
 # ============================================================
