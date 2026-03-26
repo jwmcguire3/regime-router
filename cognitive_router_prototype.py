@@ -63,7 +63,18 @@ def extract_routing_features(task: str) -> RoutingFeatures:
         "can't name it yet",
     )
 
-    decision_words = ("decide", "decision", "choose", "commit", "next move", "time pressure", "ship now", "now")
+    decision_words = (
+        "decide",
+        "decision",
+        "choose",
+        "commit",
+        "next move",
+        "time pressure",
+        "ship now",
+        "best option now",
+        "select",
+        "now",
+    )
     tradeoff_words = ("tradeoff", "trade-off", "between options", "selection", "opportunity cost")
 
     fragility_words = ("fragile", "break", "stress test", "failure mode", "risk", "destabil", "brittle")
@@ -868,6 +879,25 @@ ARTIFACT_FIELDS: Dict[Stage, List[str]] = {
 
 class RegimeConfidenceCalculator:
     NONTRIVIAL_SCORE_FLOOR = 2
+    EXPLICIT_DECISION_MARKERS = frozenset(
+        {
+            "decide",
+            "decision",
+            "choose",
+            "choose now",
+            "commit",
+            "next move",
+            "best option now",
+            "select",
+            "select now",
+            "select one",
+            "tradeoff",
+            "trade-off",
+            "between options",
+            "selection",
+            "opportunity cost",
+        }
+    )
 
     def calculate(
         self,
@@ -890,8 +920,16 @@ class RegimeConfidenceCalculator:
         weak_lexical_dependence = total_lexical > 0 and total_structural <= 1 and total_lexical >= total_structural * 3
 
         structural_sparse = len(features.structural_signals) == 0 and "parts_whole_mismatch" not in features.detected_markers
+        decision_tradeoff_markers = set(features.detected_markers.get("decision_tradeoff_commitment", []))
+        has_explicit_decision_marker = bool(decision_tradeoff_markers & self.EXPLICIT_DECISION_MARKERS)
+        mixed_decision_and_possibility = features.decision_pressure >= 2 and features.possibility_space_need >= 2
+        explicit_decision_priority = (
+            mixed_decision_and_possibility
+            and has_explicit_decision_marker
+            and features.decision_pressure >= features.possibility_space_need
+        )
         structural_conflicting = (
-            (features.decision_pressure >= 2 and features.possibility_space_need >= 2)
+            (mixed_decision_and_possibility and not explicit_decision_priority)
             or (features.fragility_pressure >= 2 and features.possibility_space_need >= 2)
         )
         structural_state = "conflicting" if structural_conflicting else ("sparse" if structural_sparse else "coherent")
@@ -1218,6 +1256,8 @@ class Router:
                 "commit": 3,
                 "next move": 4,
                 "tradeoff": 4,
+                "best option now": 6,
+                "select": 4,
                 "select between options": 5,
                 "choose between": 5,
                 "time pressure": 3,
@@ -1356,6 +1396,26 @@ class Router:
                 1 + min(3, features.possibility_space_need // 2),
                 "structural",
                 f"feature:possibility_space_need={features.possibility_space_need}",
+            )
+        if (
+            features.decision_pressure > 0
+            and features.possibility_space_need > 0
+            and (
+                set(features.detected_markers.get("decision_tradeoff_commitment", []))
+                & RegimeConfidenceCalculator.EXPLICIT_DECISION_MARKERS
+            )
+        ):
+            add_score(
+                Stage.OPERATOR,
+                3,
+                "structural",
+                "mixed_prompt:explicit_decision_now_precedence",
+            )
+            add_score(
+                Stage.EXPLORATION,
+                1,
+                "structural",
+                "mixed_prompt:exploration_retained_as_runner_up",
             )
 
         if deterministic_stage_scores:

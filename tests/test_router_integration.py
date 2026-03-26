@@ -163,6 +163,35 @@ def test_routing_options_plus_decision_prefers_operator():
     assert decision.primary_regime == Stage.OPERATOR
 
 
+def test_mixed_exploration_then_choose_best_option_now_routes_operator_with_medium_or_higher_confidence():
+    decision = Router().route("Explore a few alternatives, then choose the best option now.")
+    assert decision.primary_regime == Stage.OPERATOR
+    assert decision.confidence.level in {"medium", "high"}
+    assert decision.runner_up_regime == Stage.EXPLORATION
+
+
+def test_brainstorm_some_options_routes_exploration():
+    decision = Router().route("Brainstorm some options.")
+    assert decision.primary_regime == Stage.EXPLORATION
+
+
+def test_choose_between_close_options_routes_operator():
+    decision = Router().route("Choose between these two close options and justify the decision.")
+    assert decision.primary_regime == Stage.OPERATOR
+
+
+def test_explore_several_frames_before_selecting_one_is_consistent_with_confidence_logic():
+    decision = Router().route("Explore several frames before selecting one.")
+    assert decision.primary_regime in {Stage.OPERATOR, Stage.EXPLORATION}
+    assert decision.confidence.level in {"medium", "high"}
+
+
+def test_mixed_prompt_debug_contributions_show_operator_precedence_reason():
+    decision = Router().route("Explore a few alternatives, then choose the best option now.")
+    operator_contributions = decision.deterministic_score_contributions.get(Stage.OPERATOR, [])
+    assert any("mixed_prompt:explicit_decision_now_precedence" in line for line in operator_contributions)
+
+
 def test_routing_vague_pattern_with_uncertainty_does_not_trigger_builder():
     decision = Router().route("There’s a pattern here but I can’t tell what kind.")
     assert decision.primary_regime in {Stage.EPISTEMIC, Stage.EXPLORATION}
