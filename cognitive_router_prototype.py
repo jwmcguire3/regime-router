@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 import textwrap
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -245,9 +245,11 @@ class RoutingDecision:
     confidence: "RegimeConfidenceResult" = field(default_factory=lambda: RegimeConfidenceResult.low_default())
     deterministic_stage_scores: Dict[Stage, int] = field(default_factory=dict)
     deterministic_score_summary: str = ""
+    analyzer_enabled: bool = False
     analyzer_used: bool = False
     analyzer_changed_primary: bool = False
     analyzer_changed_runner_up: bool = False
+    analyzer_summary: Optional[str] = None
 
 
 @dataclass
@@ -1009,6 +1011,7 @@ class Router:
                 ),
                 deterministic_stage_scores={Stage.SYNTHESIS: 10, Stage.ADVERSARIAL: 3},
                 deterministic_score_summary="shortcut: interpretation-first precedence",
+                analyzer_enabled=analyzer_enabled,
             )
 
         if any(k in b for k in ["stress test this frame", "stress test", "break it", "too clean", "fragile", "launch"]):
@@ -1023,6 +1026,7 @@ class Router:
                 ),
                 deterministic_stage_scores={Stage.ADVERSARIAL: 10, Stage.EPISTEMIC: 3},
                 deterministic_score_summary="shortcut: stress-test precedence",
+                analyzer_enabled=analyzer_enabled,
             )
 
         if any(k in b for k in ["repeatable", "template", "playbook", "system", "productize", "reusable"]):
@@ -1037,6 +1041,7 @@ class Router:
                 ),
                 deterministic_stage_scores={Stage.BUILDER: 10, Stage.OPERATOR: 3},
                 deterministic_score_summary="shortcut: repeatability precedence",
+                analyzer_enabled=analyzer_enabled,
             )
 
         stage_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
@@ -1193,11 +1198,18 @@ class Router:
                 ),
                 deterministic_stage_scores=stage_scores,
                 deterministic_score_summary=self._format_stage_score_summary(stage_scores),
+                analyzer_enabled=analyzer_enabled,
             )
             if not (analyzer_enabled and analyzer_result and self.should_use_analyzer(decision.confidence, score_gap_threshold=analyzer_gap_threshold)):
                 return decision
             if analyzer_result.confidence < 0.6:
-                return RoutingDecision(**{**asdict(decision), "analyzer_used": True})
+                return replace(
+                    decision,
+                    analyzer_used=True,
+                    analyzer_summary=(
+                        f"Analyzer output ignored due to low analyzer confidence ({analyzer_result.confidence:.2f})."
+                    ),
+                )
             analyzer_ranked = sorted(
                 analyzer_result.stage_scores.items(),
                 key=lambda x: (-x[1], self.precedence_order.index(x[0])),
@@ -1218,9 +1230,14 @@ class Router:
                 confidence=decision.confidence,
                 deterministic_stage_scores=stage_scores,
                 deterministic_score_summary=self._format_stage_score_summary(stage_scores),
+                analyzer_enabled=analyzer_enabled,
                 analyzer_used=True,
                 analyzer_changed_primary=new_primary != decision.primary_regime,
                 analyzer_changed_runner_up=new_runner != decision.runner_up_regime,
+                analyzer_summary=(
+                    f"Analyzer confidence={analyzer_result.confidence:.2f}; rationale={analyzer_result.rationale}; "
+                    f"candidates={[stage.value for stage in analyzer_result.candidate_regimes]}"
+                ),
             )
 
         runner_up = next((stage for stage, score in ranked[1:] if score > 0), Stage.EXPLORATION if top_stage != Stage.EXPLORATION else Stage.SYNTHESIS)
@@ -1242,13 +1259,20 @@ class Router:
             confidence=confidence,
             deterministic_stage_scores=stage_scores,
             deterministic_score_summary=self._format_stage_score_summary(stage_scores),
+            analyzer_enabled=analyzer_enabled,
         )
         if not (analyzer_enabled and analyzer_result):
             return decision
         if not self.should_use_analyzer(confidence, score_gap_threshold=analyzer_gap_threshold):
             return decision
         if analyzer_result.confidence < 0.6:
-            return RoutingDecision(**{**asdict(decision), "analyzer_used": True})
+            return replace(
+                decision,
+                analyzer_used=True,
+                analyzer_summary=(
+                    f"Analyzer output ignored due to low analyzer confidence ({analyzer_result.confidence:.2f})."
+                ),
+            )
 
         analyzer_ranked = sorted(
             analyzer_result.stage_scores.items(),
@@ -1286,9 +1310,14 @@ class Router:
             confidence=confidence,
             deterministic_stage_scores=stage_scores,
             deterministic_score_summary=self._format_stage_score_summary(stage_scores),
+            analyzer_enabled=analyzer_enabled,
             analyzer_used=True,
             analyzer_changed_primary=new_primary != decision.primary_regime,
             analyzer_changed_runner_up=new_runner != decision.runner_up_regime,
+            analyzer_summary=(
+                f"Analyzer confidence={analyzer_result.confidence:.2f}; rationale={analyzer_result.rationale}; "
+                f"candidates={[stage.value for stage in analyzer_result.candidate_regimes]}"
+            ),
         )
 # ============================================================
 # Composer
@@ -2376,11 +2405,13 @@ class CognitiveRuntime:
             routing_features=features,
         )
         analysis: Optional[TaskAnalyzerOutput] = None
+        analyzer_attempted = False
         if (
             self.use_task_analyzer
             and self.task_analyzer
             and self.router.should_use_analyzer(deterministic_decision.confidence, score_gap_threshold=1)
         ):
+            analyzer_attempted = True
             analysis = self.task_analyzer.analyze(
                 bottleneck,
                 routing_features=features,
@@ -2399,6 +2430,8 @@ class CognitiveRuntime:
             analyzer_result=analysis,
             analyzer_gap_threshold=1,
         )
+        if analyzer_attempted and analysis is None and decision.analyzer_summary is None:
+            decision.analyzer_summary = "Analyzer returned invalid/non-JSON output; deterministic routing retained."
 
         regime = self.composer.compose(decision.primary_regime, risk_profile=risks, handoff_expected=handoff_expected)
         handoff = Handoff(
@@ -2560,11 +2593,40 @@ def print_routing(decision: RoutingDecision) -> None:
     print(f"- Confidence rationale: {decision.confidence.rationale}")
     print(f"- Deterministic scores: {decision.deterministic_score_summary or 'n/a'}")
     print(
+        f"- Analyzer enabled: {decision.analyzer_enabled}"
+    )
+    print(
         f"- Analyzer used: {decision.analyzer_used} "
         f"(changed primary={decision.analyzer_changed_primary}, changed runner-up={decision.analyzer_changed_runner_up})"
     )
+    if decision.analyzer_summary:
+        print(f"- Analyzer summary: {decision.analyzer_summary}")
     print(f"- Why primary wins now: {decision.why_primary_wins_now}")
     print(f"- Switch trigger: {decision.switch_trigger}")
+    print()
+
+
+def print_routing_debug(
+    *,
+    decision: RoutingDecision,
+    features: RoutingFeatures,
+    signals: List[str],
+    risks: Set[str],
+) -> None:
+    print("ROUTING DEBUG")
+    print(f"- Structural signals: {signals or []}")
+    print(f"- Risk profile: {sorted(risks)}")
+    print(f"- Feature pressures: decision={features.decision_pressure}, evidence={features.evidence_demand}, fragility={features.fragility_pressure}, recurrence={features.recurrence_potential}, possibility={features.possibility_space_need}")
+    print(f"- Detected markers: {json.dumps(features.detected_markers, ensure_ascii=False)}")
+    print(
+        f"- Confidence detail: level={decision.confidence.level}, rationale={decision.confidence.rationale}, "
+        f"nontrivial_stage_count={decision.confidence.nontrivial_stage_count}, weak_lexical_dependence={decision.confidence.weak_lexical_dependence}, structural_feature_state={decision.confidence.structural_feature_state}"
+    )
+    print(f"- Stage scores: {decision.deterministic_score_summary or 'n/a'}")
+    print(
+        f"- Analyzer state: enabled={decision.analyzer_enabled}, used={decision.analyzer_used}, "
+        f"summary={decision.analyzer_summary or 'n/a'}"
+    )
     print()
 
 
@@ -2661,6 +2723,11 @@ def cmd_plan(args: argparse.Namespace) -> int:
         handoff_expected=not args.no_handoff,
     )
     print_routing(decision)
+    if args.debug_routing:
+        features = extract_routing_features(args.task)
+        signals = features.structural_signals
+        risks = infer_risk_profile(args.task, parse_risk_profile(args.risks))
+        print_routing_debug(decision=decision, features=features, signals=signals, risks=risks)
     print(regime.render())
     print()
     print_handoff(handoff)
@@ -2717,6 +2784,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan_p.add_argument("--no-handoff", action="store_true", help="Disable tail/transfer line where optional")
     plan_p.add_argument("--use-task-analyzer", action="store_true", help="Enable optional LLM task analyzer for low-confidence routing cases")
     plan_p.add_argument("--task-analyzer-model", default="llama3", help="Ollama model for task analyzer when enabled")
+    plan_p.add_argument("--debug-routing", action="store_true", help="Print inspectable routing internals (features, scores, confidence, analyzer state)")
     plan_p.set_defaults(func=cmd_plan)
 
     list_p = sub.add_parser("list-runs", help="List saved run files")
