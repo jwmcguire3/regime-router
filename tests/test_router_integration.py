@@ -233,6 +233,27 @@ def test_confidence_is_high_for_mixed_prompt_with_clear_score_gap():
     assert "clear margin" in decision.confidence.rationale
 
 
+def test_confidence_brainstorm_prompt_calibrates_to_high_for_clean_single_regime_signal():
+    decision = Router().route("Brainstorm several distinct ways to think about this.")
+    assert decision.primary_regime == Stage.EXPLORATION
+    assert decision.confidence.level == "high"
+    assert decision.confidence.score_gap >= 4
+    assert "single-regime intent is explicit" in decision.confidence.rationale.lower()
+
+
+def test_confidence_mixed_interpretation_and_evidence_prompt_remains_medium():
+    decision = Router().route("Find the strongest interpretation and also verify which evidence supports it.")
+    assert decision.primary_regime == Stage.EPISTEMIC
+    assert decision.runner_up_regime == Stage.SYNTHESIS
+    assert decision.confidence.level == "medium"
+
+
+def test_confidence_vague_help_prompt_remains_low():
+    decision = Router().route("Help me think about this.")
+    assert decision.primary_regime == Stage.EXPLORATION
+    assert decision.confidence.level == "low"
+
+
 @pytest.mark.parametrize(
     "task,expected_stage",
     [
