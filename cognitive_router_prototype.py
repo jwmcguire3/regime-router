@@ -694,9 +694,9 @@ class Router:
             return RoutingDecision(
                 bottleneck=bottleneck,
                 primary_regime=Stage.SYNTHESIS,
-                runner_up_regime=Stage.EXPLORATION,
-                why_primary_wins_now="The task explicitly asks for compression into the strongest interpretation, not expansion of possibilities.",
-                switch_trigger="Switch when the synthesis is too thin or multiple competing frames remain equally plausible.",
+                runner_up_regime=Stage.ADVERSARIAL,
+                why_primary_wins_now="The task asks for interpretation-level compression first, then pressure-testing against break conditions.",
+                switch_trigger="Switch when the strongest frame is identified and the next bottleneck becomes exposing how it fails under stress.",
             )
 
         if any(k in b for k in ["unknown", "unclear", "possibility", "options", "brainstorm"]):
@@ -798,7 +798,7 @@ class RegimeComposer:
     def _choose_suppressions(self, stage: Stage, risk_profile: Set[str]) -> List[LinePrimitive]:
         if stage == Stage.SYNTHESIS:
             chosen = ["SYN-P1"]
-            if {"coherence_over_truth", "false_unification", "high_stakes"} & risk_profile:
+            if self._requires_synthesis_break_condition_pressure(risk_profile):
                 chosen.append("SYN-P2")
         elif stage == Stage.EPISTEMIC:
             chosen = ["EPI-P1", "EPI-P2"]
@@ -830,6 +830,16 @@ class RegimeComposer:
         else:
             chosen = ["BLD-S1", "BLD-S2"]
         return [LIBRARY[i] for i in chosen]
+
+    @staticmethod
+    def _requires_synthesis_break_condition_pressure(risk_profile: Set[str]) -> bool:
+        high_risk_synthesis_conditions = {
+            "coherence_over_truth",
+            "false_unification",
+            "high_stakes",
+            "abstract_structural_task",
+        }
+        return bool(high_risk_synthesis_conditions & risk_profile)
 
     def _choose_tail(self, stage: Stage, handoff_expected: bool, risk_profile: Set[str]) -> Optional[LinePrimitive]:
         if stage == Stage.EXPLORATION and handoff_expected:
