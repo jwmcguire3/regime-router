@@ -977,6 +977,17 @@ class PromptBuilder:
             else "- no explicit structural signals detected"
         )
         risk_line = ", ".join(sorted(risk_profile or set())) or "none"
+        synthesis_constraints = ""
+        if regime.stage == Stage.SYNTHESIS:
+            synthesis_constraints = textwrap.dedent(
+                """
+                Synthesis anchoring constraints:
+                - Treat the extracted structural signals above as required anchors.
+                - Every synthesis field must reinterpret, connect, or test those anchors.
+                - If a sentence still works after removing task-specific signals, it is too generic and must be rewritten.
+                - pressure_points must falsify or weaken the interpretation, not describe implementation difficulty.
+                """
+            ).strip()
 
         return textwrap.dedent(
             f"""
@@ -1021,6 +1032,7 @@ class PromptBuilder:
 
             Frames must reinterpret these signals, not replace them.
             Frames must describe what the project *is structurally*, not what it *does*.
+            {synthesis_constraints}
             Active risk profile: {risk_line}
 
             Avoid phrases like:
@@ -1065,11 +1077,11 @@ class PromptBuilder:
     def _field_rules(stage: Stage) -> str:
         rules = {
             Stage.SYNTHESIS: """
-            - central_claim: one-sentence decisive interpretation of what the material is really pointing to
-            - organizing_idea: the mechanism or logic behind that claim; not a paraphrase of central_claim
-            - key_tensions: 2-4 competing forces or contradictions
-            - supporting_structure: 2-4 concrete observations or patterns drawn from the input
-            - pressure_points: what could break, revise, or weaken the frame
+            - central_claim: one-sentence structural interpretation that explicitly uses at least two task signals (directly or close transforms)
+            - organizing_idea: explain the mechanism that generates central_claim from the signals; do not restate central_claim
+            - key_tensions: 2-4 pressure pairs, each rooted in specific task signals
+            - supporting_structure: 2-4 signal-anchored observations tied to exact extracted signals, not broad project language
+            - pressure_points: frame-break conditions that would falsify or materially weaken the interpretation; not execution risks
             """,
             Stage.EPISTEMIC: """
             - supported_claims: claims directly supported by the input
