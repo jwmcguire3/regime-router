@@ -13,6 +13,50 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
+STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED = "expansion_when_defined"
+STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL = "concrete_versions_feel_too_small"
+STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED = "fragments_understood_spine_missed"
+
+
+def extract_structural_signals(task: str) -> List[str]:
+    text = task.lower()
+    signals: List[str] = []
+
+    has_expand = any(k in text for k in ("expand", "expands", "expansion", "broadens", "gets bigger"))
+    has_define = any(k in text for k in ("define", "defined", "definition", "specify", "specified"))
+    if has_expand and has_define:
+        signals.append(STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED)
+
+    has_concrete = any(k in text for k in ("concrete", "specific", "instance", "version"))
+    has_too_small = any(k in text for k in ("too small", "small", "narrow", "shrinks", "feels tiny"))
+    if has_concrete and has_too_small:
+        signals.append(STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL)
+
+    has_fragments = any(k in text for k in ("fragment", "fragments", "pieces", "parts"))
+    has_understood = any(k in text for k in ("understood", "clear", "comprehensible", "makes sense"))
+    has_spine_missing = any(k in text for k in ("spine", "core", "throughline", "center", "backbone"))
+    has_missing = any(k in text for k in ("missed", "missing", "lost", "not seen", "not grasped"))
+    if has_fragments and has_understood and has_spine_missing and has_missing:
+        signals.append(STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED)
+
+    return signals
+
+
+def infer_risk_profile(task: str, risk_profile: Optional[Set[str]]) -> Set[str]:
+    inferred = set(risk_profile or set())
+    text = task.lower()
+    signals = set(extract_structural_signals(task))
+
+    if signals:
+        inferred.add("abstract_structural_task")
+    if STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED in signals and any(
+        k in text for k in ("single frame", "one frame", "unif", "compress", "organizing idea")
+    ):
+        inferred.add("false_unification")
+
+    return inferred
+
+
 # ============================================================
 # Core enums
 # ============================================================
@@ -910,12 +954,19 @@ class OllamaClient:
 
 class PromptBuilder:
     @staticmethod
-    def build_system_prompt(regime: Regime) -> str:
+    def build_system_prompt(regime: Regime, task_signals: Optional[List[str]] = None, risk_profile: Optional[Set[str]] = None) -> str:
         artifact_name = ARTIFACT_HINTS[regime.stage]
         fields = ARTIFACT_FIELDS[regime.stage]
         field_list = "\n".join(f"- {f}" for f in fields)
+        task_signals = task_signals or []
 
         field_rules = PromptBuilder._field_rules(regime.stage)
+        signal_lines = (
+            "\n".join(f"- {sig.replace('_', ' ')}" for sig in task_signals)
+            if task_signals
+            else "- no explicit structural signals detected"
+        )
+        risk_line = ", ".join(sorted(risk_profile or set())) or "none"
 
         return textwrap.dedent(
             f"""
@@ -954,14 +1005,13 @@ class PromptBuilder:
             Do not introduce external domains, industries, or generic project types.
 
             All frames must be constructed directly from the structural signals in the input:
-            - expansion when defined
-            - concrete versions feeling too small
-            - fragmentation when communicated
+            {signal_lines}
 
             If a frame could apply to any generic project, it is invalid.
 
             Frames must reinterpret these signals, not replace them.
             Frames must describe what the project *is structurally*, not what it *does*.
+            Active risk profile: {risk_line}
 
             Avoid phrases like:
             - "technology"
@@ -977,13 +1027,20 @@ class PromptBuilder:
         ).strip()
 
     @staticmethod
-    def build_user_prompt(task: str, regime: Regime) -> str:
+    def build_user_prompt(task: str, regime: Regime, task_signals: Optional[List[str]] = None, risk_profile: Optional[Set[str]] = None) -> str:
         artifact_name = ARTIFACT_HINTS[regime.stage]
-        fields = ", ".join(ARTIFACT_FIELDS[regime.stage])
+        signals = ", ".join(task_signals or []) or "none"
+        risks = ", ".join(sorted(risk_profile or set())) or "none"
         return textwrap.dedent(
             f"""
             Task:
             {task}
+
+            Structural signals:
+            {signals}
+
+            Risk profile:
+            {risks}
 
           Return one JSON object with exactly these top-level keys:
           regime, stage, artifact_type, artifact
@@ -1111,7 +1168,14 @@ class OutputValidator:
         "fragment",
     }
 
-    def validate(self, stage: Stage, raw_response: str, task: str = "") -> Dict[str, object]:
+    def validate(
+        self,
+        stage: Stage,
+        raw_response: str,
+        task: str = "",
+        task_signals: Optional[List[str]] = None,
+        risk_profile: Optional[Set[str]] = None,
+    ) -> Dict[str, object]:
         result: Dict[str, object] = {
             "valid_json": False,
             "required_keys_present": False,
@@ -1167,13 +1231,26 @@ class OutputValidator:
             result["is_valid"] = False
             return result
 
-        semantic_failures = self._semantic_checks(stage, artifact, task)
+        semantic_failures = self._semantic_checks(
+            stage,
+            artifact,
+            task,
+            task_signals=task_signals,
+            risk_profile=risk_profile,
+        )
         result["semantic_failures"] = semantic_failures
         result["semantic_valid"] = len(semantic_failures) == 0
         result["is_valid"] = structural_valid and result["semantic_valid"]
         return result
 
-    def _semantic_checks(self, stage: Stage, artifact: Dict[str, object], task: str) -> List[str]:
+    def _semantic_checks(
+        self,
+        stage: Stage,
+        artifact: Dict[str, object],
+        task: str,
+        task_signals: Optional[List[str]] = None,
+        risk_profile: Optional[Set[str]] = None,
+    ) -> List[str]:
         failures: List[str] = []
 
         flat_fields = {}
@@ -1223,20 +1300,27 @@ class OutputValidator:
         artifact_tokens = self._tokenize(all_text)
         task_text = task.lower()
 
-        if any(sig in task_text for sig in ["expand", "define", "spine", "fragment", "too small"]):
+        active_signals = set(task_signals or extract_structural_signals(task))
+        if active_signals:
             forbidden_hits = sorted(t for t in self.FORBIDDEN_GENERIC if t in artifact_tokens)
             if forbidden_hits:
                 failures.append(
                     f"artifact introduces forbidden generic domain nouns: {', '.join(forbidden_hits)}"
                 )
 
-            signal_hits = [
-                sig for sig in ["expand", "define", "small", "spine", "fragment"]
-                if sig in all_text
-            ]
-            if len(signal_hits) < 2:
+            token_expectations = {
+                STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED: ["expand", "define"],
+                STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL: ["concrete", "small"],
+                STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED: ["fragment", "spine"],
+            }
+            matched = 0
+            for signal in active_signals:
+                tokens = token_expectations.get(signal, [])
+                if all(tok in all_text for tok in tokens):
+                    matched += 1
+            if matched < 1:
                 failures.append(
-                    f"artifact is not grounded in the task's core signals; found only: {', '.join(signal_hits) if signal_hits else 'none'}"
+                    "artifact is not grounded in the task's core structural signals"
                 )
 
         # 6. Stage-specific checks
@@ -1257,13 +1341,9 @@ class OutputValidator:
                     f"exploration artifact introduces ungrounded generic domain terms: {', '.join(forbidden_hits)}"
                 )
 
-            signal_hits = [
-                sig for sig in ["expand", "define", "small", "spine", "fragment"]
-                if sig in all_text
-            ]
-            if any(sig in task_text for sig in ["expand", "define", "spine", "fragment", "too small"]) and len(signal_hits) < 2:
+            if active_signals and not any(tok in all_text for tok in ("expand", "define", "small", "spine", "fragment", "concrete")):
                 failures.append(
-                    f"exploration artifact does not engage the task's actual signals; found only: {', '.join(signal_hits) if signal_hits else 'none'}"
+                    "exploration artifact does not engage the task's structural signals"
                 )
 
         return failures
@@ -1338,9 +1418,18 @@ class CognitiveRuntime:
         self.evolver = EvolutionEngine()
         self.ollama = OllamaClient(base_url=ollama_base_url)
 
-    def plan(self, bottleneck: str, risk_profile: Optional[Set[str]] = None, handoff_expected: bool = True) -> Tuple[RoutingDecision, Regime, Handoff]:
+    def plan(
+        self,
+        bottleneck: str,
+        risk_profile: Optional[Set[str]] = None,
+        handoff_expected: bool = True,
+        task_signals: Optional[List[str]] = None,
+        risks_inferred: bool = False,
+    ) -> Tuple[RoutingDecision, Regime, Handoff]:
+        signals = task_signals if task_signals is not None else extract_structural_signals(bottleneck)
+        risks = set(risk_profile or set()) if risks_inferred else infer_risk_profile(bottleneck, risk_profile)
         decision = self.router.route(bottleneck)
-        regime = self.composer.compose(decision.primary_regime, risk_profile=risk_profile, handoff_expected=handoff_expected)
+        regime = self.composer.compose(decision.primary_regime, risk_profile=risks, handoff_expected=handoff_expected)
         handoff = Handoff(
             current_bottleneck=bottleneck,
             dominant_frame=f"Primary regime is {decision.primary_regime.value}; optimize for its core motion.",
@@ -1350,7 +1439,10 @@ class CognitiveRuntime:
             ],
             what_remains_uncertain=["Whether the first regime will hit its dominant failure mode quickly."],
             active_contradictions=["Soft LLM behavior vs hard system control"],
-            assumptions_in_play=["The bottleneck has been classified correctly."],
+            assumptions_in_play=[
+                "The bottleneck has been classified correctly.",
+                f"Structural signals observed: {', '.join(signals) if signals else 'none'}",
+            ],
             main_risk_if_continue=CANONICAL_FAILURE_IF_OVERUSED[decision.primary_regime],
             recommended_next_regime=decision.runner_up_regime,
             minimum_useful_artifact="A typed artifact from the current regime plus a switch trigger.",
@@ -1358,20 +1450,40 @@ class CognitiveRuntime:
         return decision, regime, handoff
 
     def execute(self, task: str, model: str, risk_profile: Optional[Set[str]] = None, handoff_expected: bool = True) -> Tuple[RoutingDecision, Regime, RegimeExecutionResult, Handoff]:
-        decision, regime, handoff = self.plan(task, risk_profile=risk_profile, handoff_expected=handoff_expected)
-        system_prompt = self.prompt_builder.build_system_prompt(regime)
-        user_prompt = self.prompt_builder.build_user_prompt(task, regime)
+        task_signals = extract_structural_signals(task)
+        inferred_risks = infer_risk_profile(task, risk_profile)
+        decision, regime, handoff = self.plan(
+            task,
+            risk_profile=inferred_risks,
+            handoff_expected=handoff_expected,
+            task_signals=task_signals,
+            risks_inferred=True,
+        )
+        system_prompt = self.prompt_builder.build_system_prompt(regime, task_signals=task_signals, risk_profile=inferred_risks)
+        user_prompt = self.prompt_builder.build_user_prompt(task, regime, task_signals=task_signals, risk_profile=inferred_risks)
 
         response = self.ollama.generate(model=model, system=system_prompt, prompt=user_prompt, stream=False)
         raw_text = str(response.get("response", "")).strip()
-        validation = self.validator.validate(regime.stage, raw_text, task=task)
+        validation = self.validator.validate(
+            regime.stage,
+            raw_text,
+            task=task,
+            task_signals=task_signals,
+            risk_profile=inferred_risks,
+        )
 
         repaired = False
         if not validation.get("is_valid", False):
             repair_prompt = self.prompt_builder.build_repair_prompt(task, regime, raw_text, validation)
             repair_response = self.ollama.generate(model=model, system=system_prompt, prompt=repair_prompt, stream=False)
             repaired_text = str(repair_response.get("response", "")).strip()
-            repaired_validation = self.validator.validate(regime.stage, repaired_text, task=task)
+            repaired_validation = self.validator.validate(
+                regime.stage,
+                repaired_text,
+                task=task,
+                task_signals=task_signals,
+                risk_profile=inferred_risks,
+            )
 
             if repaired_validation.get("is_valid", False):
                 raw_text = repaired_text
