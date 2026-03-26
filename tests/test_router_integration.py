@@ -10,9 +10,11 @@ from cognitive_router_prototype import (
     CognitiveRuntime,
     PromptBuilder,
     RegimeComposer,
+    RoutingFeatures,
     Router,
     Stage,
     OutputValidator,
+    extract_routing_features,
     extract_structural_signals,
     infer_risk_profile,
     main,
@@ -167,6 +169,30 @@ def test_routing_structural_signals_can_drive_synthesis_precedence():
     risks = infer_risk_profile(task, set())
     decision = Router().route(task, task_signals=signals, risk_profile=risks)
     assert decision.primary_regime == Stage.SYNTHESIS
+
+
+def test_extract_routing_features_returns_typed_inspectable_feature_object():
+    task = (
+        "Parts are clear but the whole backbone is missing. "
+        "We need evidence before we commit now, and we should stress test before launch. "
+        "Also make it repeatable with a reusable template while keeping exploration open."
+    )
+    features = extract_routing_features(task)
+
+    assert isinstance(features, RoutingFeatures)
+    assert "parts_whole_mismatch" in features.detected_markers
+    assert features.evidence_demand >= 1
+    assert features.decision_pressure >= 1
+    assert features.fragility_pressure >= 1
+    assert features.recurrence_potential >= 1
+    assert features.possibility_space_need >= 1
+
+
+def test_router_can_consume_precomputed_routing_features():
+    task = "We should choose now, but first verify unknowns and evidence gaps."
+    features = extract_routing_features(task)
+    decision = Router().route(task, routing_features=features)
+    assert decision.primary_regime in {Stage.OPERATOR, Stage.EPISTEMIC}
 
 
 def test_structural_signals_and_risk_profile_plumbed_into_prompts_and_synthesis_suppressions(synthesis_ok_json):

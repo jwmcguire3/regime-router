@@ -18,41 +18,141 @@ STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL = "concrete_versions_feel_too_small"
 STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED = "fragments_understood_spine_missed"
 
 
-def extract_structural_signals(task: str) -> List[str]:
+@dataclass(frozen=True)
+class RoutingFeatures:
+    structural_signals: List[str]
+    decision_pressure: int
+    evidence_demand: int
+    fragility_pressure: int
+    recurrence_potential: int
+    possibility_space_need: int
+    detected_markers: Dict[str, List[str]]
+
+
+def _contains_any(text: str, phrases: Tuple[str, ...]) -> List[str]:
+    return [phrase for phrase in phrases if phrase in text]
+
+
+def _score_from_matches(*matches: List[str]) -> int:
+    return min(10, sum(len(group) for group in matches))
+
+
+def extract_routing_features(task: str) -> RoutingFeatures:
     text = task.lower()
-    signals: List[str] = []
 
-    has_expand = any(k in text for k in ("expand", "expands", "expansion", "broadens", "gets bigger"))
-    has_define = any(k in text for k in ("define", "defined", "definition", "specify", "specified"))
-    if has_expand and has_define:
-        signals.append(STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED)
+    # Grouped deterministic pattern families, optimized for task-shape markers.
+    expansion_words = ("expand", "expands", "expansion", "broadens", "gets bigger", "widens", "balloons")
+    define_words = ("define", "defined", "definition", "specify", "specified", "scope", "frame")
+    concrete_words = ("concrete", "specific", "instance", "version", "example", "implementation")
+    too_small_words = ("too small", "small", "narrow", "shrinks", "feels tiny", "cramped", "thin slice")
+    parts_words = ("fragment", "fragments", "pieces", "parts", "components")
+    whole_words = ("whole", "spine", "core", "throughline", "center", "backbone", "organizing logic")
+    missing_words = ("missed", "missing", "lost", "not seen", "not grasped", "not holding")
+    understood_words = ("understood", "clear", "comprehensible", "makes sense", "legible")
 
-    has_concrete = any(k in text for k in ("concrete", "specific", "instance", "version"))
-    has_too_small = any(k in text for k in ("too small", "small", "narrow", "shrinks", "feels tiny"))
-    if has_concrete and has_too_small:
-        signals.append(STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL)
+    evidence_words = ("evidence", "support", "verify", "unknown", "unclear", "unresolved", "proof", "confidence")
+    uncertainty_words = ("uncertain", "ambigu", "not sure", "missing information", "what is missing")
 
-    has_fragments = any(k in text for k in ("fragment", "fragments", "pieces", "parts"))
-    has_understood = any(k in text for k in ("understood", "clear", "comprehensible", "makes sense"))
-    has_spine_missing = any(k in text for k in ("spine", "core", "throughline", "center", "backbone"))
-    has_missing = any(k in text for k in ("missed", "missing", "lost", "not seen", "not grasped"))
-    if has_fragments and has_understood and has_spine_missing and has_missing:
-        signals.append(STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED)
+    decision_words = ("decide", "decision", "choose", "commit", "next move", "time pressure", "ship now", "now")
+    tradeoff_words = ("tradeoff", "trade-off", "between options", "selection", "opportunity cost")
 
-    return signals
+    fragility_words = ("fragile", "break", "stress test", "failure mode", "risk", "destabil", "brittle")
+    launch_words = ("launch", "production", "deploy", "deployment", "go-live", "trust", "customer-facing")
+
+    recurrence_words = ("repeatable", "reusable", "template", "playbook", "pattern", "systemat", "standardize")
+    builder_words = ("productize", "modules", "interfaces", "workflow", "automation")
+
+    possibility_words = ("possibility", "explore", "exploration", "brainstorm", "alternatives", "option space", "open")
+    convergence_words = ("too early", "premature", "locked in", "single frame", "compresses", "narrowing")
+
+    matches: Dict[str, List[str]] = {}
+
+    expansion_hits = _contains_any(text, expansion_words)
+    define_hits = _contains_any(text, define_words)
+    concrete_hits = _contains_any(text, concrete_words)
+    too_small_hits = _contains_any(text, too_small_words)
+    parts_hits = _contains_any(text, parts_words)
+    whole_hits = _contains_any(text, whole_words)
+    missing_hits = _contains_any(text, missing_words)
+    understood_hits = _contains_any(text, understood_words)
+    evidence_hits = _contains_any(text, evidence_words)
+    uncertainty_hits = _contains_any(text, uncertainty_words)
+    decision_hits = _contains_any(text, decision_words)
+    tradeoff_hits = _contains_any(text, tradeoff_words)
+    fragility_hits = _contains_any(text, fragility_words)
+    launch_hits = _contains_any(text, launch_words)
+    recurrence_hits = _contains_any(text, recurrence_words)
+    builder_hits = _contains_any(text, builder_words)
+    possibility_hits = _contains_any(text, possibility_words)
+    convergence_hits = _contains_any(text, convergence_words)
+
+    structural_signals: List[str] = []
+
+    # expansion-when-defined
+    if expansion_hits and define_hits:
+        structural_signals.append(STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED)
+        matches["expansion_when_defined"] = sorted(set(expansion_hits + define_hits))
+
+    # concrete-form-too-small / abstraction overflow
+    if concrete_hits and too_small_hits:
+        structural_signals.append(STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL)
+        matches["concrete_form_too_small"] = sorted(set(concrete_hits + too_small_hits))
+
+    # parts/whole mismatch (legacy-compatible signal name retained)
+    if parts_hits and whole_hits and missing_hits and understood_hits:
+        structural_signals.append(STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED)
+        matches["parts_whole_mismatch"] = sorted(set(parts_hits + whole_hits + missing_hits + understood_hits))
+
+    if parts_hits and whole_hits and missing_hits:
+        matches.setdefault("parts_whole_mismatch", sorted(set(parts_hits + whole_hits + missing_hits)))
+
+    if evidence_hits or uncertainty_hits:
+        matches["uncertainty_evidence_demand"] = sorted(set(evidence_hits + uncertainty_hits))
+    if decision_hits or tradeoff_hits:
+        matches["decision_tradeoff_commitment"] = sorted(set(decision_hits + tradeoff_hits))
+    if fragility_hits or launch_hits:
+        matches["fragility_launch_trust"] = sorted(set(fragility_hits + launch_hits))
+    if recurrence_hits or builder_hits:
+        matches["recurrence_systemization"] = sorted(set(recurrence_hits + builder_hits))
+    if possibility_hits or convergence_hits:
+        matches["open_possibility_space"] = sorted(set(possibility_hits + convergence_hits))
+
+    return RoutingFeatures(
+        structural_signals=structural_signals,
+        decision_pressure=_score_from_matches(decision_hits, tradeoff_hits),
+        evidence_demand=_score_from_matches(evidence_hits, uncertainty_hits),
+        fragility_pressure=_score_from_matches(fragility_hits, launch_hits),
+        recurrence_potential=_score_from_matches(recurrence_hits, builder_hits),
+        possibility_space_need=_score_from_matches(possibility_hits, convergence_hits),
+        detected_markers=matches,
+    )
+
+
+def extract_structural_signals(task: str) -> List[str]:
+    return extract_routing_features(task).structural_signals
 
 
 def infer_risk_profile(task: str, risk_profile: Optional[Set[str]]) -> Set[str]:
     inferred = set(risk_profile or set())
     text = task.lower()
-    signals = set(extract_structural_signals(task))
+    features = extract_routing_features(task)
+    signals = set(features.structural_signals)
 
     if signals:
         inferred.add("abstract_structural_task")
-    if STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED in signals and any(
+    if (
+        STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED in signals
+        and any(
         k in text for k in ("single frame", "one frame", "unif", "compress", "organizing idea")
+        )
     ):
         inferred.add("false_unification")
+    if features.fragility_pressure >= 2:
+        inferred.add("fragility_pressure")
+    if features.evidence_demand >= 2:
+        inferred.add("evidence_gap")
+    if features.decision_pressure >= 2:
+        inferred.add("decision_urgency")
 
     return inferred
 
@@ -692,9 +792,11 @@ class Router:
         bottleneck: str,
         task_signals: Optional[List[str]] = None,
         risk_profile: Optional[Set[str]] = None,
+        routing_features: Optional[RoutingFeatures] = None,
     ) -> RoutingDecision:
         b = bottleneck.lower().strip()
-        signals = set(task_signals or [])
+        features = routing_features or extract_routing_features(bottleneck)
+        signals = set(task_signals or features.structural_signals)
         risks = set(risk_profile or set())
 
         interpretation_shortcut_markers = ["strongest interpretation", "strongest frame", "what this actually is"]
@@ -780,6 +882,11 @@ class Router:
                 "what this really is": 4,
             },
         )
+        if any(k in b for k in interpretation_shortcut_markers):
+            stage_scores[Stage.SYNTHESIS] += 4
+            if any(k in b for k in epistemic_markers):
+                stage_scores[Stage.EPISTEMIC] += 2
+
         add_phrase_weights(
             Stage.EXPLORATION,
             {
@@ -815,10 +922,22 @@ class Router:
             stage_scores[Stage.SYNTHESIS] += 2
         if STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED in signals:
             stage_scores[Stage.SYNTHESIS] += 2
+        if "parts_whole_mismatch" in features.detected_markers:
+            stage_scores[Stage.SYNTHESIS] += 3
         if "abstract_structural_task" in risks:
             stage_scores[Stage.SYNTHESIS] += 2
         if "false_unification" in risks:
             stage_scores[Stage.SYNTHESIS] += 2
+        if features.evidence_demand >= 2:
+            stage_scores[Stage.EPISTEMIC] += 3
+        if features.decision_pressure >= 2:
+            stage_scores[Stage.OPERATOR] += 3
+        if features.fragility_pressure >= 2:
+            stage_scores[Stage.ADVERSARIAL] += 3
+        if features.recurrence_potential >= 2:
+            stage_scores[Stage.BUILDER] += 3
+        if features.possibility_space_need >= 2:
+            stage_scores[Stage.EXPLORATION] += 2
 
         precedence_order = [
             Stage.OPERATOR,
