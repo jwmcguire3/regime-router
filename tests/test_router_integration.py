@@ -198,10 +198,13 @@ def test_router_can_consume_precomputed_routing_features():
     assert decision.primary_regime in {Stage.OPERATOR, Stage.EPISTEMIC}
 
 
-def test_confidence_is_medium_for_close_mixed_prompt():
+def test_confidence_is_high_for_mixed_prompt_with_clear_score_gap():
     decision = Router().route("We should choose now, but first verify unknowns and evidence gaps.")
-    assert decision.confidence.level == "medium"
-    assert "close" in decision.confidence.rationale or "sequencing" in decision.confidence.rationale
+    assert decision.primary_regime == Stage.EPISTEMIC
+    assert decision.runner_up_regime == Stage.OPERATOR
+    assert decision.confidence.score_gap >= 4
+    assert decision.confidence.level == "high"
+    assert "clear margin" in decision.confidence.rationale
 
 
 @pytest.mark.parametrize(
@@ -486,6 +489,71 @@ def test_low_confidence_routing_uses_analyzer_and_can_update_primary():
     assert decision.primary_regime == Stage.EPISTEMIC
     assert "epistemic:" in decision.deterministic_score_summary
     assert len(fake.calls) == 1
+
+
+def test_zero_score_fallback_rejects_broad_generic_analyzer_override():
+    decision = Router().route(
+        "Help me think about this.",
+        analyzer_enabled=True,
+        analyzer_result=TaskAnalyzerOutput(
+            bottleneck_label="unclear",
+            candidate_regimes=[
+                Stage.EXPLORATION,
+                Stage.SYNTHESIS,
+                Stage.EPISTEMIC,
+                Stage.ADVERSARIAL,
+                Stage.OPERATOR,
+                Stage.BUILDER,
+            ],
+            stage_scores={
+                Stage.EXPLORATION: 0.45,
+                Stage.SYNTHESIS: 0.44,
+                Stage.EPISTEMIC: 0.43,
+                Stage.ADVERSARIAL: 0.42,
+                Stage.OPERATOR: 0.41,
+                Stage.BUILDER: 0.40,
+            },
+            structural_signals=[],
+            decision_pressure=0,
+            evidence_quality=0,
+            recurrence_potential=0,
+            confidence=0.93,
+            rationale="General best fit.",
+        ),
+    )
+    assert decision.primary_regime == Stage.EXPLORATION
+    assert decision.runner_up_regime == Stage.SYNTHESIS
+    assert decision.analyzer_used is True
+    assert decision.analyzer_changed_primary is False
+    assert "zero-score fallback" in (decision.analyzer_summary or "")
+    assert "candidate_regimes too broad" in (decision.analyzer_summary or "")
+
+
+def test_zero_score_fallback_rejects_operator_without_decision_evidence():
+    decision = Router().route(
+        "Can you help me reflect?",
+        analyzer_enabled=True,
+        analyzer_result=TaskAnalyzerOutput(
+            bottleneck_label="operator",
+            candidate_regimes=[Stage.OPERATOR, Stage.EXPLORATION],
+            stage_scores={
+                Stage.EXPLORATION: 0.31,
+                Stage.SYNTHESIS: 0.29,
+                Stage.EPISTEMIC: 0.27,
+                Stage.ADVERSARIAL: 0.25,
+                Stage.OPERATOR: 0.66,
+                Stage.BUILDER: 0.22,
+            },
+            structural_signals=[],
+            decision_pressure=0,
+            evidence_quality=0,
+            recurrence_potential=0,
+            confidence=0.90,
+            rationale="Operator is likely best fit for this prompt overall.",
+        ),
+    )
+    assert decision.primary_regime == Stage.EXPLORATION
+    assert "operator proposed without decision evidence" in (decision.analyzer_summary or "")
 
 
 def test_analyzer_disabled_fallback_keeps_deterministic_behavior():
