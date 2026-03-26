@@ -243,6 +243,11 @@ class RoutingDecision:
     why_primary_wins_now: str
     switch_trigger: str
     confidence: "RegimeConfidenceResult" = field(default_factory=lambda: RegimeConfidenceResult.low_default())
+    deterministic_stage_scores: Dict[Stage, int] = field(default_factory=dict)
+    deterministic_score_summary: str = ""
+    analyzer_used: bool = False
+    analyzer_changed_primary: bool = False
+    analyzer_changed_runner_up: bool = False
 
 
 @dataclass
@@ -922,6 +927,55 @@ class RegimeConfidenceCalculator:
 class Router:
     def __init__(self) -> None:
         self.confidence_calculator = RegimeConfidenceCalculator()
+        self.precedence_order = [
+            Stage.OPERATOR,
+            Stage.EPISTEMIC,
+            Stage.ADVERSARIAL,
+            Stage.SYNTHESIS,
+            Stage.BUILDER,
+            Stage.EXPLORATION,
+        ]
+
+    @staticmethod
+    def _format_stage_score_summary(stage_scores: Dict[Stage, int]) -> str:
+        return ", ".join(f"{stage.value}:{stage_scores.get(stage, 0)}" for stage in Stage)
+
+    @staticmethod
+    def _reason_for(stage: Stage) -> Tuple[str, str]:
+        reasons = {
+            Stage.OPERATOR: (
+                "Decision-intent language dominates; the immediate need is commitment and explicit tradeoffs.",
+                "Switch when the decision, tradeoff, and fallback trigger are explicit.",
+            ),
+            Stage.EPISTEMIC: (
+                "Uncertainty/evidence language dominates; the current risk is claims outrunning support.",
+                "Switch when supported vs unsupported claims are separated and the next decision becomes clear.",
+            ),
+            Stage.SYNTHESIS: (
+                "Structural-compression signals dominate; the work needs an organizing spine before action.",
+                "Switch when a dominant frame emerges that can guide exclusion or action.",
+            ),
+            Stage.EXPLORATION: (
+                "The bottleneck indicates missing possibility space more than proof or commitment.",
+                "Switch when 2-5 distinct frames exist and one begins to dominate.",
+            ),
+            Stage.BUILDER: (
+                "The pattern should be turned into durable structure.",
+                "Switch when modules, recurrence, and implementation order are clear.",
+            ),
+            Stage.ADVERSARIAL: (
+                "The bottleneck is hidden fragility, not idea generation.",
+                "Switch when the top destabilizer is identified and revisions are clear.",
+            ),
+        }
+        return reasons[stage]
+
+    def should_use_analyzer(self, confidence: RegimeConfidenceResult, score_gap_threshold: int = 1) -> bool:
+        if confidence.level == Severity.HIGH.value:
+            return False
+        if confidence.level == Severity.MEDIUM.value:
+            return confidence.score_gap <= score_gap_threshold
+        return True
 
     def route(
         self,
@@ -929,6 +983,11 @@ class Router:
         task_signals: Optional[List[str]] = None,
         risk_profile: Optional[Set[str]] = None,
         routing_features: Optional[RoutingFeatures] = None,
+        deterministic_stage_scores: Optional[Dict[Stage, int]] = None,
+        deterministic_confidence: Optional[RegimeConfidenceResult] = None,
+        analyzer_result: Optional[TaskAnalyzerOutput] = None,
+        analyzer_enabled: bool = False,
+        analyzer_gap_threshold: int = 1,
     ) -> RoutingDecision:
         b = bottleneck.lower().strip()
         features = routing_features or extract_routing_features(bottleneck)
@@ -948,6 +1007,8 @@ class Router:
                 confidence=RegimeConfidenceCalculator.high_shortcut_rationale(
                     "Explicit interpretation-first shortcut with deterministic routing precedence."
                 ),
+                deterministic_stage_scores={Stage.SYNTHESIS: 10, Stage.ADVERSARIAL: 3},
+                deterministic_score_summary="shortcut: interpretation-first precedence",
             )
 
         if any(k in b for k in ["stress test this frame", "stress test", "break it", "too clean", "fragile", "launch"]):
@@ -960,6 +1021,8 @@ class Router:
                 confidence=RegimeConfidenceCalculator.high_shortcut_rationale(
                     "Explicit stress-test/failure language makes the adversarial bottleneck clear."
                 ),
+                deterministic_stage_scores={Stage.ADVERSARIAL: 10, Stage.EPISTEMIC: 3},
+                deterministic_score_summary="shortcut: stress-test precedence",
             )
 
         if any(k in b for k in ["repeatable", "template", "playbook", "system", "productize", "reusable"]):
@@ -972,6 +1035,8 @@ class Router:
                 confidence=RegimeConfidenceCalculator.high_shortcut_rationale(
                     "Explicit repeatability/productization language deterministically points to builder mode."
                 ),
+                deterministic_stage_scores={Stage.BUILDER: 10, Stage.OPERATOR: 3},
+                deterministic_score_summary="shortcut: repeatability precedence",
             )
 
         stage_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
@@ -1102,19 +1167,15 @@ class Router:
             stage_scores[Stage.EXPLORATION] += 2
             lexical_scores[Stage.EXPLORATION] += 2
 
-        precedence_order = [
-            Stage.OPERATOR,
-            Stage.EPISTEMIC,
-            Stage.ADVERSARIAL,
-            Stage.SYNTHESIS,
-            Stage.BUILDER,
-            Stage.EXPLORATION,
-        ]
-        ranked = sorted(stage_scores.items(), key=lambda x: (-x[1], precedence_order.index(x[0])))
+        if deterministic_stage_scores:
+            for stage in Stage:
+                stage_scores[stage] = int(deterministic_stage_scores.get(stage, stage_scores[stage]))
+
+        ranked = sorted(stage_scores.items(), key=lambda x: (-x[1], self.precedence_order.index(x[0])))
         top_stage, top_score = ranked[0]
 
         if top_score <= 0:
-            return RoutingDecision(
+            decision = RoutingDecision(
                 bottleneck=bottleneck,
                 primary_regime=Stage.EXPLORATION,
                 runner_up_regime=Stage.SYNTHESIS,
@@ -1130,53 +1191,104 @@ class Router:
                     weak_lexical_dependence=True,
                     structural_feature_state="sparse",
                 ),
+                deterministic_stage_scores=stage_scores,
+                deterministic_score_summary=self._format_stage_score_summary(stage_scores),
+            )
+            if not (analyzer_enabled and analyzer_result and self.should_use_analyzer(decision.confidence, score_gap_threshold=analyzer_gap_threshold)):
+                return decision
+            if analyzer_result.confidence < 0.6:
+                return RoutingDecision(**{**asdict(decision), "analyzer_used": True})
+            analyzer_ranked = sorted(
+                analyzer_result.stage_scores.items(),
+                key=lambda x: (-x[1], self.precedence_order.index(x[0])),
+            )
+            analyzer_primary = analyzer_ranked[0][0] if analyzer_ranked else decision.primary_regime
+            candidate_set = set(analyzer_result.candidate_regimes or [])
+            if candidate_set and analyzer_primary not in candidate_set:
+                analyzer_primary = decision.primary_regime
+            new_primary = analyzer_primary if analyzer_primary != Stage.EXPLORATION else decision.primary_regime
+            new_runner = next((stage for stage, _ in analyzer_ranked if stage != new_primary), decision.runner_up_regime)
+            why, switch = self._reason_for(new_primary)
+            return RoutingDecision(
+                bottleneck=bottleneck,
+                primary_regime=new_primary,
+                runner_up_regime=new_runner,
+                why_primary_wins_now=why,
+                switch_trigger=switch,
+                confidence=decision.confidence,
+                deterministic_stage_scores=stage_scores,
+                deterministic_score_summary=self._format_stage_score_summary(stage_scores),
+                analyzer_used=True,
+                analyzer_changed_primary=new_primary != decision.primary_regime,
+                analyzer_changed_runner_up=new_runner != decision.runner_up_regime,
             )
 
         runner_up = next((stage for stage, score in ranked[1:] if score > 0), Stage.EXPLORATION if top_stage != Stage.EXPLORATION else Stage.SYNTHESIS)
         runner_up_score = next((score for stage, score in ranked[1:] if stage == runner_up), 0)
-
-        reasons = {
-            Stage.OPERATOR: (
-                "Decision-intent language dominates; the immediate need is commitment and explicit tradeoffs.",
-                "Switch when the decision, tradeoff, and fallback trigger are explicit.",
-            ),
-            Stage.EPISTEMIC: (
-                "Uncertainty/evidence language dominates; the current risk is claims outrunning support.",
-                "Switch when supported vs unsupported claims are separated and the next decision becomes clear.",
-            ),
-            Stage.SYNTHESIS: (
-                "Structural-compression signals dominate; the work needs an organizing spine before action.",
-                "Switch when a dominant frame emerges that can guide exclusion or action.",
-            ),
-            Stage.EXPLORATION: (
-                "The bottleneck indicates missing possibility space more than proof or commitment.",
-                "Switch when 2-5 distinct frames exist and one begins to dominate.",
-            ),
-            Stage.BUILDER: (
-                "The pattern should be turned into durable structure.",
-                "Switch when modules, recurrence, and implementation order are clear.",
-            ),
-            Stage.ADVERSARIAL: (
-                "The bottleneck is hidden fragility, not idea generation.",
-                "Switch when the top destabilizer is identified and revisions are clear.",
-            ),
-        }
-        why_primary_wins_now, switch_trigger = reasons[top_stage]
-        confidence = self.confidence_calculator.calculate(
+        why_primary_wins_now, switch_trigger = self._reason_for(top_stage)
+        confidence = deterministic_confidence or self.confidence_calculator.calculate(
             top_stage_score=top_score,
             runner_up_score=runner_up_score,
             lexical_scores=lexical_scores,
             structural_scores=structural_scores,
             features=features,
         )
-
-        return RoutingDecision(
+        decision = RoutingDecision(
             bottleneck=bottleneck,
             primary_regime=top_stage,
             runner_up_regime=runner_up,
             why_primary_wins_now=why_primary_wins_now,
             switch_trigger=switch_trigger,
             confidence=confidence,
+            deterministic_stage_scores=stage_scores,
+            deterministic_score_summary=self._format_stage_score_summary(stage_scores),
+        )
+        if not (analyzer_enabled and analyzer_result):
+            return decision
+        if not self.should_use_analyzer(confidence, score_gap_threshold=analyzer_gap_threshold):
+            return decision
+        if analyzer_result.confidence < 0.6:
+            return RoutingDecision(**{**asdict(decision), "analyzer_used": True})
+
+        analyzer_ranked = sorted(
+            analyzer_result.stage_scores.items(),
+            key=lambda x: (-x[1], self.precedence_order.index(x[0])),
+        )
+        analyzer_primary = analyzer_ranked[0][0] if analyzer_ranked else decision.primary_regime
+        candidate_set = set(analyzer_result.candidate_regimes or [])
+        if candidate_set and analyzer_primary not in candidate_set:
+            analyzer_primary = decision.primary_regime
+
+        allowed_primary_candidates = {decision.primary_regime, decision.runner_up_regime}
+        should_shift_primary = (
+            confidence.level == Severity.LOW.value
+            and confidence.score_gap <= analyzer_gap_threshold
+            and analyzer_primary in allowed_primary_candidates
+            and analyzer_primary != decision.primary_regime
+        )
+        new_primary = analyzer_primary if should_shift_primary else decision.primary_regime
+        default_runner = decision.runner_up_regime or (
+            Stage.EXPLORATION if new_primary != Stage.EXPLORATION else Stage.SYNTHESIS
+        )
+        analyzer_runner = next((stage for stage, _ in analyzer_ranked if stage != new_primary), default_runner)
+        if candidate_set and analyzer_runner not in candidate_set and default_runner:
+            analyzer_runner = default_runner
+        new_runner = analyzer_runner if analyzer_runner else default_runner
+        if new_runner == new_primary:
+            new_runner = default_runner
+        why, switch = self._reason_for(new_primary)
+        return RoutingDecision(
+            bottleneck=bottleneck,
+            primary_regime=new_primary,
+            runner_up_regime=new_runner,
+            why_primary_wins_now=why,
+            switch_trigger=switch,
+            confidence=confidence,
+            deterministic_stage_scores=stage_scores,
+            deterministic_score_summary=self._format_stage_score_summary(stage_scores),
+            analyzer_used=True,
+            analyzer_changed_primary=new_primary != decision.primary_regime,
+            analyzer_changed_runner_up=new_runner != decision.runner_up_regime,
         )
 # ============================================================
 # Composer
@@ -2257,17 +2369,36 @@ class CognitiveRuntime:
         features = extract_routing_features(bottleneck)
         signals = task_signals if task_signals is not None else features.structural_signals
         risks = set(risk_profile or set()) if risks_inferred else infer_risk_profile(bottleneck, risk_profile)
-        decision = self.router.route(bottleneck, task_signals=signals, risk_profile=risks, routing_features=features)
-
-        if self.use_task_analyzer and self.task_analyzer and self._should_invoke_task_analyzer(features):
+        deterministic_decision = self.router.route(
+            bottleneck,
+            task_signals=signals,
+            risk_profile=risks,
+            routing_features=features,
+        )
+        analysis: Optional[TaskAnalyzerOutput] = None
+        if (
+            self.use_task_analyzer
+            and self.task_analyzer
+            and self.router.should_use_analyzer(deterministic_decision.confidence, score_gap_threshold=1)
+        ):
             analysis = self.task_analyzer.analyze(
                 bottleneck,
                 routing_features=features,
                 task_signals=signals,
                 risk_profile=risks,
             )
-            if analysis is not None:
-                decision = self._fuse_task_analyzer(decision, bottleneck, signals, risks, features, analysis)
+
+        decision = self.router.route(
+            bottleneck,
+            task_signals=signals,
+            risk_profile=risks,
+            routing_features=features,
+            deterministic_stage_scores=deterministic_decision.deterministic_stage_scores,
+            deterministic_confidence=deterministic_decision.confidence,
+            analyzer_enabled=self.use_task_analyzer,
+            analyzer_result=analysis,
+            analyzer_gap_threshold=1,
+        )
 
         regime = self.composer.compose(decision.primary_regime, risk_profile=risks, handoff_expected=handoff_expected)
         handoff = Handoff(
@@ -2288,45 +2419,6 @@ class CognitiveRuntime:
             minimum_useful_artifact="A typed artifact from the current regime plus a switch trigger.",
         )
         return decision, regime, handoff
-
-    @staticmethod
-    def _should_invoke_task_analyzer(features: RoutingFeatures) -> bool:
-        max_signal = max(
-            features.decision_pressure,
-            features.evidence_demand,
-            features.fragility_pressure,
-            features.recurrence_potential,
-            features.possibility_space_need,
-        )
-        return max_signal <= 2 and len(features.structural_signals) <= 1
-
-    def _fuse_task_analyzer(
-        self,
-        original: RoutingDecision,
-        bottleneck: str,
-        signals: List[str],
-        risks: Set[str],
-        features: RoutingFeatures,
-        analysis: TaskAnalyzerOutput,
-    ) -> RoutingDecision:
-        fused_signals = sorted(set(signals) | set(analysis.structural_signals))
-        fused_risks = set(risks)
-        if analysis.evidence_quality <= 3:
-            fused_risks.add("evidence_gap")
-        if analysis.decision_pressure >= 7:
-            fused_risks.add("decision_urgency")
-        if analysis.recurrence_potential >= 7:
-            fused_risks.add("recurrence_systemization")
-
-        fused = self.router.route(
-            bottleneck,
-            task_signals=fused_signals,
-            risk_profile=fused_risks,
-            routing_features=features,
-        )
-        if analysis.confidence >= 0.65 and fused.primary_regime in analysis.candidate_regimes:
-            return fused
-        return original
 
     def execute(self, task: str, model: str, risk_profile: Optional[Set[str]] = None, handoff_expected: bool = True) -> Tuple[RoutingDecision, Regime, RegimeExecutionResult, Handoff]:
         task_signals = extract_structural_signals(task)
@@ -2466,6 +2558,11 @@ def print_routing(decision: RoutingDecision) -> None:
         f"(top={decision.confidence.top_stage_score}, runner-up={decision.confidence.runner_up_score}, gap={decision.confidence.score_gap})"
     )
     print(f"- Confidence rationale: {decision.confidence.rationale}")
+    print(f"- Deterministic scores: {decision.deterministic_score_summary or 'n/a'}")
+    print(
+        f"- Analyzer used: {decision.analyzer_used} "
+        f"(changed primary={decision.analyzer_changed_primary}, changed runner-up={decision.analyzer_changed_runner_up})"
+    )
     print(f"- Why primary wins now: {decision.why_primary_wins_now}")
     print(f"- Switch trigger: {decision.switch_trigger}")
     print()
