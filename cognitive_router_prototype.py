@@ -933,6 +933,19 @@ class RegimeConfidenceCalculator:
             or (features.fragility_pressure >= 2 and features.possibility_space_need >= 2)
         )
         structural_state = "conflicting" if structural_conflicting else ("sparse" if structural_sparse else "coherent")
+        pure_open_space_signal = (
+            features.possibility_space_need >= 1
+            and features.decision_pressure == 0
+            and features.evidence_demand == 0
+            and features.fragility_pressure == 0
+        )
+        clean_single_regime_lexical = (
+            pure_open_space_signal
+            and nontrivial_stage_count == 1
+            and top_stage_score >= 5
+            and score_gap >= 4
+            and runner_up_score <= 1
+        )
 
         if (
             top_stage_score >= 8
@@ -952,14 +965,34 @@ class RegimeConfidenceCalculator:
                 structural_feature_state=structural_state,
             )
 
+        if clean_single_regime_lexical and not structural_conflicting:
+            return RegimeConfidenceResult(
+                level=Severity.HIGH.value,
+                rationale=(
+                    "Single-regime intent is explicit and dominant; sparse structure is acceptable here because "
+                    "there are no competing stage pressures."
+                ),
+                top_stage_score=top_stage_score,
+                runner_up_score=runner_up_score,
+                score_gap=score_gap,
+                nontrivial_stage_count=nontrivial_stage_count,
+                weak_lexical_dependence=weak_lexical_dependence,
+                structural_feature_state=structural_state,
+            )
+
         if (
             top_stage_score >= 4
             and score_gap >= 1
             and not structural_conflicting
         ):
+            medium_rationale = "Two plausible regimes are relatively close; sequencing is likely."
+            if score_gap >= 3 and nontrivial_stage_count <= 2:
+                medium_rationale = (
+                    "Primary regime leads, but structural support is limited or secondary signals remain plausible."
+                )
             return RegimeConfidenceResult(
                 level=Severity.MEDIUM.value,
-                rationale="Two plausible regimes are relatively close; sequencing is likely.",
+                rationale=medium_rationale,
                 top_stage_score=top_stage_score,
                 runner_up_score=runner_up_score,
                 score_gap=score_gap,
