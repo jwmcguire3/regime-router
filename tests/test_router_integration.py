@@ -118,6 +118,37 @@ def test_routing_stress_test_routes_adversarial():
     assert decision.primary_regime == Stage.ADVERSARIAL
 
 
+def test_routing_choose_between_options_routes_operator_not_exploration():
+    decision = Router().route("Choose between these two close options and justify the decision.")
+    assert decision.primary_regime == Stage.OPERATOR
+
+
+def test_routing_unknown_or_unclear_routes_epistemic_not_exploration():
+    decision = Router().route("What remains unknown or unclear here?")
+    assert decision.primary_regime == Stage.EPISTEMIC
+
+
+def test_routing_parts_whole_spine_gap_routes_synthesis_not_exploration():
+    decision = Router().route("The parts are legible, but the whole organizing logic is missing.")
+    assert decision.primary_regime == Stage.SYNTHESIS
+
+
+def test_routing_options_plus_decision_prefers_operator():
+    decision = Router().route("We have multiple options, but we need a decision and next move now.")
+    assert decision.primary_regime == Stage.OPERATOR
+
+
+def test_routing_structural_signals_can_drive_synthesis_precedence():
+    task = (
+        "We can describe concrete versions and fragments, but no center is holding."
+        " A single frame compresses too early."
+    )
+    signals = extract_structural_signals(task)
+    risks = infer_risk_profile(task, set())
+    decision = Router().route(task, task_signals=signals, risk_profile=risks)
+    assert decision.primary_regime == Stage.SYNTHESIS
+
+
 def test_structural_signals_and_risk_profile_plumbed_into_prompts_and_synthesis_suppressions(synthesis_ok_json):
     runtime = CognitiveRuntime()
     fake = FakeOllama([synthesis_ok_json])

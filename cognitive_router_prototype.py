@@ -687,8 +687,15 @@ ARTIFACT_FIELDS: Dict[Stage, List[str]] = {
 # ============================================================
 
 class Router:
-    def route(self, bottleneck: str) -> RoutingDecision:
+    def route(
+        self,
+        bottleneck: str,
+        task_signals: Optional[List[str]] = None,
+        risk_profile: Optional[Set[str]] = None,
+    ) -> RoutingDecision:
         b = bottleneck.lower().strip()
+        signals = set(task_signals or [])
+        risks = set(risk_profile or set())
 
         if any(k in b for k in ["strongest interpretation", "strongest frame", "what this actually is"]):
             return RoutingDecision(
@@ -699,31 +706,7 @@ class Router:
                 switch_trigger="Switch when the strongest frame is identified and the next bottleneck becomes exposing how it fails under stress.",
             )
 
-        if any(k in b for k in ["unknown", "unclear", "possibility", "options", "brainstorm"]):
-            return RoutingDecision(
-                bottleneck=bottleneck,
-                primary_regime=Stage.EXPLORATION,
-                runner_up_regime=Stage.SYNTHESIS,
-                why_primary_wins_now="The bottleneck is missing possibility space, not missing rigor or action.",
-                switch_trigger="Switch when 2-5 distinct frames exist and one begins to dominate.",
-            )
-        if any(k in b for k in ["many signals", "no center", "sprawling", "what this really is", "hidden spine"]):
-            return RoutingDecision(
-                bottleneck=bottleneck,
-                primary_regime=Stage.SYNTHESIS,
-                runner_up_regime=Stage.OPERATOR,
-                why_primary_wins_now="There is enough signal to compress, but not enough commitment for an action decision yet.",
-                switch_trigger="Switch when a dominant frame emerges that can guide exclusion or action.",
-            )
-        if any(k in b for k in ["support", "verify", "evidence", "are you sure", "rigor"]):
-            return RoutingDecision(
-                bottleneck=bottleneck,
-                primary_regime=Stage.EPISTEMIC,
-                runner_up_regime=Stage.ADVERSARIAL,
-                why_primary_wins_now="The current risk is claims outrunning support.",
-                switch_trigger="Switch when supported vs unsupported claims are separated and the next decision becomes clear.",
-            )
-        if any(k in b for k in ["too clean", "fragile", "launch", "stress test", "break it"]):
+        if any(k in b for k in ["stress test this frame", "stress test", "break it", "too clean", "fragile", "launch"]):
             return RoutingDecision(
                 bottleneck=bottleneck,
                 primary_regime=Stage.ADVERSARIAL,
@@ -731,14 +714,7 @@ class Router:
                 why_primary_wins_now="The bottleneck is hidden fragility, not idea generation.",
                 switch_trigger="Switch when the top destabilizer is identified and revisions are clear.",
             )
-        if any(k in b for k in ["decide", "decision", "choose now", "time pressure", "next move"]):
-            return RoutingDecision(
-                bottleneck=bottleneck,
-                primary_regime=Stage.OPERATOR,
-                runner_up_regime=Stage.ADVERSARIAL,
-                why_primary_wins_now="The user needs a move, not another model of the space.",
-                switch_trigger="Switch when the decision, tradeoff, and fallback trigger are explicit.",
-            )
+
         if any(k in b for k in ["repeatable", "template", "playbook", "system", "productize", "reusable"]):
             return RoutingDecision(
                 bottleneck=bottleneck,
@@ -748,12 +724,152 @@ class Router:
                 switch_trigger="Switch when modules, recurrence, and implementation order are clear.",
             )
 
+        stage_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
+
+        def add_phrase_weights(stage: Stage, weighted_terms: Dict[str, int]) -> None:
+            for phrase, weight in weighted_terms.items():
+                if phrase in b:
+                    stage_scores[stage] += weight
+
+        add_phrase_weights(
+            Stage.OPERATOR,
+            {
+                "decide": 4,
+                "decision": 4,
+                "choose": 4,
+                "commit": 3,
+                "next move": 4,
+                "tradeoff": 4,
+                "select between options": 5,
+                "choose between": 5,
+                "time pressure": 3,
+            },
+        )
+        add_phrase_weights(
+            Stage.EPISTEMIC,
+            {
+                "unknown": 4,
+                "unclear": 4,
+                "unresolved": 4,
+                "what is missing": 5,
+                "what do we not know": 5,
+                "support": 3,
+                "evidence": 4,
+                "verify": 4,
+                "rigor": 3,
+                "are you sure": 4,
+            },
+        )
+        add_phrase_weights(
+            Stage.SYNTHESIS,
+            {
+                "many signals": 4,
+                "no center": 4,
+                "parts are legible": 5,
+                "whole organizing logic is missing": 6,
+                "fragments but no spine": 6,
+                "fragments are understood": 5,
+                "spine is still missing": 6,
+                "hidden spine": 4,
+                "what this really is": 4,
+            },
+        )
+        add_phrase_weights(
+            Stage.EXPLORATION,
+            {
+                "possibility": 3,
+                "brainstorm": 4,
+                "explore": 2,
+                "alternatives": 3,
+                "option space": 3,
+                "open possibilities": 4,
+            },
+        )
+
+        # "options" alone is intentionally weak to avoid swallowing decision tasks.
+        if "options" in b:
+            stage_scores[Stage.EXPLORATION] += 1
+
+        if any(
+            phrase in b
+            for phrase in [
+                "parts are legible",
+                "whole organizing logic is missing",
+                "fragments but no spine",
+                "fragments are understood",
+                "spine is still missing",
+                "many signals but no center",
+            ]
+        ):
+            stage_scores[Stage.SYNTHESIS] += 4
+
+        if STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED in signals:
+            stage_scores[Stage.SYNTHESIS] += 5
+        if STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL in signals:
+            stage_scores[Stage.SYNTHESIS] += 2
+        if STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED in signals:
+            stage_scores[Stage.SYNTHESIS] += 2
+        if "abstract_structural_task" in risks:
+            stage_scores[Stage.SYNTHESIS] += 2
+        if "false_unification" in risks:
+            stage_scores[Stage.SYNTHESIS] += 2
+
+        precedence_order = [
+            Stage.OPERATOR,
+            Stage.EPISTEMIC,
+            Stage.ADVERSARIAL,
+            Stage.SYNTHESIS,
+            Stage.BUILDER,
+            Stage.EXPLORATION,
+        ]
+        ranked = sorted(stage_scores.items(), key=lambda x: (-x[1], precedence_order.index(x[0])))
+        top_stage, top_score = ranked[0]
+
+        if top_score <= 0:
+            return RoutingDecision(
+                bottleneck=bottleneck,
+                primary_regime=Stage.EXPLORATION,
+                runner_up_regime=Stage.SYNTHESIS,
+                why_primary_wins_now="No specific regime has enough signal; exploration is the safest fallback.",
+                switch_trigger="Switch when one frame becomes more decision-relevant than the others.",
+            )
+
+        runner_up = next((stage for stage, score in ranked[1:] if score > 0), Stage.EXPLORATION if top_stage != Stage.EXPLORATION else Stage.SYNTHESIS)
+
+        reasons = {
+            Stage.OPERATOR: (
+                "Decision-intent language dominates; the immediate need is commitment and explicit tradeoffs.",
+                "Switch when the decision, tradeoff, and fallback trigger are explicit.",
+            ),
+            Stage.EPISTEMIC: (
+                "Uncertainty/evidence language dominates; the current risk is claims outrunning support.",
+                "Switch when supported vs unsupported claims are separated and the next decision becomes clear.",
+            ),
+            Stage.SYNTHESIS: (
+                "Structural-compression signals dominate; the work needs an organizing spine before action.",
+                "Switch when a dominant frame emerges that can guide exclusion or action.",
+            ),
+            Stage.EXPLORATION: (
+                "The bottleneck indicates missing possibility space more than proof or commitment.",
+                "Switch when 2-5 distinct frames exist and one begins to dominate.",
+            ),
+            Stage.BUILDER: (
+                "The pattern should be turned into durable structure.",
+                "Switch when modules, recurrence, and implementation order are clear.",
+            ),
+            Stage.ADVERSARIAL: (
+                "The bottleneck is hidden fragility, not idea generation.",
+                "Switch when the top destabilizer is identified and revisions are clear.",
+            ),
+        }
+        why_primary_wins_now, switch_trigger = reasons[top_stage]
+
         return RoutingDecision(
             bottleneck=bottleneck,
-            primary_regime=Stage.EXPLORATION,
-            runner_up_regime=Stage.SYNTHESIS,
-            why_primary_wins_now="The bottleneck is ambiguous, so expanding the space is the safest first move.",
-            switch_trigger="Switch when one frame becomes more decision-relevant than the others.",
+            primary_regime=top_stage,
+            runner_up_regime=runner_up,
+            why_primary_wins_now=why_primary_wins_now,
+            switch_trigger=switch_trigger,
         )
 # ============================================================
 # Composer
@@ -1666,7 +1782,7 @@ class CognitiveRuntime:
     ) -> Tuple[RoutingDecision, Regime, Handoff]:
         signals = task_signals if task_signals is not None else extract_structural_signals(bottleneck)
         risks = set(risk_profile or set()) if risks_inferred else infer_risk_profile(bottleneck, risk_profile)
-        decision = self.router.route(bottleneck)
+        decision = self.router.route(bottleneck, task_signals=signals, risk_profile=risks)
         regime = self.composer.compose(decision.primary_regime, risk_profile=risks, handoff_expected=handoff_expected)
         handoff = Handoff(
             current_bottleneck=bottleneck,
