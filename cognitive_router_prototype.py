@@ -245,6 +245,7 @@ class RoutingDecision:
     confidence: "RegimeConfidenceResult" = field(default_factory=lambda: RegimeConfidenceResult.low_default())
     deterministic_stage_scores: Dict[Stage, int] = field(default_factory=dict)
     deterministic_score_summary: str = ""
+    deterministic_score_contributions: Dict[Stage, List[str]] = field(default_factory=dict)
     analyzer_enabled: bool = False
     analyzer_used: bool = False
     analyzer_changed_primary: bool = False
@@ -943,6 +944,15 @@ class Router:
         return ", ".join(f"{stage.value}:{stage_scores.get(stage, 0)}" for stage in Stage)
 
     @staticmethod
+    def _format_stage_contributions(contributions: Dict[Stage, List[str]]) -> str:
+        parts: List[str] = []
+        for stage in Stage:
+            items = contributions.get(stage, [])
+            if items:
+                parts.append(f"{stage.value}=>[{'; '.join(items)}]")
+        return " | ".join(parts) if parts else "none"
+
+    @staticmethod
     def _reason_for(stage: Stage) -> Tuple[str, str]:
         reasons = {
             Stage.OPERATOR: (
@@ -1011,6 +1021,7 @@ class Router:
                 ),
                 deterministic_stage_scores={Stage.SYNTHESIS: 10, Stage.ADVERSARIAL: 3},
                 deterministic_score_summary="shortcut: interpretation-first precedence",
+                deterministic_score_contributions={Stage.SYNTHESIS: ["shortcut:interpretation_first"], Stage.ADVERSARIAL: ["shortcut:stress_test_followup"]},
                 analyzer_enabled=analyzer_enabled,
             )
 
@@ -1026,6 +1037,7 @@ class Router:
                 ),
                 deterministic_stage_scores={Stage.ADVERSARIAL: 10, Stage.EPISTEMIC: 3},
                 deterministic_score_summary="shortcut: stress-test precedence",
+                deterministic_score_contributions={Stage.ADVERSARIAL: ["shortcut:stress_test_precedence"], Stage.EPISTEMIC: ["shortcut:evidence_followup"]},
                 analyzer_enabled=analyzer_enabled,
             )
 
@@ -1041,18 +1053,29 @@ class Router:
                 ),
                 deterministic_stage_scores={Stage.BUILDER: 10, Stage.OPERATOR: 3},
                 deterministic_score_summary="shortcut: repeatability precedence",
+                deterministic_score_contributions={Stage.BUILDER: ["shortcut:repeatability_precedence"], Stage.OPERATOR: ["shortcut:execution_followup"]},
                 analyzer_enabled=analyzer_enabled,
             )
 
         stage_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
         lexical_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
         structural_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
+        stage_contributions: Dict[Stage, List[str]] = {stage: [] for stage in Stage}
+
+        def add_score(stage: Stage, amount: int, bucket: str, reason: str) -> None:
+            if amount <= 0:
+                return
+            stage_scores[stage] += amount
+            if bucket == "lexical":
+                lexical_scores[stage] += amount
+            else:
+                structural_scores[stage] += amount
+            stage_contributions[stage].append(f"+{amount} {bucket}:{reason}")
 
         def add_phrase_weights(stage: Stage, weighted_terms: Dict[str, int]) -> None:
             for phrase, weight in weighted_terms.items():
                 if phrase in b:
-                    stage_scores[stage] += weight
-                    lexical_scores[stage] += weight
+                    add_score(stage, weight, "lexical", f"phrase='{phrase}'")
 
         add_phrase_weights(
             Stage.OPERATOR,
@@ -1101,11 +1124,9 @@ class Router:
             },
         )
         if any(k in b for k in interpretation_shortcut_markers):
-            stage_scores[Stage.SYNTHESIS] += 4
-            lexical_scores[Stage.SYNTHESIS] += 4
+            add_score(Stage.SYNTHESIS, 4, "lexical", "interpretation_shortcut_marker")
             if any(k in b for k in epistemic_markers):
-                stage_scores[Stage.EPISTEMIC] += 2
-                lexical_scores[Stage.EPISTEMIC] += 2
+                add_score(Stage.EPISTEMIC, 2, "lexical", "epistemic_marker_with_interpretation_shortcut")
 
         add_phrase_weights(
             Stage.EXPLORATION,
@@ -1121,8 +1142,7 @@ class Router:
 
         # "options" alone is intentionally weak to avoid swallowing decision tasks.
         if "options" in b:
-            stage_scores[Stage.EXPLORATION] += 1
-            lexical_scores[Stage.EXPLORATION] += 1
+            add_score(Stage.EXPLORATION, 1, "lexical", "weak_options_token")
 
         if any(
             phrase in b
@@ -1135,46 +1155,72 @@ class Router:
                 "many signals but no center",
             ]
         ):
-            stage_scores[Stage.SYNTHESIS] += 4
-            lexical_scores[Stage.SYNTHESIS] += 4
+            add_score(Stage.SYNTHESIS, 4, "lexical", "parts_whole_mismatch_phrase_cluster")
 
         if STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED in signals:
-            stage_scores[Stage.SYNTHESIS] += 5
-            structural_scores[Stage.SYNTHESIS] += 5
+            add_score(Stage.SYNTHESIS, 5, "structural", STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED)
         if STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL in signals:
-            stage_scores[Stage.SYNTHESIS] += 2
-            structural_scores[Stage.SYNTHESIS] += 2
+            add_score(Stage.SYNTHESIS, 2, "structural", STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL)
         if STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED in signals:
-            stage_scores[Stage.SYNTHESIS] += 2
-            structural_scores[Stage.SYNTHESIS] += 2
+            add_score(Stage.SYNTHESIS, 2, "structural", STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED)
         if "parts_whole_mismatch" in features.detected_markers:
-            stage_scores[Stage.SYNTHESIS] += 3
-            structural_scores[Stage.SYNTHESIS] += 3
+            add_score(Stage.SYNTHESIS, 3, "structural", "detected_marker:parts_whole_mismatch")
         if "abstract_structural_task" in risks:
-            stage_scores[Stage.SYNTHESIS] += 2
-            structural_scores[Stage.SYNTHESIS] += 2
+            add_score(Stage.SYNTHESIS, 2, "structural", "risk:abstract_structural_task")
         if "false_unification" in risks:
-            stage_scores[Stage.SYNTHESIS] += 2
-            structural_scores[Stage.SYNTHESIS] += 2
-        if features.evidence_demand >= 2:
-            stage_scores[Stage.EPISTEMIC] += 3
-            lexical_scores[Stage.EPISTEMIC] += 3
-        if features.decision_pressure >= 2:
-            stage_scores[Stage.OPERATOR] += 3
-            lexical_scores[Stage.OPERATOR] += 3
-        if features.fragility_pressure >= 2:
-            stage_scores[Stage.ADVERSARIAL] += 3
-            lexical_scores[Stage.ADVERSARIAL] += 3
-        if features.recurrence_potential >= 2:
-            stage_scores[Stage.BUILDER] += 3
-            lexical_scores[Stage.BUILDER] += 3
-        if features.possibility_space_need >= 2:
-            stage_scores[Stage.EXPLORATION] += 2
-            lexical_scores[Stage.EXPLORATION] += 2
+            add_score(Stage.SYNTHESIS, 2, "structural", "risk:false_unification")
+
+        if features.evidence_demand > 0:
+            add_score(
+                Stage.EPISTEMIC,
+                2 + min(3, features.evidence_demand // 2),
+                "structural",
+                f"feature:evidence_demand={features.evidence_demand}",
+            )
+            if "uncertainty_evidence_demand" in features.detected_markers:
+                add_score(Stage.EXPLORATION, 1, "structural", "feature_support:uncertainty_can_require_exploration")
+        if features.decision_pressure > 0:
+            add_score(
+                Stage.OPERATOR,
+                2 + min(3, features.decision_pressure // 2),
+                "structural",
+                f"feature:decision_pressure={features.decision_pressure}",
+            )
+        if features.fragility_pressure > 0:
+            add_score(
+                Stage.ADVERSARIAL,
+                1 + min(3, features.fragility_pressure // 2),
+                "structural",
+                f"feature:fragility_pressure={features.fragility_pressure}",
+            )
+        if features.recurrence_potential > 0:
+            add_score(
+                Stage.BUILDER,
+                1 + min(3, features.recurrence_potential // 2),
+                "structural",
+                f"feature:recurrence_potential={features.recurrence_potential}",
+            )
+            add_score(
+                Stage.SYNTHESIS,
+                1 + min(2, features.recurrence_potential // 4),
+                "structural",
+                "feature_support:pattern_or_systemization",
+            )
+        if features.possibility_space_need > 0:
+            add_score(
+                Stage.EXPLORATION,
+                1 + min(3, features.possibility_space_need // 2),
+                "structural",
+                f"feature:possibility_space_need={features.possibility_space_need}",
+            )
 
         if deterministic_stage_scores:
             for stage in Stage:
-                stage_scores[stage] = int(deterministic_stage_scores.get(stage, stage_scores[stage]))
+                if stage in deterministic_stage_scores:
+                    override_value = int(deterministic_stage_scores[stage])
+                    if override_value != stage_scores[stage]:
+                        stage_contributions[stage].append(f"override:external_deterministic_score={override_value}")
+                    stage_scores[stage] = override_value
 
         ranked = sorted(stage_scores.items(), key=lambda x: (-x[1], self.precedence_order.index(x[0])))
         top_stage, top_score = ranked[0]
@@ -1198,6 +1244,7 @@ class Router:
                 ),
                 deterministic_stage_scores=stage_scores,
                 deterministic_score_summary=self._format_stage_score_summary(stage_scores),
+                deterministic_score_contributions=stage_contributions,
                 analyzer_enabled=analyzer_enabled,
             )
             if not (analyzer_enabled and analyzer_result and self.should_use_analyzer(decision.confidence, score_gap_threshold=analyzer_gap_threshold)):
@@ -1230,6 +1277,7 @@ class Router:
                 confidence=decision.confidence,
                 deterministic_stage_scores=stage_scores,
                 deterministic_score_summary=self._format_stage_score_summary(stage_scores),
+                deterministic_score_contributions=stage_contributions,
                 analyzer_enabled=analyzer_enabled,
                 analyzer_used=True,
                 analyzer_changed_primary=new_primary != decision.primary_regime,
@@ -1259,6 +1307,7 @@ class Router:
             confidence=confidence,
             deterministic_stage_scores=stage_scores,
             deterministic_score_summary=self._format_stage_score_summary(stage_scores),
+            deterministic_score_contributions=stage_contributions,
             analyzer_enabled=analyzer_enabled,
         )
         if not (analyzer_enabled and analyzer_result):
@@ -1310,6 +1359,7 @@ class Router:
             confidence=confidence,
             deterministic_stage_scores=stage_scores,
             deterministic_score_summary=self._format_stage_score_summary(stage_scores),
+            deterministic_score_contributions=stage_contributions,
             analyzer_enabled=analyzer_enabled,
             analyzer_used=True,
             analyzer_changed_primary=new_primary != decision.primary_regime,
@@ -2592,6 +2642,8 @@ def print_routing(decision: RoutingDecision) -> None:
     )
     print(f"- Confidence rationale: {decision.confidence.rationale}")
     print(f"- Deterministic scores: {decision.deterministic_score_summary or 'n/a'}")
+    if decision.deterministic_score_contributions:
+        print(f"- Deterministic contributions: {Router._format_stage_contributions(decision.deterministic_score_contributions)}")
     print(
         f"- Analyzer enabled: {decision.analyzer_enabled}"
     )
@@ -2623,6 +2675,7 @@ def print_routing_debug(
         f"nontrivial_stage_count={decision.confidence.nontrivial_stage_count}, weak_lexical_dependence={decision.confidence.weak_lexical_dependence}, structural_feature_state={decision.confidence.structural_feature_state}"
     )
     print(f"- Stage scores: {decision.deterministic_score_summary or 'n/a'}")
+    print(f"- Stage contributions: {Router._format_stage_contributions(decision.deterministic_score_contributions)}")
     print(
         f"- Analyzer state: enabled={decision.analyzer_enabled}, used={decision.analyzer_used}, "
         f"summary={decision.analyzer_summary or 'n/a'}"
