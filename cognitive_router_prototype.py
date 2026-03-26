@@ -697,7 +697,10 @@ class Router:
         signals = set(task_signals or [])
         risks = set(risk_profile or set())
 
-        if any(k in b for k in ["strongest interpretation", "strongest frame", "what this actually is"]):
+        interpretation_shortcut_markers = ["strongest interpretation", "strongest frame", "what this actually is"]
+        epistemic_markers = ["evidence", "support", "verify", "unknown", "unclear", "unresolved"]
+
+        if any(k in b for k in interpretation_shortcut_markers) and not any(k in b for k in epistemic_markers):
             return RoutingDecision(
                 bottleneck=bottleneck,
                 primary_regime=Stage.SYNTHESIS,
@@ -763,6 +766,9 @@ class Router:
         add_phrase_weights(
             Stage.SYNTHESIS,
             {
+                "strongest interpretation": 10,
+                "strongest frame": 10,
+                "what this actually is": 10,
                 "many signals": 4,
                 "no center": 4,
                 "parts are legible": 5,

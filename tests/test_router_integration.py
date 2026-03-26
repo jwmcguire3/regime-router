@@ -108,6 +108,26 @@ def test_routing_strongest_interpretation_routes_synthesis_then_adversarial():
     assert decision.runner_up_regime == Stage.ADVERSARIAL
 
 
+def test_routing_strongest_interpretation_plus_break_prompt_keeps_adversarial_runner_up():
+    decision = Router().route("What is the strongest interpretation, and what would break it?")
+    assert decision.primary_regime == Stage.SYNTHESIS
+    assert decision.runner_up_regime == Stage.ADVERSARIAL
+
+
+def test_routing_strongest_interpretation_plus_evidence_missing_allows_epistemic_runner_up():
+    decision = Router().route("What is the strongest interpretation, and what evidence is missing?")
+    assert decision.primary_regime == Stage.SYNTHESIS
+    assert decision.runner_up_regime == Stage.EPISTEMIC
+
+
+def test_routing_strongest_interpretation_plus_verify_supported_allows_epistemic_runner_up():
+    decision = Router().route(
+        "What is the strongest interpretation, and verify which parts are actually supported?"
+    )
+    assert decision.primary_regime == Stage.SYNTHESIS
+    assert decision.runner_up_regime == Stage.EPISTEMIC
+
+
 def test_routing_uncertainty_seeking_can_route_epistemic_when_rigor_language_present():
     decision = Router().route("I need support and rigor before we commit.")
     assert decision.primary_regime == Stage.EPISTEMIC
