@@ -821,6 +821,90 @@ def test_zero_score_fallback_rejects_operator_without_decision_evidence():
     assert "operator proposed without decision evidence" in (decision.analyzer_summary or "")
 
 
+def test_runtime_plan_zero_score_fallback_rejects_broad_all_regime_analyzer_output():
+    runtime = CognitiveRuntime(use_task_analyzer=True)
+    broad_payload = {
+        "bottleneck_label": "unclear",
+        "candidate_regimes": [
+            "exploration",
+            "synthesis",
+            "epistemic",
+            "adversarial",
+            "operator",
+            "builder",
+        ],
+        "stage_scores": {
+            "exploration": 0.45,
+            "synthesis": 0.44,
+            "epistemic": 0.43,
+            "adversarial": 0.42,
+            "operator": 0.41,
+            "builder": 0.40,
+        },
+        "structural_signals": [],
+        "decision_pressure": 0,
+        "evidence_quality": 0,
+        "recurrence_potential": 0,
+        "confidence": 0.93,
+        "rationale": "General best fit.",
+    }
+    fake = FakeOllama([json.dumps(broad_payload)])
+    runtime.ollama = fake
+    runtime.task_analyzer = TaskAnalyzer(fake, model="fake")
+
+    decision, _, _ = runtime.plan("Help me think about this.")
+
+    assert decision.primary_regime == Stage.EXPLORATION
+    assert decision.runner_up_regime == Stage.SYNTHESIS
+    assert decision.analyzer_used is True
+    assert decision.analyzer_changed_primary is False
+    assert "zero-score fallback" in (decision.analyzer_summary or "")
+    assert "candidate_regimes too broad" in (decision.analyzer_summary or "")
+    assert len(fake.calls) == 1
+
+
+def test_runtime_plan_analyzer_missing_field_repair_can_succeed():
+    runtime = CognitiveRuntime(use_task_analyzer=True)
+    missing_confidence = _analyzer_valid_payload()
+    missing_confidence.pop("confidence")
+    repaired = _analyzer_valid_payload()
+    repaired["candidate_regimes"] = ["epistemic", "exploration"]
+    repaired["stage_scores"]["epistemic"] = 0.95
+    repaired["rationale"] = "Repaired payload supports epistemic first."
+
+    fake = FakeOllama([json.dumps(missing_confidence), json.dumps(repaired)])
+    runtime.ollama = fake
+    runtime.task_analyzer = TaskAnalyzer(fake, model="fake")
+
+    decision, _, _ = runtime.plan("Can you help?")
+
+    assert decision.analyzer_used is True
+    assert decision.primary_regime == Stage.EPISTEMIC
+    assert "Analyzer confidence=" in (decision.analyzer_summary or "")
+    assert runtime.task_analyzer.last_error_summary == "Analyzer missing-field repair attempted and succeeded."
+    assert len(fake.calls) == 2
+
+
+def test_runtime_plan_malformed_analyzer_output_fails_safe_and_keeps_deterministic_route():
+    runtime = CognitiveRuntime(use_task_analyzer=True)
+    fake = FakeOllama(
+        [
+            '{"bottleneck_label":"x","candidate_regimes":["epistemic"],',
+            "still not json",
+        ]
+    )
+    runtime.ollama = fake
+    runtime.task_analyzer = TaskAnalyzer(fake, model="fake")
+
+    decision, _, _ = runtime.plan("Can you help?")
+
+    assert decision.primary_regime == Stage.EXPLORATION
+    assert decision.analyzer_used is False
+    assert "malformed JSON" in (decision.analyzer_summary or "")
+    assert "Deterministic routing retained." in (decision.analyzer_summary or "")
+    assert len(fake.calls) == 2
+
+
 def test_analyzer_disabled_fallback_keeps_deterministic_behavior():
     task = "Can you help?"
     deterministic = Router().route(task)
