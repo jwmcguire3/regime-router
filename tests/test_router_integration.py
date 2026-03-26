@@ -6,21 +6,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from cognitive_router_prototype import (
-    CognitiveRuntime,
-    PromptBuilder,
-    RegimeComposer,
-    RoutingFeatures,
-    Router,
-    Stage,
-    TaskAnalyzer,
-    TaskAnalyzerOutput,
-    OutputValidator,
-    extract_routing_features,
-    extract_structural_signals,
-    infer_risk_profile,
-    main,
-)
+from router.analyzer import TaskAnalyzer
+from router.cli import main
+from router.models import RoutingFeatures, Stage, TaskAnalyzerOutput
+from router.prompts import PromptBuilder
+from router.routing import RegimeComposer, Router, extract_routing_features, extract_structural_signals, infer_risk_profile
+from router.runtime import CognitiveRuntime
+from router.validation import OutputValidator
 
 
 STRUCTURAL_TASK = (
