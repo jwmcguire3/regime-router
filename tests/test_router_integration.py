@@ -143,6 +143,27 @@ def test_routing_stress_test_routes_adversarial():
     assert decision.confidence.level == "high"
 
 
+def test_routing_weakest_points_routes_adversarial():
+    decision = Router().route("What are the weakest points in this interpretation?")
+    assert decision.primary_regime == Stage.ADVERSARIAL
+
+
+def test_routing_strongest_objections_routes_adversarial():
+    decision = Router().route("What are the strongest objections to this frame?")
+    assert decision.primary_regime == Stage.ADVERSARIAL
+
+
+def test_routing_evidence_support_stays_epistemic_not_adversarial():
+    decision = Router().route("What evidence supports this interpretation?")
+    assert decision.primary_regime == Stage.EPISTEMIC
+    assert decision.primary_regime != Stage.ADVERSARIAL
+
+
+def test_routing_break_this_frame_routes_adversarial():
+    decision = Router().route("What would break this frame?")
+    assert decision.primary_regime == Stage.ADVERSARIAL
+
+
 def test_routing_choose_between_options_routes_operator_not_exploration():
     decision = Router().route("Choose between these two close options and justify the decision.")
     assert decision.primary_regime == Stage.OPERATOR

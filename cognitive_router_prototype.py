@@ -77,7 +77,25 @@ def extract_routing_features(task: str) -> RoutingFeatures:
     )
     tradeoff_words = ("tradeoff", "trade-off", "between options", "selection", "opportunity cost")
 
-    fragility_words = ("fragile", "break", "stress test", "failure mode", "risk", "destabil", "brittle")
+    fragility_words = (
+        "fragile",
+        "break",
+        "stress test",
+        "failure mode",
+        "failure modes",
+        "weakest points",
+        "weak spots",
+        "strongest objections",
+        "vulnerabilities",
+        "where this breaks",
+        "break under pressure",
+        "how this could fail",
+        "attack this frame",
+        "stress points",
+        "risk",
+        "destabil",
+        "brittle",
+    )
     launch_words = ("launch", "production", "deploy", "deployment", "go-live", "trust", "customer-facing")
 
     recurrence_words_strong = (
@@ -1214,7 +1232,27 @@ class Router:
                 analyzer_enabled=analyzer_enabled,
             )
 
-        if any(k in b for k in ["stress test this frame", "stress test", "break it", "too clean", "fragile", "launch"]):
+        adversarial_shortcut_markers = [
+            "stress test this frame",
+            "stress test",
+            "break it",
+            "too clean",
+            "fragile",
+            "launch",
+            "weakest points",
+            "weak spots",
+            "strongest objections",
+            "vulnerabilities",
+            "failure modes",
+            "where this breaks",
+            "break under pressure",
+            "how this could fail",
+            "attack this frame",
+            "stress points",
+            "what would break this frame",
+        ]
+
+        if any(k in b for k in adversarial_shortcut_markers):
             return RoutingDecision(
                 bottleneck=bottleneck,
                 primary_regime=Stage.ADVERSARIAL,
@@ -1335,6 +1373,23 @@ class Router:
                 "spine is still missing": 6,
                 "hidden spine": 4,
                 "what this really is": 4,
+            },
+        )
+        add_phrase_weights(
+            Stage.ADVERSARIAL,
+            {
+                "weakest points": 5,
+                "weak spots": 5,
+                "strongest objections": 6,
+                "vulnerabilities": 6,
+                "failure modes": 6,
+                "where this breaks": 5,
+                "break under pressure": 6,
+                "how this could fail": 6,
+                "attack this frame": 7,
+                "stress points": 5,
+                "what would break this frame": 6,
+                "what would break it": 5,
             },
         )
         if any(k in b for k in interpretation_shortcut_markers):
