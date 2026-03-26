@@ -242,6 +242,32 @@ class RoutingDecision:
     runner_up_regime: Optional[Stage]
     why_primary_wins_now: str
     switch_trigger: str
+    confidence: "RegimeConfidenceResult" = field(default_factory=lambda: RegimeConfidenceResult.low_default())
+
+
+@dataclass
+class RegimeConfidenceResult:
+    level: str
+    rationale: str
+    top_stage_score: int
+    runner_up_score: int
+    score_gap: int
+    nontrivial_stage_count: int
+    weak_lexical_dependence: bool
+    structural_feature_state: str
+
+    @classmethod
+    def low_default(cls) -> "RegimeConfidenceResult":
+        return cls(
+            level=Severity.LOW.value,
+            rationale="Routing confidence defaults to low until scoring evidence is computed.",
+            top_stage_score=0,
+            runner_up_score=0,
+            score_gap=0,
+            nontrivial_stage_count=0,
+            weak_lexical_dependence=True,
+            structural_feature_state="sparse",
+        )
 
 
 @dataclass
@@ -786,7 +812,104 @@ ARTIFACT_FIELDS: Dict[Stage, List[str]] = {
 # Router
 # ============================================================
 
+class RegimeConfidenceCalculator:
+    NONTRIVIAL_SCORE_FLOOR = 2
+
+    def calculate(
+        self,
+        *,
+        top_stage_score: int,
+        runner_up_score: int,
+        lexical_scores: Dict[Stage, int],
+        structural_scores: Dict[Stage, int],
+        features: RoutingFeatures,
+    ) -> RegimeConfidenceResult:
+        score_gap = max(0, top_stage_score - runner_up_score)
+        nontrivial_stage_count = sum(
+            1
+            for stage in Stage
+            if (lexical_scores.get(stage, 0) + structural_scores.get(stage, 0)) >= self.NONTRIVIAL_SCORE_FLOOR
+        )
+
+        total_lexical = sum(lexical_scores.values())
+        total_structural = sum(structural_scores.values())
+        weak_lexical_dependence = total_lexical > 0 and total_structural <= 1 and total_lexical >= total_structural * 3
+
+        structural_sparse = len(features.structural_signals) == 0 and "parts_whole_mismatch" not in features.detected_markers
+        structural_conflicting = (
+            (features.decision_pressure >= 2 and features.possibility_space_need >= 2)
+            or (features.fragility_pressure >= 2 and features.possibility_space_need >= 2)
+        )
+        structural_state = "conflicting" if structural_conflicting else ("sparse" if structural_sparse else "coherent")
+
+        if (
+            top_stage_score >= 8
+            and score_gap >= 4
+            and nontrivial_stage_count <= 2
+            and not weak_lexical_dependence
+            and not structural_conflicting
+        ):
+            return RegimeConfidenceResult(
+                level=Severity.HIGH.value,
+                rationale="Primary regime wins by a clear margin with concentrated, coherent signals.",
+                top_stage_score=top_stage_score,
+                runner_up_score=runner_up_score,
+                score_gap=score_gap,
+                nontrivial_stage_count=nontrivial_stage_count,
+                weak_lexical_dependence=weak_lexical_dependence,
+                structural_feature_state=structural_state,
+            )
+
+        if (
+            top_stage_score >= 4
+            and score_gap >= 1
+            and not structural_conflicting
+        ):
+            return RegimeConfidenceResult(
+                level=Severity.MEDIUM.value,
+                rationale="Two plausible regimes are relatively close; sequencing is likely.",
+                top_stage_score=top_stage_score,
+                runner_up_score=runner_up_score,
+                score_gap=score_gap,
+                nontrivial_stage_count=nontrivial_stage_count,
+                weak_lexical_dependence=weak_lexical_dependence,
+                structural_feature_state=structural_state,
+            )
+
+        low_reason = "Evidence is weak or misframed for reliable single-regime routing."
+        if structural_conflicting:
+            low_reason = "Signals conflict across stages, suggesting likely misframing."
+        elif weak_lexical_dependence and structural_sparse and nontrivial_stage_count <= 1:
+            low_reason = "Routing is mostly weak lexical cue matching with sparse structural evidence."
+        return RegimeConfidenceResult(
+            level=Severity.LOW.value,
+            rationale=low_reason,
+            top_stage_score=top_stage_score,
+            runner_up_score=runner_up_score,
+            score_gap=score_gap,
+            nontrivial_stage_count=nontrivial_stage_count,
+            weak_lexical_dependence=weak_lexical_dependence,
+            structural_feature_state=structural_state,
+        )
+
+    @staticmethod
+    def high_shortcut_rationale(reason: str) -> RegimeConfidenceResult:
+        return RegimeConfidenceResult(
+            level=Severity.HIGH.value,
+            rationale=reason,
+            top_stage_score=10,
+            runner_up_score=3,
+            score_gap=7,
+            nontrivial_stage_count=2,
+            weak_lexical_dependence=False,
+            structural_feature_state="coherent",
+        )
+
+
 class Router:
+    def __init__(self) -> None:
+        self.confidence_calculator = RegimeConfidenceCalculator()
+
     def route(
         self,
         bottleneck: str,
@@ -809,6 +932,9 @@ class Router:
                 runner_up_regime=Stage.ADVERSARIAL,
                 why_primary_wins_now="The task asks for interpretation-level compression first, then pressure-testing against break conditions.",
                 switch_trigger="Switch when the strongest frame is identified and the next bottleneck becomes exposing how it fails under stress.",
+                confidence=RegimeConfidenceCalculator.high_shortcut_rationale(
+                    "Explicit interpretation-first shortcut with deterministic routing precedence."
+                ),
             )
 
         if any(k in b for k in ["stress test this frame", "stress test", "break it", "too clean", "fragile", "launch"]):
@@ -818,6 +944,9 @@ class Router:
                 runner_up_regime=Stage.EPISTEMIC,
                 why_primary_wins_now="The bottleneck is hidden fragility, not idea generation.",
                 switch_trigger="Switch when the top destabilizer is identified and revisions are clear.",
+                confidence=RegimeConfidenceCalculator.high_shortcut_rationale(
+                    "Explicit stress-test/failure language makes the adversarial bottleneck clear."
+                ),
             )
 
         if any(k in b for k in ["repeatable", "template", "playbook", "system", "productize", "reusable"]):
@@ -827,14 +956,20 @@ class Router:
                 runner_up_regime=Stage.OPERATOR,
                 why_primary_wins_now="The pattern should be turned into durable structure.",
                 switch_trigger="Switch when modules, recurrence, and implementation order are clear.",
+                confidence=RegimeConfidenceCalculator.high_shortcut_rationale(
+                    "Explicit repeatability/productization language deterministically points to builder mode."
+                ),
             )
 
         stage_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
+        lexical_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
+        structural_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
 
         def add_phrase_weights(stage: Stage, weighted_terms: Dict[str, int]) -> None:
             for phrase, weight in weighted_terms.items():
                 if phrase in b:
                     stage_scores[stage] += weight
+                    lexical_scores[stage] += weight
 
         add_phrase_weights(
             Stage.OPERATOR,
@@ -884,8 +1019,10 @@ class Router:
         )
         if any(k in b for k in interpretation_shortcut_markers):
             stage_scores[Stage.SYNTHESIS] += 4
+            lexical_scores[Stage.SYNTHESIS] += 4
             if any(k in b for k in epistemic_markers):
                 stage_scores[Stage.EPISTEMIC] += 2
+                lexical_scores[Stage.EPISTEMIC] += 2
 
         add_phrase_weights(
             Stage.EXPLORATION,
@@ -902,6 +1039,7 @@ class Router:
         # "options" alone is intentionally weak to avoid swallowing decision tasks.
         if "options" in b:
             stage_scores[Stage.EXPLORATION] += 1
+            lexical_scores[Stage.EXPLORATION] += 1
 
         if any(
             phrase in b
@@ -915,29 +1053,41 @@ class Router:
             ]
         ):
             stage_scores[Stage.SYNTHESIS] += 4
+            lexical_scores[Stage.SYNTHESIS] += 4
 
         if STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED in signals:
             stage_scores[Stage.SYNTHESIS] += 5
+            structural_scores[Stage.SYNTHESIS] += 5
         if STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL in signals:
             stage_scores[Stage.SYNTHESIS] += 2
+            structural_scores[Stage.SYNTHESIS] += 2
         if STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED in signals:
             stage_scores[Stage.SYNTHESIS] += 2
+            structural_scores[Stage.SYNTHESIS] += 2
         if "parts_whole_mismatch" in features.detected_markers:
             stage_scores[Stage.SYNTHESIS] += 3
+            structural_scores[Stage.SYNTHESIS] += 3
         if "abstract_structural_task" in risks:
             stage_scores[Stage.SYNTHESIS] += 2
+            structural_scores[Stage.SYNTHESIS] += 2
         if "false_unification" in risks:
             stage_scores[Stage.SYNTHESIS] += 2
+            structural_scores[Stage.SYNTHESIS] += 2
         if features.evidence_demand >= 2:
             stage_scores[Stage.EPISTEMIC] += 3
+            lexical_scores[Stage.EPISTEMIC] += 3
         if features.decision_pressure >= 2:
             stage_scores[Stage.OPERATOR] += 3
+            lexical_scores[Stage.OPERATOR] += 3
         if features.fragility_pressure >= 2:
             stage_scores[Stage.ADVERSARIAL] += 3
+            lexical_scores[Stage.ADVERSARIAL] += 3
         if features.recurrence_potential >= 2:
             stage_scores[Stage.BUILDER] += 3
+            lexical_scores[Stage.BUILDER] += 3
         if features.possibility_space_need >= 2:
             stage_scores[Stage.EXPLORATION] += 2
+            lexical_scores[Stage.EXPLORATION] += 2
 
         precedence_order = [
             Stage.OPERATOR,
@@ -957,9 +1107,20 @@ class Router:
                 runner_up_regime=Stage.SYNTHESIS,
                 why_primary_wins_now="No specific regime has enough signal; exploration is the safest fallback.",
                 switch_trigger="Switch when one frame becomes more decision-relevant than the others.",
+                confidence=RegimeConfidenceResult(
+                    level=Severity.LOW.value,
+                    rationale="No stage has nontrivial score; routing is intentionally conservative.",
+                    top_stage_score=top_score,
+                    runner_up_score=0,
+                    score_gap=0,
+                    nontrivial_stage_count=0,
+                    weak_lexical_dependence=True,
+                    structural_feature_state="sparse",
+                ),
             )
 
         runner_up = next((stage for stage, score in ranked[1:] if score > 0), Stage.EXPLORATION if top_stage != Stage.EXPLORATION else Stage.SYNTHESIS)
+        runner_up_score = next((score for stage, score in ranked[1:] if stage == runner_up), 0)
 
         reasons = {
             Stage.OPERATOR: (
@@ -988,6 +1149,13 @@ class Router:
             ),
         }
         why_primary_wins_now, switch_trigger = reasons[top_stage]
+        confidence = self.confidence_calculator.calculate(
+            top_stage_score=top_score,
+            runner_up_score=runner_up_score,
+            lexical_scores=lexical_scores,
+            structural_scores=structural_scores,
+            features=features,
+        )
 
         return RoutingDecision(
             bottleneck=bottleneck,
@@ -995,6 +1163,7 @@ class Router:
             runner_up_regime=runner_up,
             why_primary_wins_now=why_primary_wins_now,
             switch_trigger=switch_trigger,
+            confidence=confidence,
         )
 # ============================================================
 # Composer
@@ -2061,6 +2230,11 @@ def print_routing(decision: RoutingDecision) -> None:
     print(f"- Current bottleneck: {decision.bottleneck}")
     print(f"- Primary regime: {decision.primary_regime.value}")
     print(f"- Runner-up regime: {decision.runner_up_regime.value if decision.runner_up_regime else 'none'}")
+    print(
+        f"- Confidence: {decision.confidence.level} "
+        f"(top={decision.confidence.top_stage_score}, runner-up={decision.confidence.runner_up_score}, gap={decision.confidence.score_gap})"
+    )
+    print(f"- Confidence rationale: {decision.confidence.rationale}")
     print(f"- Why primary wins now: {decision.why_primary_wins_now}")
     print(f"- Switch trigger: {decision.switch_trigger}")
     print()
