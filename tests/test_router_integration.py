@@ -138,6 +138,7 @@ def test_routing_uncertainty_seeking_can_route_epistemic_when_rigor_language_pre
 def test_routing_stress_test_routes_adversarial():
     decision = Router().route("Stress test this frame and break it before launch.")
     assert decision.primary_regime == Stage.ADVERSARIAL
+    assert decision.confidence.level == "high"
 
 
 def test_routing_choose_between_options_routes_operator_not_exploration():
@@ -193,6 +194,18 @@ def test_router_can_consume_precomputed_routing_features():
     features = extract_routing_features(task)
     decision = Router().route(task, routing_features=features)
     assert decision.primary_regime in {Stage.OPERATOR, Stage.EPISTEMIC}
+
+
+def test_confidence_is_medium_for_close_mixed_prompt():
+    decision = Router().route("We should choose now, but first verify unknowns and evidence gaps.")
+    assert decision.confidence.level == "medium"
+    assert "close" in decision.confidence.rationale or "sequencing" in decision.confidence.rationale
+
+
+def test_confidence_is_low_for_weak_underspecified_prompt():
+    decision = Router().route("Can you help?")
+    assert decision.confidence.level == "low"
+    assert decision.confidence.top_stage_score == 0
 
 
 def test_structural_signals_and_risk_profile_plumbed_into_prompts_and_synthesis_suppressions(synthesis_ok_json):
