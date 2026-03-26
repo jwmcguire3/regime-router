@@ -13,6 +13,8 @@ from cognitive_router_prototype import (
     RoutingFeatures,
     Router,
     Stage,
+    TaskAnalyzer,
+    TaskAnalyzerOutput,
     OutputValidator,
     extract_routing_features,
     extract_structural_signals,
@@ -359,3 +361,54 @@ def test_smoke_main_plan_entrypoint_runs_without_crashing(task, capsys):
     assert rc == 0
     assert "ROUTING HEADER" in out
     assert "Regime:" in out
+
+
+def test_task_analyzer_validator_returns_typed_output():
+    payload = {
+        "bottleneck_label": "unclear bottleneck",
+        "candidate_regimes": ["epistemic", "operator"],
+        "stage_scores": {
+            "exploration": 0.1,
+            "synthesis": 0.2,
+            "epistemic": 0.9,
+            "adversarial": 0.1,
+            "operator": 0.7,
+            "builder": 0.0,
+        },
+        "structural_signals": ["expansion_when_defined"],
+        "decision_pressure": 4,
+        "evidence_quality": 2,
+        "recurrence_potential": 1,
+        "confidence": 0.8,
+        "rationale": "Evidence uncertainty dominates.",
+    }
+    parsed = TaskAnalyzer._validate_output(payload)
+    assert isinstance(parsed, TaskAnalyzerOutput)
+    assert parsed.candidate_regimes[0] == Stage.EPISTEMIC
+    assert parsed.stage_scores[Stage.OPERATOR] == pytest.approx(0.7)
+
+
+def test_task_analyzer_invalid_output_falls_back_to_deterministic_routing():
+    task = "This is vague and I am not sure what to do next."
+    baseline_runtime = CognitiveRuntime(use_task_analyzer=False)
+    baseline, _, _ = baseline_runtime.plan(task)
+
+    runtime = CognitiveRuntime(use_task_analyzer=True)
+    fake = FakeOllama(["not-json"])
+    runtime.ollama = fake
+    runtime.task_analyzer = TaskAnalyzer(fake, model="fake")
+
+    decision, _, _ = runtime.plan(task)
+    assert decision.primary_regime == baseline.primary_regime
+    assert decision.runner_up_regime == baseline.runner_up_regime
+    assert len(fake.calls) == 1
+
+
+def test_task_analyzer_can_be_disabled_even_when_flag_model_data_exists():
+    task = "This is vague and I am not sure what to do next."
+    runtime = CognitiveRuntime(use_task_analyzer=False)
+    fake = FakeOllama(["{}"])
+    runtime.ollama = fake
+
+    runtime.plan(task)
+    assert fake.calls == []
