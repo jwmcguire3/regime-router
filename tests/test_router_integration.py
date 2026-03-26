@@ -431,7 +431,75 @@ def test_task_analyzer_invalid_output_falls_back_to_deterministic_routing():
     decision, _, _ = runtime.plan(task)
     assert decision.primary_regime == baseline.primary_regime
     assert decision.runner_up_regime == baseline.runner_up_regime
-    assert "invalid/non-JSON" in (decision.analyzer_summary or "")
+    assert "non-JSON response" in (decision.analyzer_summary or "")
+    assert len(fake.calls) == 2
+
+
+def _analyzer_valid_payload() -> dict:
+    return {
+        "bottleneck_label": "unclear bottleneck",
+        "candidate_regimes": ["epistemic", "operator"],
+        "stage_scores": {
+            "exploration": 0.1,
+            "synthesis": 0.2,
+            "epistemic": 0.9,
+            "adversarial": 0.1,
+            "operator": 0.7,
+            "builder": 0.0,
+        },
+        "structural_signals": ["expansion_when_defined"],
+        "decision_pressure": 4,
+        "evidence_quality": 2,
+        "recurrence_potential": 1,
+        "confidence": 0.8,
+        "rationale": "Evidence uncertainty dominates.",
+    }
+
+
+@pytest.mark.parametrize(
+    "raw_output",
+    [
+        "```json\n" + json.dumps(_analyzer_valid_payload()) + "\n```",
+        "Here is the analysis:\n" + json.dumps(_analyzer_valid_payload()),
+        json.dumps(_analyzer_valid_payload()) + "\nDone.",
+    ],
+)
+def test_task_analyzer_parsing_fallbacks_accept_fenced_or_commentary_wrapped_json(raw_output):
+    analyzer = TaskAnalyzer(FakeOllama([raw_output]), model="fake")
+    result = analyzer.analyze(
+        task="Can you help?",
+        routing_features=extract_routing_features("Can you help?"),
+        task_signals=[],
+        risk_profile=set(),
+    )
+    assert isinstance(result, TaskAnalyzerOutput)
+    assert analyzer.last_error_summary is None
+
+
+def test_task_analyzer_malformed_json_still_fails_with_summary():
+    malformed = '{"bottleneck_label":"x","candidate_regimes":["epistemic"],'
+    analyzer = TaskAnalyzer(FakeOllama([malformed, "still not json"]), model="fake")
+    result = analyzer.analyze(
+        task="Can you help?",
+        routing_features=extract_routing_features("Can you help?"),
+        task_signals=[],
+        risk_profile=set(),
+    )
+    assert result is None
+    assert "malformed JSON" in (analyzer.last_error_summary or "")
+
+
+def test_task_analyzer_valid_json_passes_without_repair_call():
+    payload = json.dumps(_analyzer_valid_payload())
+    fake = FakeOllama([payload])
+    analyzer = TaskAnalyzer(fake, model="fake")
+    result = analyzer.analyze(
+        task="Can you help?",
+        routing_features=extract_routing_features("Can you help?"),
+        task_signals=[],
+        risk_profile=set(),
+    )
+    assert isinstance(result, TaskAnalyzerOutput)
     assert len(fake.calls) == 1
 
 
