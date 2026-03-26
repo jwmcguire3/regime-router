@@ -425,3 +425,49 @@ def test_task_analyzer_can_be_disabled_even_when_flag_model_data_exists():
 
     runtime.plan(task)
     assert fake.calls == []
+
+
+def test_high_confidence_routing_skips_task_analyzer_cost():
+    task = "Find the strongest interpretation of what this actually is."
+    runtime = CognitiveRuntime(use_task_analyzer=True)
+    fake = FakeOllama(["{}"])
+    runtime.ollama = fake
+    runtime.task_analyzer = TaskAnalyzer(fake, model="fake")
+
+    decision, _, _ = runtime.plan(task)
+    assert decision.confidence.level == "high"
+    assert decision.analyzer_used is False
+    assert fake.calls == []
+
+
+def test_low_confidence_routing_uses_analyzer_and_can_update_primary():
+    task = "Can you help?"
+    runtime = CognitiveRuntime(use_task_analyzer=True)
+    analyzer_payload = {
+        "bottleneck_label": "evidence uncertainty",
+        "candidate_regimes": ["epistemic", "exploration"],
+        "stage_scores": {
+            "exploration": 0.2,
+            "synthesis": 0.1,
+            "epistemic": 0.9,
+            "adversarial": 0.1,
+            "operator": 0.2,
+            "builder": 0.0,
+        },
+        "structural_signals": [],
+        "decision_pressure": 1,
+        "evidence_quality": 2,
+        "recurrence_potential": 0,
+        "confidence": 0.9,
+        "rationale": "Insufficient evidence framing is dominant.",
+    }
+    fake = FakeOllama([json.dumps(analyzer_payload)])
+    runtime.ollama = fake
+    runtime.task_analyzer = TaskAnalyzer(fake, model="fake")
+
+    decision, _, _ = runtime.plan(task)
+    assert decision.analyzer_used is True
+    assert decision.analyzer_changed_primary is True
+    assert decision.primary_regime == Stage.EPISTEMIC
+    assert "epistemic:" in decision.deterministic_score_summary
+    assert len(fake.calls) == 1
