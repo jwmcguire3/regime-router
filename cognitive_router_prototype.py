@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import textwrap
 from dataclasses import asdict, dataclass, field, replace
@@ -1688,6 +1689,7 @@ class TaskAnalyzer:
     def __init__(self, ollama: OllamaClient, model: str) -> None:
         self.ollama = ollama
         self.model = model
+        self.last_error_summary: Optional[str] = None
 
     def analyze(
         self,
@@ -1696,6 +1698,7 @@ class TaskAnalyzer:
         task_signals: List[str],
         risk_profile: Set[str],
     ) -> Optional[TaskAnalyzerOutput]:
+        self.last_error_summary = None
         response = self.ollama.generate(
             model=self.model,
             system=self._build_system_prompt(),
@@ -1705,11 +1708,20 @@ class TaskAnalyzer:
             num_predict=500,
         )
         raw_text = str(response.get("response", "")).strip()
-        try:
-            parsed = json.loads(raw_text)
-        except json.JSONDecodeError:
+        parsed, parse_error = self._parse_response_payload(raw_text)
+        initial_parse_error = parse_error
+        if parsed is None:
+            repaired_text = self._attempt_json_repair(raw_text)
+            if repaired_text:
+                parsed, parse_error = self._parse_response_payload(repaired_text)
+        if parsed is None:
+            self.last_error_summary = initial_parse_error or parse_error or "Analyzer returned invalid/non-JSON output."
             return None
-        return self._validate_output(parsed)
+        validated = self._validate_output(parsed)
+        if validated is None:
+            self.last_error_summary = "Analyzer output missing required fields or invalid field types."
+            return None
+        return validated
 
     def _build_system_prompt(self) -> str:
         return textwrap.dedent(
@@ -1770,6 +1782,103 @@ class TaskAnalyzer:
             {json.dumps(feature_blob, ensure_ascii=False)}
             """
         ).strip()
+
+    @staticmethod
+    def _strip_markdown_code_fences(raw_text: str) -> Tuple[str, bool]:
+        text = raw_text.strip()
+        fenced = bool(re.match(r"^```[\w-]*\s*", text))
+        if not fenced:
+            return text, False
+        text = re.sub(r"^```[\w-]*\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+        return text.strip(), True
+
+    @staticmethod
+    def _extract_first_json_object(raw_text: str) -> Optional[str]:
+        start = raw_text.find("{")
+        if start == -1:
+            return None
+
+        depth = 0
+        in_string = False
+        escaped = False
+        for idx in range(start, len(raw_text)):
+            ch = raw_text[idx]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_string = False
+                continue
+
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return raw_text[start : idx + 1]
+        return None
+
+    def _parse_response_payload(self, raw_text: str) -> Tuple[Optional[object], Optional[str]]:
+        text = raw_text.strip()
+        if not text:
+            return None, "Analyzer non-JSON response: empty output."
+        try:
+            return json.loads(text), None
+        except json.JSONDecodeError:
+            pass
+
+        stripped, had_fences = self._strip_markdown_code_fences(text)
+        if had_fences:
+            try:
+                return json.loads(stripped), None
+            except json.JSONDecodeError:
+                pass
+
+        extracted = self._extract_first_json_object(stripped if had_fences else text)
+        if extracted:
+            try:
+                return json.loads(extracted), None
+            except json.JSONDecodeError:
+                error_prefix = "Analyzer malformed JSON after extraction"
+                if had_fences:
+                    error_prefix += " from fenced JSON"
+                return None, f"{error_prefix}."
+
+        if had_fences:
+            return None, "Analyzer fenced JSON did not contain a valid JSON object."
+        if ("{" in text) != ("}" in text):
+            return None, "Analyzer malformed JSON response."
+        if "{" not in text and "}" not in text:
+            return None, "Analyzer non-JSON response: no JSON object found."
+        return None, "Analyzer malformed JSON response."
+
+    def _attempt_json_repair(self, raw_text: str) -> str:
+        repair_prompt = textwrap.dedent(
+            f"""
+            Convert the following analyzer output into valid JSON only.
+            Return ONLY one JSON object. Do not include markdown or commentary.
+
+            previous_output:
+            {raw_text}
+            """
+        ).strip()
+        try:
+            repair_response = self.ollama.generate(
+                model=self.model,
+                system=self._build_system_prompt(),
+                prompt=repair_prompt,
+                stream=False,
+                temperature=0.0,
+                num_predict=500,
+            )
+        except Exception:
+            return ""
+        return str(repair_response.get("response", "")).strip()
 
     @staticmethod
     def _validate_output(payload: object) -> Optional[TaskAnalyzerOutput]:
@@ -2593,7 +2702,12 @@ class CognitiveRuntime:
             analyzer_gap_threshold=1,
         )
         if analyzer_attempted and analysis is None and decision.analyzer_summary is None:
-            decision.analyzer_summary = "Analyzer returned invalid/non-JSON output; deterministic routing retained."
+            analyzer_error = (
+                self.task_analyzer.last_error_summary
+                if self.task_analyzer and self.task_analyzer.last_error_summary
+                else "Analyzer returned invalid/non-JSON output."
+            )
+            decision.analyzer_summary = f"{analyzer_error} Deterministic routing retained."
 
         regime = self.composer.compose(decision.primary_regime, risk_profile=risks, handoff_expected=handoff_expected)
         handoff = Handoff(
