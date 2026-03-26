@@ -1776,10 +1776,20 @@ class TaskAnalyzer:
             self.last_error_summary = initial_parse_error or parse_error or "Analyzer returned invalid/non-JSON output."
             return None
         validated = self._validate_output(parsed)
-        if validated is None:
-            self.last_error_summary = "Analyzer output missing required fields or invalid field types."
+        if validated is not None:
+            return validated
+
+        repaired_payload = self._repair_missing_fields(parsed, raw_text)
+        if repaired_payload is not None:
+            repaired_validated = self._validate_output(repaired_payload)
+            if repaired_validated is not None:
+                self.last_error_summary = "Analyzer missing-field repair attempted and succeeded."
+                return repaired_validated
+            self.last_error_summary = "Analyzer missing-field repair attempted but repaired payload remained invalid."
             return None
-        return validated
+
+        self.last_error_summary = "Analyzer output invalid; missing-field repair not applicable or failed."
+        return None
 
     def _build_system_prompt(self) -> str:
         return textwrap.dedent(
@@ -1937,6 +1947,83 @@ class TaskAnalyzer:
         except Exception:
             return ""
         return str(repair_response.get("response", "")).strip()
+
+    def _repair_missing_fields(self, raw_payload: object, raw_text: str) -> Optional[dict]:
+        if not isinstance(raw_payload, dict):
+            return None
+
+        required = {
+            "bottleneck_label",
+            "candidate_regimes",
+            "stage_scores",
+            "structural_signals",
+            "decision_pressure",
+            "evidence_quality",
+            "recurrence_potential",
+            "confidence",
+            "rationale",
+        }
+        missing_top_level = sorted(required - set(raw_payload.keys()))
+        missing_stage_scores: List[str] = []
+
+        candidate_regimes = raw_payload.get("candidate_regimes")
+        if candidate_regimes is not None:
+            if not isinstance(candidate_regimes, list):
+                return None
+            for item in candidate_regimes:
+                if not isinstance(item, str):
+                    return None
+                try:
+                    Stage(item)
+                except ValueError:
+                    return None
+
+        scores_raw = raw_payload.get("stage_scores")
+        if scores_raw is not None:
+            if not isinstance(scores_raw, dict):
+                return None
+            for key, value in scores_raw.items():
+                if key not in {stage.value for stage in Stage}:
+                    return None
+                if not isinstance(value, (int, float)):
+                    return None
+            missing_stage_scores = [stage.value for stage in Stage if stage.value not in scores_raw]
+
+        if not missing_top_level and not missing_stage_scores:
+            return None
+
+        repair_prompt = textwrap.dedent(
+            f"""
+            Repair this analyzer JSON object by adding missing required fields only.
+            Preserve every existing field/value exactly when already present and valid.
+            Add only the fields listed below that are missing.
+            Return exactly one valid JSON object.
+            No markdown. No commentary.
+
+            Missing top-level required fields: {json.dumps(missing_top_level)}
+            Missing stage_scores entries: {json.dumps(missing_stage_scores)}
+
+            Original analyzer output:
+            {raw_text}
+            """
+        ).strip()
+        try:
+            repair_response = self.ollama.generate(
+                model=self.model,
+                system=self._build_system_prompt(),
+                prompt=repair_prompt,
+                stream=False,
+                temperature=0.0,
+                num_predict=500,
+            )
+        except Exception:
+            return None
+
+        repaired_text = str(repair_response.get("response", "")).strip()
+        parsed_repaired, _ = self._parse_response_payload(repaired_text)
+        if not isinstance(parsed_repaired, dict):
+            return None
+        return parsed_repaired
 
     @staticmethod
     def _validate_output(payload: object) -> Optional[TaskAnalyzerOutput]:

@@ -529,6 +529,106 @@ def test_task_analyzer_valid_json_passes_without_repair_call():
     assert len(fake.calls) == 1
 
 
+def test_task_analyzer_missing_rationale_attempts_missing_field_repair():
+    payload = _analyzer_valid_payload()
+    payload.pop("rationale")
+    repaired = _analyzer_valid_payload()
+    repaired["rationale"] = "Repaired rationale."
+
+    fake = FakeOllama([json.dumps(payload), json.dumps(repaired)])
+    analyzer = TaskAnalyzer(fake, model="fake")
+
+    result = analyzer.analyze(
+        task="Can you help?",
+        routing_features=extract_routing_features("Can you help?"),
+        task_signals=[],
+        risk_profile=set(),
+    )
+
+    assert isinstance(result, TaskAnalyzerOutput)
+    assert result.rationale == "Repaired rationale."
+    assert analyzer.last_error_summary == "Analyzer missing-field repair attempted and succeeded."
+    assert len(fake.calls) == 2
+
+
+def test_task_analyzer_missing_stage_scores_attempts_missing_field_repair():
+    payload = _analyzer_valid_payload()
+    payload.pop("stage_scores")
+    repaired = _analyzer_valid_payload()
+
+    fake = FakeOllama([json.dumps(payload), json.dumps(repaired)])
+    analyzer = TaskAnalyzer(fake, model="fake")
+
+    result = analyzer.analyze(
+        task="Can you help?",
+        routing_features=extract_routing_features("Can you help?"),
+        task_signals=[],
+        risk_profile=set(),
+    )
+
+    assert isinstance(result, TaskAnalyzerOutput)
+    assert result.stage_scores[Stage.EPISTEMIC] == pytest.approx(0.9)
+    assert analyzer.last_error_summary == "Analyzer missing-field repair attempted and succeeded."
+    assert len(fake.calls) == 2
+
+
+def test_task_analyzer_missing_confidence_attempts_missing_field_repair():
+    payload = _analyzer_valid_payload()
+    payload.pop("confidence")
+    repaired = _analyzer_valid_payload()
+    repaired["confidence"] = 0.65
+
+    fake = FakeOllama([json.dumps(payload), json.dumps(repaired)])
+    analyzer = TaskAnalyzer(fake, model="fake")
+
+    result = analyzer.analyze(
+        task="Can you help?",
+        routing_features=extract_routing_features("Can you help?"),
+        task_signals=[],
+        risk_profile=set(),
+    )
+
+    assert isinstance(result, TaskAnalyzerOutput)
+    assert result.confidence == pytest.approx(0.65)
+    assert analyzer.last_error_summary == "Analyzer missing-field repair attempted and succeeded."
+    assert len(fake.calls) == 2
+
+
+def test_task_analyzer_missing_field_repair_can_still_fail_validation():
+    payload = _analyzer_valid_payload()
+    payload.pop("confidence")
+    repaired_but_invalid = _analyzer_valid_payload()
+    repaired_but_invalid["confidence"] = 2.5
+
+    fake = FakeOllama([json.dumps(payload), json.dumps(repaired_but_invalid)])
+    analyzer = TaskAnalyzer(fake, model="fake")
+
+    result = analyzer.analyze(
+        task="Can you help?",
+        routing_features=extract_routing_features("Can you help?"),
+        task_signals=[],
+        risk_profile=set(),
+    )
+
+    assert result is None
+    assert analyzer.last_error_summary == "Analyzer missing-field repair attempted but repaired payload remained invalid."
+    assert len(fake.calls) == 2
+
+
+def test_task_analyzer_non_object_json_does_not_enter_missing_field_repair():
+    fake = FakeOllama(['["not", "an", "object"]'])
+    analyzer = TaskAnalyzer(fake, model="fake")
+    result = analyzer.analyze(
+        task="Can you help?",
+        routing_features=extract_routing_features("Can you help?"),
+        task_signals=[],
+        risk_profile=set(),
+    )
+    assert result is None
+    assert analyzer.last_error_summary == "Analyzer output invalid; missing-field repair not applicable or failed."
+    assert len(fake.calls) == 1
+
+
 def test_task_analyzer_can_be_disabled_even_when_flag_model_data_exists():
     task = "This is vague and I am not sure what to do next."
     runtime = CognitiveRuntime(use_task_analyzer=False)
