@@ -270,6 +270,19 @@ class RegimeConfidenceResult:
         )
 
 
+@dataclass(frozen=True)
+class TaskAnalyzerOutput:
+    bottleneck_label: str
+    candidate_regimes: List[Stage]
+    stage_scores: Dict[Stage, float]
+    structural_signals: List[str]
+    decision_pressure: int
+    evidence_quality: int
+    recurrence_potential: int
+    confidence: float
+    rationale: str
+
+
 @dataclass
 class Handoff:
     current_bottleneck: str
@@ -1368,6 +1381,166 @@ class OllamaClient:
             raise RuntimeError(f"Could not list Ollama models from {self.base_url}: {e}") from e
 
 
+class TaskAnalyzer:
+    def __init__(self, ollama: OllamaClient, model: str) -> None:
+        self.ollama = ollama
+        self.model = model
+
+    def analyze(
+        self,
+        task: str,
+        routing_features: RoutingFeatures,
+        task_signals: List[str],
+        risk_profile: Set[str],
+    ) -> Optional[TaskAnalyzerOutput]:
+        response = self.ollama.generate(
+            model=self.model,
+            system=self._build_system_prompt(),
+            prompt=self._build_user_prompt(task, routing_features, task_signals, risk_profile),
+            stream=False,
+            temperature=0.0,
+            num_predict=500,
+        )
+        raw_text = str(response.get("response", "")).strip()
+        try:
+            parsed = json.loads(raw_text)
+        except json.JSONDecodeError:
+            return None
+        return self._validate_output(parsed)
+
+    def _build_system_prompt(self) -> str:
+        return textwrap.dedent(
+            """
+            You are a constrained task analyzer for a deterministic router.
+            Return ONLY a strict JSON object and no markdown.
+            Do not produce narrative outside JSON.
+            Your job is to provide typed analysis signals, not final routing.
+
+            Required JSON schema:
+            {
+              "bottleneck_label": "string",
+              "candidate_regimes": ["exploration|synthesis|epistemic|adversarial|operator|builder"],
+              "stage_scores": {
+                "exploration": number,
+                "synthesis": number,
+                "epistemic": number,
+                "adversarial": number,
+                "operator": number,
+                "builder": number
+              },
+              "structural_signals": ["string"],
+              "decision_pressure": integer 0-10,
+              "evidence_quality": integer 0-10,
+              "recurrence_potential": integer 0-10,
+              "confidence": number 0-1,
+              "rationale": "short string"
+            }
+            """
+        ).strip()
+
+    def _build_user_prompt(
+        self,
+        task: str,
+        routing_features: RoutingFeatures,
+        task_signals: List[str],
+        risk_profile: Set[str],
+    ) -> str:
+        feature_blob = {
+            "structural_signals": routing_features.structural_signals,
+            "decision_pressure": routing_features.decision_pressure,
+            "evidence_demand": routing_features.evidence_demand,
+            "fragility_pressure": routing_features.fragility_pressure,
+            "recurrence_potential": routing_features.recurrence_potential,
+            "possibility_space_need": routing_features.possibility_space_need,
+            "detected_markers": routing_features.detected_markers,
+            "task_signals": task_signals,
+            "risk_profile": sorted(risk_profile),
+        }
+        return textwrap.dedent(
+            f"""
+            Analyze this task bottleneck and return schema-compliant JSON only.
+
+            task:
+            {task}
+
+            deterministic_features:
+            {json.dumps(feature_blob, ensure_ascii=False)}
+            """
+        ).strip()
+
+    @staticmethod
+    def _validate_output(payload: object) -> Optional[TaskAnalyzerOutput]:
+        if not isinstance(payload, dict):
+            return None
+        required = {
+            "bottleneck_label",
+            "candidate_regimes",
+            "stage_scores",
+            "structural_signals",
+            "decision_pressure",
+            "evidence_quality",
+            "recurrence_potential",
+            "confidence",
+            "rationale",
+        }
+        if not required.issubset(payload.keys()):
+            return None
+        if not isinstance(payload["bottleneck_label"], str) or not payload["bottleneck_label"].strip():
+            return None
+        if not isinstance(payload["rationale"], str):
+            return None
+
+        candidates_raw = payload["candidate_regimes"]
+        if not isinstance(candidates_raw, list):
+            return None
+        candidate_regimes: List[Stage] = []
+        for item in candidates_raw:
+            if not isinstance(item, str):
+                return None
+            try:
+                candidate_regimes.append(Stage(item))
+            except ValueError:
+                return None
+        if not candidate_regimes:
+            return None
+
+        scores_raw = payload["stage_scores"]
+        if not isinstance(scores_raw, dict):
+            return None
+        stage_scores: Dict[Stage, float] = {}
+        for stage in Stage:
+            value = scores_raw.get(stage.value)
+            if not isinstance(value, (int, float)):
+                return None
+            stage_scores[stage] = float(value)
+
+        signals_raw = payload["structural_signals"]
+        if not isinstance(signals_raw, list) or any(not isinstance(s, str) for s in signals_raw):
+            return None
+
+        int_fields = ("decision_pressure", "evidence_quality", "recurrence_potential")
+        for field_name in int_fields:
+            value = payload[field_name]
+            if not isinstance(value, int) or value < 0 or value > 10:
+                return None
+
+        confidence = payload["confidence"]
+        if not isinstance(confidence, (int, float)) or confidence < 0 or confidence > 1:
+            return None
+
+        return TaskAnalyzerOutput(
+            bottleneck_label=payload["bottleneck_label"].strip(),
+            candidate_regimes=candidate_regimes,
+            stage_scores=stage_scores,
+            structural_signals=[s for s in signals_raw if s.strip()],
+            decision_pressure=payload["decision_pressure"],
+            evidence_quality=payload["evidence_quality"],
+            recurrence_potential=payload["recurrence_potential"],
+            confidence=float(confidence),
+            rationale=payload["rationale"].strip(),
+        )
+
+
 # ============================================================
 # Prompt builder + validator
 # ============================================================
@@ -2058,13 +2231,20 @@ class EvolutionEngine:
 # ============================================================
 
 class CognitiveRuntime:
-    def __init__(self, ollama_base_url: str = "http://localhost:11434") -> None:
+    def __init__(
+        self,
+        ollama_base_url: str = "http://localhost:11434",
+        use_task_analyzer: bool = False,
+        task_analyzer_model: str = "llama3",
+    ) -> None:
         self.router = Router()
         self.composer = RegimeComposer()
         self.validator = OutputValidator()
         self.prompt_builder = PromptBuilder()
         self.evolver = EvolutionEngine()
         self.ollama = OllamaClient(base_url=ollama_base_url)
+        self.use_task_analyzer = use_task_analyzer
+        self.task_analyzer = TaskAnalyzer(self.ollama, model=task_analyzer_model) if use_task_analyzer else None
 
     def plan(
         self,
@@ -2074,9 +2254,21 @@ class CognitiveRuntime:
         task_signals: Optional[List[str]] = None,
         risks_inferred: bool = False,
     ) -> Tuple[RoutingDecision, Regime, Handoff]:
-        signals = task_signals if task_signals is not None else extract_structural_signals(bottleneck)
+        features = extract_routing_features(bottleneck)
+        signals = task_signals if task_signals is not None else features.structural_signals
         risks = set(risk_profile or set()) if risks_inferred else infer_risk_profile(bottleneck, risk_profile)
-        decision = self.router.route(bottleneck, task_signals=signals, risk_profile=risks)
+        decision = self.router.route(bottleneck, task_signals=signals, risk_profile=risks, routing_features=features)
+
+        if self.use_task_analyzer and self.task_analyzer and self._should_invoke_task_analyzer(features):
+            analysis = self.task_analyzer.analyze(
+                bottleneck,
+                routing_features=features,
+                task_signals=signals,
+                risk_profile=risks,
+            )
+            if analysis is not None:
+                decision = self._fuse_task_analyzer(decision, bottleneck, signals, risks, features, analysis)
+
         regime = self.composer.compose(decision.primary_regime, risk_profile=risks, handoff_expected=handoff_expected)
         handoff = Handoff(
             current_bottleneck=bottleneck,
@@ -2096,6 +2288,45 @@ class CognitiveRuntime:
             minimum_useful_artifact="A typed artifact from the current regime plus a switch trigger.",
         )
         return decision, regime, handoff
+
+    @staticmethod
+    def _should_invoke_task_analyzer(features: RoutingFeatures) -> bool:
+        max_signal = max(
+            features.decision_pressure,
+            features.evidence_demand,
+            features.fragility_pressure,
+            features.recurrence_potential,
+            features.possibility_space_need,
+        )
+        return max_signal <= 2 and len(features.structural_signals) <= 1
+
+    def _fuse_task_analyzer(
+        self,
+        original: RoutingDecision,
+        bottleneck: str,
+        signals: List[str],
+        risks: Set[str],
+        features: RoutingFeatures,
+        analysis: TaskAnalyzerOutput,
+    ) -> RoutingDecision:
+        fused_signals = sorted(set(signals) | set(analysis.structural_signals))
+        fused_risks = set(risks)
+        if analysis.evidence_quality <= 3:
+            fused_risks.add("evidence_gap")
+        if analysis.decision_pressure >= 7:
+            fused_risks.add("decision_urgency")
+        if analysis.recurrence_potential >= 7:
+            fused_risks.add("recurrence_systemization")
+
+        fused = self.router.route(
+            bottleneck,
+            task_signals=fused_signals,
+            risk_profile=fused_risks,
+            routing_features=features,
+        )
+        if analysis.confidence >= 0.65 and fused.primary_regime in analysis.candidate_regimes:
+            return fused
+        return original
 
     def execute(self, task: str, model: str, risk_profile: Optional[Set[str]] = None, handoff_expected: bool = True) -> Tuple[RoutingDecision, Regime, RegimeExecutionResult, Handoff]:
         task_signals = extract_structural_signals(task)
@@ -2291,7 +2522,11 @@ def make_record(
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    runtime = CognitiveRuntime(ollama_base_url=args.base_url)
+    runtime = CognitiveRuntime(
+        ollama_base_url=args.base_url,
+        use_task_analyzer=args.use_task_analyzer,
+        task_analyzer_model=args.task_analyzer_model,
+    )
     store = SessionStore(root=args.out_dir)
     risk_profile = parse_risk_profile(args.risks)
 
@@ -2318,7 +2553,11 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def cmd_plan(args: argparse.Namespace) -> int:
-    runtime = CognitiveRuntime(ollama_base_url=args.base_url)
+    runtime = CognitiveRuntime(
+        ollama_base_url=args.base_url,
+        use_task_analyzer=args.use_task_analyzer,
+        task_analyzer_model=args.task_analyzer_model,
+    )
     decision, regime, handoff = runtime.plan(
         bottleneck=args.task,
         risk_profile=parse_risk_profile(args.risks),
@@ -2371,12 +2610,16 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--risks", default="", help="Comma-separated risk profile tags")
     run_p.add_argument("--save-as", default=None, help="Optional output JSON filename")
     run_p.add_argument("--no-handoff", action="store_true", help="Disable tail/transfer line where optional")
+    run_p.add_argument("--use-task-analyzer", action="store_true", help="Enable optional LLM task analyzer for low-confidence routing cases")
+    run_p.add_argument("--task-analyzer-model", default="llama3", help="Ollama model for task analyzer when enabled")
     run_p.set_defaults(func=cmd_run)
 
     plan_p = sub.add_parser("plan", help="Route + compose without calling Ollama")
     plan_p.add_argument("--task", required=True, help="Task or bottleneck description")
     plan_p.add_argument("--risks", default="", help="Comma-separated risk profile tags")
     plan_p.add_argument("--no-handoff", action="store_true", help="Disable tail/transfer line where optional")
+    plan_p.add_argument("--use-task-analyzer", action="store_true", help="Enable optional LLM task analyzer for low-confidence routing cases")
+    plan_p.add_argument("--task-analyzer-model", default="llama3", help="Ollama model for task analyzer when enabled")
     plan_p.set_defaults(func=cmd_plan)
 
     list_p = sub.add_parser("list-runs", help="List saved run files")
