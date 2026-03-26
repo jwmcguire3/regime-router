@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 import textwrap
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -1203,14 +1203,12 @@ class Router:
             if not (analyzer_enabled and analyzer_result and self.should_use_analyzer(decision.confidence, score_gap_threshold=analyzer_gap_threshold)):
                 return decision
             if analyzer_result.confidence < 0.6:
-                return RoutingDecision(
-                    **{
-                        **asdict(decision),
-                        "analyzer_used": True,
-                        "analyzer_summary": (
-                            f"Analyzer output ignored due to low analyzer confidence ({analyzer_result.confidence:.2f})."
-                        ),
-                    }
+                return replace(
+                    decision,
+                    analyzer_used=True,
+                    analyzer_summary=(
+                        f"Analyzer output ignored due to low analyzer confidence ({analyzer_result.confidence:.2f})."
+                    ),
                 )
             analyzer_ranked = sorted(
                 analyzer_result.stage_scores.items(),
@@ -1268,14 +1266,12 @@ class Router:
         if not self.should_use_analyzer(confidence, score_gap_threshold=analyzer_gap_threshold):
             return decision
         if analyzer_result.confidence < 0.6:
-            return RoutingDecision(
-                **{
-                    **asdict(decision),
-                    "analyzer_used": True,
-                    "analyzer_summary": (
-                        f"Analyzer output ignored due to low analyzer confidence ({analyzer_result.confidence:.2f})."
-                    ),
-                }
+            return replace(
+                decision,
+                analyzer_used=True,
+                analyzer_summary=(
+                    f"Analyzer output ignored due to low analyzer confidence ({analyzer_result.confidence:.2f})."
+                ),
             )
 
         analyzer_ranked = sorted(
