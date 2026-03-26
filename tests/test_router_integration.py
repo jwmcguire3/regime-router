@@ -204,6 +204,20 @@ def test_confidence_is_medium_for_close_mixed_prompt():
     assert "close" in decision.confidence.rationale or "sequencing" in decision.confidence.rationale
 
 
+@pytest.mark.parametrize(
+    "task,expected_stage",
+    [
+        ("Find the strongest interpretation of what this actually is.", Stage.SYNTHESIS),
+        ("Stress test this frame and break it before launch.", Stage.ADVERSARIAL),
+        ("Make this a repeatable reusable template we can productize.", Stage.BUILDER),
+    ],
+)
+def test_explicit_high_confidence_prompts_route_deterministically(task, expected_stage):
+    decision = Router().route(task)
+    assert decision.primary_regime == expected_stage
+    assert decision.confidence.level == "high"
+
+
 def test_confidence_is_low_for_weak_underspecified_prompt():
     decision = Router().route("Can you help?")
     assert decision.confidence.level == "low"
@@ -414,6 +428,7 @@ def test_task_analyzer_invalid_output_falls_back_to_deterministic_routing():
     decision, _, _ = runtime.plan(task)
     assert decision.primary_regime == baseline.primary_regime
     assert decision.runner_up_regime == baseline.runner_up_regime
+    assert "invalid/non-JSON" in (decision.analyzer_summary or "")
     assert len(fake.calls) == 1
 
 
@@ -471,3 +486,47 @@ def test_low_confidence_routing_uses_analyzer_and_can_update_primary():
     assert decision.primary_regime == Stage.EPISTEMIC
     assert "epistemic:" in decision.deterministic_score_summary
     assert len(fake.calls) == 1
+
+
+def test_analyzer_disabled_fallback_keeps_deterministic_behavior():
+    task = "Can you help?"
+    deterministic = Router().route(task)
+    runtime = CognitiveRuntime(use_task_analyzer=False)
+    decision, _, _ = runtime.plan(task)
+    assert decision.primary_regime == deterministic.primary_regime
+    assert decision.analyzer_enabled is False
+    assert decision.analyzer_used is False
+
+
+def test_precedence_collision_operator_beats_epistemic_on_tie():
+    task = "We should decide now, but unknown evidence remains."
+    decision = Router().route(
+        task,
+        deterministic_stage_scores={
+            Stage.OPERATOR: 4,
+            Stage.EPISTEMIC: 4,
+            Stage.EXPLORATION: 0,
+            Stage.SYNTHESIS: 0,
+            Stage.ADVERSARIAL: 0,
+            Stage.BUILDER: 0,
+        },
+    )
+    assert decision.primary_regime == Stage.OPERATOR
+    assert decision.runner_up_regime == Stage.EPISTEMIC
+
+
+def test_exploration_fallback_only_when_no_nontrivial_scores():
+    low_signal = Router().route("Can you help?")
+    some_signal = Router().route("I need evidence before we decide.")
+    assert low_signal.primary_regime == Stage.EXPLORATION
+    assert low_signal.confidence.top_stage_score == 0
+    assert some_signal.primary_regime != Stage.EXPLORATION
+
+
+def test_plan_debug_routing_flag_prints_observability_details(capsys):
+    rc = main(["plan", "--task", "Can you help?", "--debug-routing"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "ROUTING DEBUG" in out
+    assert "Feature pressures:" in out
+    assert "Analyzer state:" in out
