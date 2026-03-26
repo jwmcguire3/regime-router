@@ -163,6 +163,32 @@ def test_routing_options_plus_decision_prefers_operator():
     assert decision.primary_regime == Stage.OPERATOR
 
 
+def test_routing_vague_pattern_with_uncertainty_does_not_trigger_builder():
+    decision = Router().route("There’s a pattern here but I can’t tell what kind.")
+    assert decision.primary_regime in {Stage.EPISTEMIC, Stage.EXPLORATION}
+    assert decision.runner_up_regime == Stage.SYNTHESIS
+    assert decision.primary_regime != Stage.BUILDER
+
+
+def test_routing_reusable_pattern_with_template_triggers_builder():
+    decision = Router().route("There is a reusable pattern here we should turn into a template.")
+    assert decision.primary_regime == Stage.BUILDER
+
+
+def test_routing_repeatable_workflow_triggers_builder():
+    decision = Router().route("This is becoming a repeatable workflow.")
+    assert decision.primary_regime == Stage.BUILDER
+
+
+def test_routing_uncertainty_characterization_boosts_epistemic():
+    features = extract_routing_features("I can’t characterize the pattern yet.")
+    decision = Router().route("I can’t characterize the pattern yet.", routing_features=features)
+    assert features.evidence_demand >= 1
+    assert "uncertainty_characterization" in features.detected_markers
+    assert decision.primary_regime == Stage.EPISTEMIC
+    assert decision.primary_regime != Stage.BUILDER
+
+
 def test_routing_structural_signals_can_drive_synthesis_precedence():
     task = (
         "We can describe concrete versions and fragments, but no center is holding."
