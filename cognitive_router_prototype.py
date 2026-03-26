@@ -963,6 +963,10 @@ class OllamaClient:
 # ============================================================
 
 class PromptBuilder:
+    REPAIR_MODE_SCHEMA = "schema_repair"
+    REPAIR_MODE_SEMANTIC = "semantic_repair"
+    REPAIR_MODE_REDUCE_GENERICITY = "reduce_genericity_repair"
+
     @staticmethod
     def build_system_prompt(regime: Regime, task_signals: Optional[List[str]] = None, risk_profile: Optional[Set[str]] = None) -> str:
         artifact_name = ARTIFACT_HINTS[regime.stage]
@@ -1124,39 +1128,187 @@ class PromptBuilder:
         return textwrap.dedent(rules.get(stage, "")).strip()
         
     @staticmethod
-    def build_repair_prompt(task: str, regime: Regime, invalid_output: str, validation: Dict[str, object]) -> str:
-        artifact_name = ARTIFACT_HINTS[regime.stage]
-        fields = ", ".join(ARTIFACT_FIELDS[regime.stage])
+    def build_repair_prompt(
+        task: str,
+        regime: Regime,
+        invalid_output: str,
+        validation: Dict[str, object],
+        *,
+        task_signals: Optional[List[str]] = None,
+        repair_mode: str = REPAIR_MODE_SEMANTIC,
+    ) -> str:
+        if repair_mode == PromptBuilder.REPAIR_MODE_SCHEMA:
+            return PromptBuilder._build_schema_repair_prompt(task, regime, invalid_output, validation)
+        if repair_mode == PromptBuilder.REPAIR_MODE_REDUCE_GENERICITY:
+            return PromptBuilder._build_reduce_genericity_repair_prompt(
+                task,
+                regime,
+                invalid_output,
+                validation,
+                task_signals=task_signals,
+            )
+        return PromptBuilder._build_semantic_repair_prompt(
+            task,
+            regime,
+            invalid_output,
+            validation,
+            task_signals=task_signals,
+        )
 
-        failures = validation.get("semantic_failures", [])
-        failure_text = "\n".join(f"- {f}" for f in failures) if failures else "- output failed validation"
+    @staticmethod
+    def _build_schema_repair_prompt(task: str, regime: Regime, invalid_output: str, validation: Dict[str, object]) -> str:
+        artifact_name = ARTIFACT_HINTS[regime.stage]
+        required_fields = ", ".join(ARTIFACT_FIELDS[regime.stage])
+        missing_keys = validation.get("missing_keys", [])
+        missing_fields = validation.get("missing_artifact_fields", [])
+        parse_error = validation.get("error", "n/a")
 
         return textwrap.dedent(
             f"""
-            Your previous output failed validation.
+            Your previous output failed structural/schema validation.
 
             Original task:
             {task}
+
+            Required top-level keys: regime, stage, artifact_type, artifact
+            artifact_type must be exactly: {artifact_name}
+            Required artifact fields: {required_fields}
+
+            Schema failures:
+            - parse_or_structure_error: {parse_error}
+            - missing_keys: {missing_keys}
+            - missing_artifact_fields: {missing_fields}
+
+            Previous invalid output:
+            {invalid_output}
+
+            Repair rules:
+            - Return only valid JSON.
+            - Keep existing content where possible; perform minimal structural edits.
+            - Do not add commentary or markdown fences.
+            """
+        ).strip()
+
+    @staticmethod
+    def _build_semantic_repair_prompt(
+        task: str,
+        regime: Regime,
+        invalid_output: str,
+        validation: Dict[str, object],
+        *,
+        task_signals: Optional[List[str]] = None,
+    ) -> str:
+        artifact_name = ARTIFACT_HINTS[regime.stage]
+        fields = ARTIFACT_FIELDS[regime.stage]
+        field_text = ", ".join(fields)
+        extracted_signals = task_signals or extract_structural_signals(task)
+        signal_text = ", ".join(extracted_signals) if extracted_signals else "none"
+
+        failures = validation.get("semantic_failures", [])
+        failure_text = "\n".join(f"- {f}" for f in failures) if failures else "- output failed validation"
+        failed_fields = PromptBuilder._failed_fields(failures, fields)
+        failed_field_text = ", ".join(failed_fields) if failed_fields else "unknown (repair only where failures apply)"
+
+        return textwrap.dedent(
+            f"""
+            Your previous output failed semantic validation.
+
+            Original task:
+            {task}
+
+            Extracted structural signals:
+            {signal_text}
 
             Required artifact:
             {artifact_name}
 
             Required fields:
-            {fields}
+            {field_text}
 
             Validation failures:
             {failure_text}
 
+            Fields requiring rewrite:
+            {failed_field_text}
+
             Previous invalid output:
             {invalid_output}
 
-            Repair the output.
-            Return only valid JSON.
-            Keep the same top-level schema.
-            Do not explain.
-            Do not include markdown fences.
+            Repair instructions:
+            - Return only valid JSON with the same top-level schema.
+            - Make minimal edits.
+            - Rewrite only fields that failed validation; keep non-failed fields unchanged.
+            - Keep central_claim and organizing_idea distinct (no paraphrase duplication).
+            - Treat pressure_points as frame-break conditions that can falsify or materially weaken the frame.
+            - Do not introduce external domains, industries, teams, stakeholders, or generic project nouns.
+            - Do not explain your edits.
+            - Do not include markdown fences.
             """
         ).strip()
+
+    @staticmethod
+    def _build_reduce_genericity_repair_prompt(
+        task: str,
+        regime: Regime,
+        invalid_output: str,
+        validation: Dict[str, object],
+        *,
+        task_signals: Optional[List[str]] = None,
+    ) -> str:
+        artifact_name = ARTIFACT_HINTS[regime.stage]
+        fields = ARTIFACT_FIELDS[regime.stage]
+        field_text = ", ".join(fields)
+        extracted_signals = task_signals or extract_structural_signals(task)
+        signal_text = ", ".join(extracted_signals) if extracted_signals else "none"
+        failures = validation.get("semantic_failures", [])
+        failure_text = "\n".join(f"- {f}" for f in failures) if failures else "- output is too generic"
+        failed_fields = PromptBuilder._failed_fields(failures, fields)
+        failed_field_text = ", ".join(failed_fields) if failed_fields else "unknown (repair only where failures apply)"
+
+        return textwrap.dedent(
+            f"""
+            Your previous output is structurally valid but too generic.
+
+            Original task:
+            {task}
+
+            Extracted structural signals:
+            {signal_text}
+
+            Required artifact:
+            {artifact_name}
+
+            Required fields:
+            {field_text}
+
+            Genericity failures:
+            {failure_text}
+
+            Fields requiring rewrite:
+            {failed_field_text}
+
+            Previous invalid output:
+            {invalid_output}
+
+            Reduce-genericity repair instructions:
+            - Return only valid JSON with the same top-level schema.
+            - Make minimal edits and rewrite only failed fields.
+            - Replace generic filler with signal-anchored statements grounded in the original task.
+            - Do not introduce any external domain nouns (technology, industry, solution, team, stakeholders, innovation, etc.).
+            - Keep central_claim and organizing_idea distinct.
+            - pressure_points must be frame-break tests, not execution concerns.
+            - Do not explain your edits or use markdown fences.
+            """
+        ).strip()
+
+    @staticmethod
+    def _failed_fields(failures: List[str], fields: List[str]) -> List[str]:
+        detected: List[str] = []
+        for failure in failures:
+            for field in fields:
+                if failure.startswith(f"{field} ") and field not in detected:
+                    detected.append(field)
+        return detected
 
 class OutputValidator:
     GENERIC_PHRASES = {
@@ -1559,8 +1711,17 @@ class CognitiveRuntime:
         )
 
         repaired = False
+        repair_mode = PromptBuilder.REPAIR_MODE_SEMANTIC
         if not validation.get("is_valid", False):
-            repair_prompt = self.prompt_builder.build_repair_prompt(task, regime, raw_text, validation)
+            repair_mode = self._select_repair_mode(validation)
+            repair_prompt = self.prompt_builder.build_repair_prompt(
+                task,
+                regime,
+                raw_text,
+                validation,
+                task_signals=task_signals,
+                repair_mode=repair_mode,
+            )
             repair_response = self.ollama.generate(model=model, system=system_prompt, prompt=repair_prompt, stream=False)
             repaired_text = str(repair_response.get("response", "")).strip()
             repaired_validation = self.validator.validate(
@@ -1590,10 +1751,25 @@ class CognitiveRuntime:
                 **validation,
                 "repair_attempted": True,
                 "repair_succeeded": repaired,
+                "repair_mode": repair_mode,
             },
             ollama_meta={k: v for k, v in response.items() if k != "response"},
         )
         return decision, regime, result, handoff
+
+    def _select_repair_mode(self, validation: Dict[str, object]) -> str:
+        if not validation.get("valid_json", False):
+            return PromptBuilder.REPAIR_MODE_SCHEMA
+
+        semantic_failures = [str(f).lower() for f in validation.get("semantic_failures", [])]
+        genericity_markers = (
+            "generic filler",
+            "forbidden generic domain nouns",
+            "ungrounded generic domain terms",
+        )
+        if any(marker in failure for failure in semantic_failures for marker in genericity_markers):
+            return PromptBuilder.REPAIR_MODE_REDUCE_GENERICITY
+        return PromptBuilder.REPAIR_MODE_SEMANTIC
 
 # ============================================================
 # JSON persistence
