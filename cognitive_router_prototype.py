@@ -39,7 +39,7 @@ def _score_from_matches(*matches: List[str]) -> int:
 
 
 def extract_routing_features(task: str) -> RoutingFeatures:
-    text = task.lower()
+    text = task.lower().replace("’", "'")
 
     # Grouped deterministic pattern families, optimized for task-shape markers.
     expansion_words = ("expand", "expands", "expansion", "broadens", "gets bigger", "widens", "balloons")
@@ -53,6 +53,15 @@ def extract_routing_features(task: str) -> RoutingFeatures:
 
     evidence_words = ("evidence", "support", "verify", "unknown", "unclear", "unresolved", "proof", "confidence")
     uncertainty_words = ("uncertain", "ambigu", "not sure", "missing information", "what is missing")
+    uncertainty_characterization_words = (
+        "can't tell",
+        "can't tell what kind",
+        "don't know what kind",
+        "hard to characterize",
+        "can't characterize",
+        "can't identify",
+        "can't name it yet",
+    )
 
     decision_words = ("decide", "decision", "choose", "commit", "next move", "time pressure", "ship now", "now")
     tradeoff_words = ("tradeoff", "trade-off", "between options", "selection", "opportunity cost")
@@ -60,7 +69,18 @@ def extract_routing_features(task: str) -> RoutingFeatures:
     fragility_words = ("fragile", "break", "stress test", "failure mode", "risk", "destabil", "brittle")
     launch_words = ("launch", "production", "deploy", "deployment", "go-live", "trust", "customer-facing")
 
-    recurrence_words = ("repeatable", "reusable", "template", "playbook", "pattern", "systemat", "standardize")
+    recurrence_words_strong = (
+        "repeatable",
+        "reusable",
+        "template",
+        "playbook",
+        "systematize",
+        "systematized",
+        "systematizing",
+        "standardize",
+        "standardized",
+    )
+    recurrence_words_generic = ("pattern",)
     builder_words = ("productize", "modules", "interfaces", "workflow", "automation")
 
     possibility_words = ("possibility", "explore", "exploration", "brainstorm", "alternatives", "option space", "open")
@@ -78,11 +98,13 @@ def extract_routing_features(task: str) -> RoutingFeatures:
     understood_hits = _contains_any(text, understood_words)
     evidence_hits = _contains_any(text, evidence_words)
     uncertainty_hits = _contains_any(text, uncertainty_words)
+    uncertainty_characterization_hits = _contains_any(text, uncertainty_characterization_words)
     decision_hits = _contains_any(text, decision_words)
     tradeoff_hits = _contains_any(text, tradeoff_words)
     fragility_hits = _contains_any(text, fragility_words)
     launch_hits = _contains_any(text, launch_words)
-    recurrence_hits = _contains_any(text, recurrence_words)
+    recurrence_hits_strong = _contains_any(text, recurrence_words_strong)
+    recurrence_hits_generic = _contains_any(text, recurrence_words_generic)
     builder_hits = _contains_any(text, builder_words)
     possibility_hits = _contains_any(text, possibility_words)
     convergence_hits = _contains_any(text, convergence_words)
@@ -107,23 +129,33 @@ def extract_routing_features(task: str) -> RoutingFeatures:
     if parts_hits and whole_hits and missing_hits:
         matches.setdefault("parts_whole_mismatch", sorted(set(parts_hits + whole_hits + missing_hits)))
 
-    if evidence_hits or uncertainty_hits:
-        matches["uncertainty_evidence_demand"] = sorted(set(evidence_hits + uncertainty_hits))
+    if evidence_hits or uncertainty_hits or uncertainty_characterization_hits:
+        matches["uncertainty_evidence_demand"] = sorted(
+            set(evidence_hits + uncertainty_hits + uncertainty_characterization_hits)
+        )
+    if uncertainty_characterization_hits:
+        matches["uncertainty_characterization"] = sorted(set(uncertainty_characterization_hits))
     if decision_hits or tradeoff_hits:
         matches["decision_tradeoff_commitment"] = sorted(set(decision_hits + tradeoff_hits))
     if fragility_hits or launch_hits:
         matches["fragility_launch_trust"] = sorted(set(fragility_hits + launch_hits))
-    if recurrence_hits or builder_hits:
-        matches["recurrence_systemization"] = sorted(set(recurrence_hits + builder_hits))
+    if recurrence_hits_strong or builder_hits:
+        matches["recurrence_systemization_strong"] = sorted(set(recurrence_hits_strong + builder_hits))
+    if recurrence_hits_generic:
+        matches["recurrence_pattern_generic"] = sorted(set(recurrence_hits_generic))
+    if recurrence_hits_strong or recurrence_hits_generic or builder_hits:
+        matches["recurrence_systemization"] = sorted(
+            set(recurrence_hits_strong + recurrence_hits_generic + builder_hits)
+        )
     if possibility_hits or convergence_hits:
         matches["open_possibility_space"] = sorted(set(possibility_hits + convergence_hits))
 
     return RoutingFeatures(
         structural_signals=structural_signals,
         decision_pressure=_score_from_matches(decision_hits, tradeoff_hits),
-        evidence_demand=_score_from_matches(evidence_hits, uncertainty_hits),
+        evidence_demand=_score_from_matches(evidence_hits, uncertainty_hits, uncertainty_characterization_hits),
         fragility_pressure=_score_from_matches(fragility_hits, launch_hits),
-        recurrence_potential=_score_from_matches(recurrence_hits, builder_hits),
+        recurrence_potential=min(10, (2 * len(recurrence_hits_strong)) + (2 * len(builder_hits))),
         possibility_space_need=_score_from_matches(possibility_hits, convergence_hits),
         detected_markers=matches,
     )
@@ -1049,7 +1081,7 @@ class Router:
         proposed_primary = analyzer_ranked[0][0] if analyzer_ranked else Stage.EXPLORATION
         recurrence_evidence = (
             features.recurrence_potential > 0
-            or "recurrence_systemization" in features.detected_markers
+            or "recurrence_systemization_strong" in features.detected_markers
             or len(analyzer_result.structural_signals) > 0
         )
         decision_evidence = (
@@ -1087,7 +1119,7 @@ class Router:
         analyzer_enabled: bool = False,
         analyzer_gap_threshold: int = 1,
     ) -> RoutingDecision:
-        b = bottleneck.lower().strip()
+        b = bottleneck.lower().replace("’", "'").strip()
         features = routing_features or extract_routing_features(bottleneck)
         signals = set(task_signals or features.structural_signals)
         risks = set(risk_profile or set())
@@ -1127,7 +1159,21 @@ class Router:
                 analyzer_enabled=analyzer_enabled,
             )
 
-        if any(k in b for k in ["repeatable", "template", "playbook", "system", "productize", "reusable"]):
+        if any(
+            k in b
+            for k in [
+                "repeatable",
+                "reusable",
+                "template",
+                "playbook",
+                "systematize",
+                "standardize",
+                "modules",
+                "workflow",
+                "automation",
+                "productize",
+            ]
+        ):
             return RoutingDecision(
                 bottleneck=bottleneck,
                 primary_regime=Stage.BUILDER,
@@ -1190,8 +1236,17 @@ class Router:
                 "verify": 4,
                 "rigor": 3,
                 "are you sure": 4,
+                "can't tell": 4,
+                "can't tell what kind": 5,
+                "don't know what kind": 5,
+                "hard to characterize": 4,
+                "can't characterize": 4,
+                "can't identify": 4,
+                "can't name it yet": 4,
             },
         )
+        if "pattern" in b:
+            add_score(Stage.SYNTHESIS, 1, "lexical", "generic_pattern_signal")
         add_phrase_weights(
             Stage.SYNTHESIS,
             {
@@ -1265,6 +1320,8 @@ class Router:
             )
             if "uncertainty_evidence_demand" in features.detected_markers:
                 add_score(Stage.EXPLORATION, 1, "structural", "feature_support:uncertainty_can_require_exploration")
+            if "uncertainty_characterization" in features.detected_markers:
+                add_score(Stage.EPISTEMIC, 2, "structural", "feature:uncertainty_characterization")
         if features.decision_pressure > 0:
             add_score(
                 Stage.OPERATOR,
@@ -1279,13 +1336,14 @@ class Router:
                 "structural",
                 f"feature:fragility_pressure={features.fragility_pressure}",
             )
-        if features.recurrence_potential > 0:
+        if "recurrence_systemization_strong" in features.detected_markers:
             add_score(
                 Stage.BUILDER,
                 1 + min(3, features.recurrence_potential // 2),
                 "structural",
                 f"feature:recurrence_potential={features.recurrence_potential}",
             )
+        if features.recurrence_potential > 0:
             add_score(
                 Stage.SYNTHESIS,
                 1 + min(2, features.recurrence_potential // 4),
