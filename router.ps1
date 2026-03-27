@@ -1,22 +1,25 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("menu", "plan", "run", "smoke", "models", "list", "list-runs", "show", "show-run", "last")]
+    [ValidateSet("menu", "plan", "run", "smoke", "models", "list", "list-runs", "show", "show-run", "last", "settings", "settings-show", "settings-set", "settings-reset")]
     [string]$Command = "menu",
 
     [Parameter(Position = 1)]
     [string]$Task = "",
 
-    [string]$Model = "dolphin29:latest",
+    [string]$Model = "",
     [string]$Risks = "",
     [string]$BaseUrl = "http://localhost:11434",
     [string]$OutDir = "runs",
+    [string]$SettingsFile = ".router_settings.json",
     [string]$SaveAs = "",
     [string]$Filename = "",
-    [string]$TaskAnalyzerModel = "dolphin29:latest",
+    [string]$TaskAnalyzerModel = "",
     [switch]$NoHandoff,
     [switch]$UseTaskAnalyzer,
     [switch]$DebugRouting,
+    [switch]$BoundedOrchestration,
+    [int]$MaxSwitches,
     [switch]$Json
 )
 
@@ -96,7 +99,7 @@ function Invoke-RouterPython {
 }
 
 function Get-CommonArgs {
-    return @("--base-url", $BaseUrl, "--out-dir", $OutDir)
+    return @("--base-url", $BaseUrl, "--out-dir", $OutDir, "--settings-file", $SettingsFile)
 }
 
 function Add-PlanFlags {
@@ -137,11 +140,20 @@ function Add-RunFlags {
     if ($NoHandoff) {
         $result += "--no-handoff"
     }
+    if ($Model) {
+        $result += @("--model", $Model)
+    }
     if ($UseTaskAnalyzer) {
         $result += "--use-task-analyzer"
         if ($TaskAnalyzerModel) {
             $result += @("--task-analyzer-model", $TaskAnalyzerModel)
         }
+    }
+    if ($BoundedOrchestration) {
+        $result += "--bounded-orchestration"
+    }
+    if ($PSBoundParameters.ContainsKey("MaxSwitches")) {
+        $result += @("--max-switches", "$MaxSwitches")
     }
 
     return $result
@@ -171,7 +183,7 @@ function Invoke-Run {
     )
 
     $argList = Get-CommonArgs
-    $argList += @("run", "--task", $TaskText, "--model", $Model)
+    $argList += @("run", "--task", $TaskText)
     $argList = Add-RunFlags -ArgList $argList
 
     if ($Json) {
@@ -183,6 +195,39 @@ function Invoke-Run {
 
 function Invoke-Models {
     $argList = (Get-CommonArgs) + @("models")
+    Invoke-RouterPython -ArgList $argList
+}
+
+function Invoke-SettingsShow {
+    $argList = @("--settings-file", $SettingsFile, "settings", "show")
+    Invoke-RouterPython -ArgList $argList
+}
+
+function Invoke-SettingsSet {
+    $argList = @("--settings-file", $SettingsFile, "settings", "set")
+    if ($Model) {
+        $argList += @("--model", $Model)
+    }
+    if ($UseTaskAnalyzer) {
+        $argList += "--use-task-analyzer"
+    }
+    if ($TaskAnalyzerModel) {
+        $argList += @("--task-analyzer-model", $TaskAnalyzerModel)
+    }
+    if ($DebugRouting) {
+        $argList += "--debug-routing"
+    }
+    if ($BoundedOrchestration) {
+        $argList += "--bounded-orchestration"
+    }
+    if ($PSBoundParameters.ContainsKey("MaxSwitches")) {
+        $argList += @("--max-switches", "$MaxSwitches")
+    }
+    Invoke-RouterPython -ArgList $argList
+}
+
+function Invoke-SettingsReset {
+    $argList = @("--settings-file", $SettingsFile, "settings", "reset")
     Invoke-RouterPython -ArgList $argList
 }
 
@@ -434,6 +479,18 @@ try {
         }
         "models" {
             Invoke-Models
+        }
+        "settings" {
+            Invoke-SettingsShow
+        }
+        "settings-show" {
+            Invoke-SettingsShow
+        }
+        "settings-set" {
+            Invoke-SettingsSet
+        }
+        "settings-reset" {
+            Invoke-SettingsReset
         }
         "list" {
             Invoke-ListRuns
