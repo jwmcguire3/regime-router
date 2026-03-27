@@ -12,6 +12,8 @@ from router.models import RoutingFeatures, Stage, TaskAnalyzerOutput
 from router.prompts import PromptBuilder
 from router.routing import RegimeComposer, Router, extract_routing_features, extract_structural_signals, infer_risk_profile
 from router.runtime import CognitiveRuntime
+from router.storage import SessionStore
+from router.state import make_record
 from router.validation import OutputValidator
 
 
@@ -939,3 +941,84 @@ def test_plan_debug_routing_flag_prints_observability_details(capsys):
     assert "ROUTING DEBUG" in out
     assert "Feature pressures:" in out
     assert "Analyzer state:" in out
+
+
+def test_plan_populates_router_state():
+    runtime = CognitiveRuntime()
+    decision, regime, handoff = runtime.plan("Find the strongest interpretation of what this actually is.")
+
+    assert runtime.router_state is not None
+    assert runtime.router_state.current_regime.name == regime.name
+    assert runtime.router_state.current_bottleneck == decision.bottleneck
+    assert runtime.router_state.switch_trigger == decision.switch_trigger
+    assert handoff.current_bottleneck == runtime.router_state.current_bottleneck
+    assert handoff.assumptions_in_play == runtime.router_state.assumptions
+
+
+def test_execute_populates_router_state_and_prior_regimes(synthesis_ok_json):
+    runtime = CognitiveRuntime()
+    runtime.ollama = FakeOllama([synthesis_ok_json])
+
+    decision, regime, result, handoff = runtime.execute(task=STRUCTURAL_TASK, model="fake")
+
+    assert runtime.router_state is not None
+    assert runtime.router_state.current_regime.name == regime.name
+    assert runtime.router_state.prior_regimes[-1].regime == decision.primary_regime
+    assert runtime.router_state.prior_regimes[-1].completion_signal_seen is True
+    assert "Execution yielded a valid artifact." in runtime.router_state.prior_regimes[-1].outcome_summary
+    assert handoff.dominant_frame == (runtime.router_state.dominant_frame or "")
+    assert result.validation["is_valid"] is True
+
+
+def test_router_state_serializes_in_saved_runs(tmp_path, synthesis_ok_json):
+    runtime = CognitiveRuntime()
+    runtime.ollama = FakeOllama([synthesis_ok_json])
+    store = SessionStore(root=str(tmp_path))
+
+    decision, regime, result, handoff = runtime.execute(task=STRUCTURAL_TASK, model="fake")
+    record = make_record(STRUCTURAL_TASK, set(), "fake", decision, regime, result, handoff, runtime.router_state)
+    saved = store.save(record, filename="stateful.json")
+    loaded = store.load(saved.name)
+
+    assert loaded["router_state"] is not None
+    assert loaded["router_state"]["current_regime"]["stage"] == decision.primary_regime.value
+    assert loaded["router_state"]["prior_regimes"][0]["regime"] == decision.primary_regime.value
+
+
+def test_router_state_prior_regimes_helper_updates_correctly():
+    runtime = CognitiveRuntime()
+    runtime.plan("We have multiple options, but we need a decision and next move now.")
+    assert runtime.router_state is not None
+
+    runtime.router_state.record_regime_step(
+        regime=Stage.OPERATOR,
+        reason_entered="Operator pressure remains dominant.",
+        completion_signal_seen=False,
+        failure_signal_seen=True,
+        outcome_summary="Escalated due to blocked decision criteria.",
+    )
+    step = runtime.router_state.prior_regimes[-1]
+    assert step.regime == Stage.OPERATOR
+    assert step.failure_signal_seen is True
+    assert step.completion_signal_seen is False
+
+
+def test_contradictions_and_assumptions_persist_across_simple_transition(synthesis_bad_pressure_points_json):
+    runtime = CognitiveRuntime()
+    runtime.ollama = FakeOllama([synthesis_bad_pressure_points_json, synthesis_bad_pressure_points_json])
+    runtime.execute(task=STRUCTURAL_TASK, model="fake")
+
+    assert runtime.router_state is not None
+    assert "Soft LLM behavior vs hard system control" in runtime.router_state.contradictions
+    assert any("Validation semantic failures were observed" in item for item in runtime.router_state.assumptions)
+
+
+def test_handoff_remains_router_state_backed(synthesis_ok_json):
+    runtime = CognitiveRuntime()
+    runtime.ollama = FakeOllama([synthesis_ok_json])
+
+    _, _, _, handoff = runtime.execute(task=STRUCTURAL_TASK, model="fake")
+
+    assert runtime.router_state is not None
+    assert handoff.active_contradictions == runtime.router_state.contradictions
+    assert handoff.assumptions_in_play == runtime.router_state.assumptions

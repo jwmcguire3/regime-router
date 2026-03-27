@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Set, Tuple
 import json
+import hashlib
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -10,7 +11,7 @@ from .control import EvolutionEngine
 from .models import CANONICAL_FAILURE_IF_OVERUSED, Regime, RegimeExecutionResult, RoutingDecision, Stage, TaskAnalyzerOutput
 from .prompts import PromptBuilder
 from .routing import RegimeComposer, Router, extract_routing_features, extract_structural_signals, infer_risk_profile
-from .state import Handoff
+from .state import Handoff, RouterState
 from .validation import OutputValidator
 
 class OllamaClient:
@@ -76,6 +77,7 @@ class CognitiveRouterRuntime:
         self.ollama = OllamaClient(base_url=ollama_base_url)
         self.use_task_analyzer = use_task_analyzer
         self.task_analyzer = TaskAnalyzer(self.ollama, model=task_analyzer_model) if use_task_analyzer else None
+        self.router_state: Optional[RouterState] = None
 
     def plan(
         self,
@@ -129,23 +131,15 @@ class CognitiveRouterRuntime:
             decision.analyzer_summary = f"{analyzer_error} Deterministic routing retained."
 
         regime = self.composer.compose(decision.primary_regime, risk_profile=risks, handoff_expected=handoff_expected)
-        handoff = Handoff(
-            current_bottleneck=bottleneck,
-            dominant_frame=f"Primary regime is {decision.primary_regime.value}; optimize for its core motion.",
-            what_is_known=[
-                f"Bottleneck classified as: {decision.primary_regime.value}",
-                f"Runner-up regime: {decision.runner_up_regime.value if decision.runner_up_regime else 'none'}",
-            ],
-            what_remains_uncertain=["Whether the first regime will hit its dominant failure mode quickly."],
-            active_contradictions=["Soft LLM behavior vs hard system control"],
-            assumptions_in_play=[
-                "The bottleneck has been classified correctly.",
-                f"Structural signals observed: {', '.join(signals) if signals else 'none'}",
-            ],
-            main_risk_if_continue=CANONICAL_FAILURE_IF_OVERUSED[decision.primary_regime],
-            recommended_next_regime=decision.runner_up_regime,
-            minimum_useful_artifact="A typed artifact from the current regime plus a switch trigger.",
+        self.router_state = self._build_router_state(
+            bottleneck=bottleneck,
+            decision=decision,
+            regime=regime,
+            signals=signals,
+            risks=risks,
+            features=features,
         )
+        handoff = self._handoff_from_state(self.router_state)
         return decision, regime, handoff
 
     def execute(self, task: str, model: str, risk_profile: Optional[Set[str]] = None, handoff_expected: bool = True) -> Tuple[RoutingDecision, Regime, RegimeExecutionResult, Handoff]:
@@ -216,6 +210,8 @@ class CognitiveRouterRuntime:
             },
             ollama_meta={k: v for k, v in response.items() if k != "response"},
         )
+        self._update_router_state_from_execution(self.router_state, decision, result)
+        handoff = self._handoff_from_state(self.router_state) if self.router_state else handoff
         return decision, regime, result, handoff
 
     def _select_repair_mode(self, validation: Dict[str, object]) -> str:
@@ -231,6 +227,100 @@ class CognitiveRouterRuntime:
         if any(marker in failure for failure in semantic_failures for marker in genericity_markers):
             return PromptBuilder.REPAIR_MODE_REDUCE_GENERICITY
         return PromptBuilder.REPAIR_MODE_SEMANTIC
+
+    def _build_router_state(
+        self,
+        *,
+        bottleneck: str,
+        decision: RoutingDecision,
+        regime: Regime,
+        signals: List[str],
+        risks: Set[str],
+        features: object,
+    ) -> RouterState:
+        task_hash = hashlib.sha1(bottleneck.encode("utf-8")).hexdigest()[:12]
+        stage_goal = regime.tail_line.text if regime.tail_line else "Produce the minimum useful typed artifact for this regime."
+        return RouterState(
+            task_id=f"task-{task_hash}",
+            task_summary=bottleneck[:180],
+            current_bottleneck=bottleneck,
+            current_regime=regime,
+            runner_up_regime=decision.runner_up_regime,
+            regime_confidence=decision.confidence,
+            dominant_frame=f"Primary regime is {decision.primary_regime.value}; optimize for its core motion.",
+            knowns=[
+                f"Bottleneck classified as: {decision.primary_regime.value}",
+                f"Runner-up regime: {decision.runner_up_regime.value if decision.runner_up_regime else 'none'}",
+            ],
+            uncertainties=["Whether the first regime will hit its dominant failure mode quickly."],
+            contradictions=["Soft LLM behavior vs hard system control"],
+            assumptions=[
+                "The bottleneck has been classified correctly.",
+                f"Structural signals observed: {', '.join(signals) if signals else 'none'}",
+            ],
+            risks=sorted(risks) + [CANONICAL_FAILURE_IF_OVERUSED[decision.primary_regime]],
+            stage_goal=stage_goal,
+            switch_trigger=decision.switch_trigger,
+            recommended_next_regime=decision.runner_up_regime,
+            decision_pressure=float(getattr(features, "decision_pressure", 0)),
+            evidence_quality=float(getattr(features, "evidence_demand", 0)),
+            recurrence_potential=float(getattr(features, "recurrence_potential", 0)),
+        )
+
+    def _update_router_state_from_execution(
+        self,
+        state: Optional[RouterState],
+        decision: RoutingDecision,
+        result: RegimeExecutionResult,
+    ) -> None:
+        if state is None:
+            return
+        parsed = result.validation.get("parsed", {})
+        if isinstance(parsed, dict):
+            artifact = parsed.get("artifact", {})
+            if isinstance(artifact, dict):
+                central_claim = artifact.get("central_claim")
+                if isinstance(central_claim, str) and central_claim.strip():
+                    state.apply_dominant_frame(central_claim.strip())
+
+        semantic_failures = [str(f) for f in result.validation.get("semantic_failures", [])]
+        if semantic_failures:
+            state.update_inference_state(
+                contradictions=state.contradictions + semantic_failures,
+                assumptions=state.assumptions + ["Validation semantic failures were observed and should shape next regime."],
+            )
+        state.record_regime_step(
+            regime=decision.primary_regime,
+            reason_entered=decision.why_primary_wins_now,
+            completion_signal_seen=bool(result.validation.get("is_valid", False)),
+            failure_signal_seen=not bool(result.validation.get("is_valid", False)),
+            outcome_summary="Execution yielded a valid artifact." if result.validation.get("is_valid", False) else "Execution yielded validation failures.",
+        )
+
+    def _handoff_from_state(self, state: Optional[RouterState]) -> Handoff:
+        if state is None:
+            return Handoff(
+                current_bottleneck="",
+                dominant_frame="",
+                what_is_known=[],
+                what_remains_uncertain=[],
+                active_contradictions=[],
+                assumptions_in_play=[],
+                main_risk_if_continue="",
+                recommended_next_regime=None,
+                minimum_useful_artifact="",
+            )
+        return Handoff(
+            current_bottleneck=state.current_bottleneck,
+            dominant_frame=state.dominant_frame or "",
+            what_is_known=state.knowns,
+            what_remains_uncertain=state.uncertainties,
+            active_contradictions=state.contradictions,
+            assumptions_in_play=state.assumptions,
+            main_risk_if_continue=state.risks[-1] if state.risks else "",
+            recommended_next_regime=state.recommended_next_regime,
+            minimum_useful_artifact=state.stage_goal,
+        )
 
 # ============================================================
 # JSON persistence
