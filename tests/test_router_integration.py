@@ -42,8 +42,12 @@ class FakeOllama:
 def synthesis_ok_json() -> str:
     payload = {
         "regime": "Synthesis Core",
+        "purpose": "Produce the strongest coherent interpretation from live signals.",
         "stage": "synthesis",
         "artifact_type": "dominant_frame",
+        "completion_signal": "coherent_frame_stable",
+        "failure_signal": "frame_collapses_under_pressure_points",
+        "recommended_next_regime": "adversarial",
         "artifact": {
             "central_claim": "The frame must expand when defined because the concrete view shrinks the real structure.",
             "organizing_idea": "Definition changes the unit of analysis: it connects fragments into a spine, which makes narrow concrete cuts look too small.",
@@ -68,8 +72,12 @@ def synthesis_ok_json() -> str:
 def synthesis_polished_but_generic_json() -> str:
     payload = {
         "regime": "Synthesis Core",
+        "purpose": "Produce the strongest coherent interpretation from live signals.",
         "stage": "synthesis",
         "artifact_type": "dominant_frame",
+        "completion_signal": "coherent_frame_stable",
+        "failure_signal": "frame_collapses_under_pressure_points",
+        "recommended_next_regime": "adversarial",
         "artifact": {
             "central_claim": "This effort is about navigating complexity with careful consideration across multiple perspectives.",
             "organizing_idea": "The project requires deeper analysis and understanding of various factors over time.",
@@ -85,8 +93,12 @@ def synthesis_polished_but_generic_json() -> str:
 def synthesis_bad_pressure_points_json() -> str:
     payload = {
         "regime": "Synthesis Core",
+        "purpose": "Produce the strongest coherent interpretation from live signals.",
         "stage": "synthesis",
         "artifact_type": "dominant_frame",
+        "completion_signal": "coherent_frame_stable",
+        "failure_signal": "frame_collapses_under_pressure_points",
+        "recommended_next_regime": "adversarial",
         "artifact": {
             "central_claim": "Defining the work expands scope because each concrete cut removes the spine-level relation.",
             "organizing_idea": "Fragments make sense locally, but a shared spine only appears when the frame tracks expansion under definition.",
@@ -415,8 +427,12 @@ def test_validator_rejects_pressure_points_as_execution_risks(synthesis_bad_pres
             json.dumps(
                 {
                     "regime": "Synthesis Core",
+                    "purpose": "Produce the strongest coherent interpretation from live signals.",
                     "stage": "synthesis",
                     "artifact_type": "dominant_frame",
+                    "completion_signal": "coherent_frame_stable",
+                    "failure_signal": "frame_collapses_under_pressure_points",
+                    "recommended_next_regime": "adversarial",
                     "artifact": {
                         "central_claim": "This effort is about navigating complexity across various factors and multiple perspectives.",
                         "organizing_idea": "A deeper analysis helps understanding of systemic issues over time.",
@@ -432,8 +448,12 @@ def test_validator_rejects_pressure_points_as_execution_risks(synthesis_bad_pres
             json.dumps(
                 {
                     "regime": "Synthesis Core",
+                    "purpose": "Produce the strongest coherent interpretation from live signals.",
                     "stage": "synthesis",
                     "artifact_type": "dominant_frame",
+                    "completion_signal": "coherent_frame_stable",
+                    "failure_signal": "frame_collapses_under_pressure_points",
+                    "recommended_next_regime": "adversarial",
                     "artifact": {
                         "central_claim": "Define and expand the frame through fragments and spine linkage.",
                         "organizing_idea": "Define and expand the frame through fragments and spine linkage.",

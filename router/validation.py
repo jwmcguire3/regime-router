@@ -6,6 +6,8 @@ from typing import Dict, List, Optional, Set
 from .models import (
     ARTIFACT_FIELDS,
     ARTIFACT_HINTS,
+    COMPLETION_SIGNAL_HINTS,
+    FAILURE_SIGNAL_HINTS,
     Stage,
     STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL,
     STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED,
@@ -60,6 +62,7 @@ class OutputValidator:
         "spine",
         "fragment",
     }
+    STAGE_VALUES = {stage.value for stage in Stage}
 
     def validate(
         self,
@@ -71,12 +74,13 @@ class OutputValidator:
     ) -> Dict[str, object]:
         result: Dict[str, object] = {
             "valid_json": False,
+            "is_valid": False,
             "required_keys_present": False,
             "artifact_fields_present": False,
             "missing_keys": [],
             "missing_artifact_fields": [],
             "artifact_type_matches": False,
-            "stage_matches": False,
+            "contract_controls_valid": False,
             "semantic_valid": False,
             "semantic_failures": [],
             "parsed": None,
@@ -90,7 +94,15 @@ class OutputValidator:
             result["error"] = f"JSON decode error: {e}"
             return result
 
-        required = {"regime", "stage", "artifact_type", "artifact"}
+        required = {
+            "regime",
+            "purpose",
+            "artifact_type",
+            "artifact",
+            "completion_signal",
+            "failure_signal",
+            "recommended_next_regime",
+        }
         parsed_keys = set(parsed.keys()) if isinstance(parsed, dict) else set()
         missing_keys = sorted(required - parsed_keys)
         result["missing_keys"] = missing_keys
@@ -110,14 +122,16 @@ class OutputValidator:
         result["missing_artifact_fields"] = missing_artifact_fields
         result["artifact_fields_present"] = len(missing_artifact_fields) == 0
         result["artifact_type_matches"] = parsed.get("artifact_type") == ARTIFACT_HINTS[stage]
-        result["stage_matches"] = parsed.get("stage") == stage.value
+        control_failures = self._validate_control_fields(stage, parsed)
+        result["control_failures"] = control_failures
+        result["contract_controls_valid"] = len(control_failures) == 0
 
         structural_valid = bool(
             result["valid_json"]
             and result["required_keys_present"]
             and result["artifact_fields_present"]
             and result["artifact_type_matches"]
-            and result["stage_matches"]
+            and result["contract_controls_valid"]
         )
 
         if not structural_valid:
@@ -135,6 +149,39 @@ class OutputValidator:
         result["semantic_valid"] = len(semantic_failures) == 0
         result["is_valid"] = structural_valid and result["semantic_valid"]
         return result
+
+    def _validate_control_fields(self, stage: Stage, parsed: Dict[str, object]) -> List[str]:
+        failures: List[str] = []
+        purpose = parsed.get("purpose")
+        completion_signal = parsed.get("completion_signal")
+        failure_signal = parsed.get("failure_signal")
+        recommended_next_regime = parsed.get("recommended_next_regime")
+
+        if not isinstance(purpose, str) or not purpose.strip():
+            failures.append("purpose must be a non-empty string")
+
+        if not isinstance(completion_signal, str) or not completion_signal.strip():
+            failures.append("completion_signal must be a non-empty string")
+        else:
+            expected_completion_tokens = set(COMPLETION_SIGNAL_HINTS[stage].split("_"))
+            signal_tokens = self._tokenize(completion_signal)
+            if not signal_tokens.intersection(expected_completion_tokens):
+                failures.append("completion_signal is not stage-appropriate")
+
+        if not isinstance(failure_signal, str) or not failure_signal.strip():
+            failures.append("failure_signal must be a non-empty string")
+        else:
+            expected_failure_tokens = set(FAILURE_SIGNAL_HINTS[stage].split("_"))
+            signal_tokens = self._tokenize(failure_signal)
+            if not signal_tokens.intersection(expected_failure_tokens):
+                failures.append("failure_signal is not stage-appropriate")
+
+        if not isinstance(recommended_next_regime, str) or not recommended_next_regime.strip():
+            failures.append("recommended_next_regime must be a non-empty string")
+        elif recommended_next_regime not in self.STAGE_VALUES:
+            failures.append("recommended_next_regime must be a valid regime stage")
+
+        return failures
 
     def _semantic_checks(
         self,

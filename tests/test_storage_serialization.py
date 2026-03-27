@@ -31,8 +31,12 @@ def _synthesis_ok_json() -> str:
     return json.dumps(
         {
             "regime": "Synthesis Core",
+            "purpose": "Produce the strongest coherent interpretation from live signals.",
             "stage": "synthesis",
             "artifact_type": "dominant_frame",
+            "completion_signal": "coherent_frame_stable",
+            "failure_signal": "frame_collapses_under_pressure_points",
+            "recommended_next_regime": "adversarial",
             "artifact": {
                 "central_claim": "Structure must dominate concrete fragments.",
                 "organizing_idea": "A spine-level frame resolves the mismatch.",
