@@ -569,7 +569,7 @@ def test_smoke_main_plan_entrypoint_runs_without_crashing(task, capsys):
     out = capsys.readouterr().out
 
     assert rc == 0
-    assert "ROUTING HEADER" in out
+    assert "=== Routing summary ===" in out
     assert "Regime:" in out
 
 
@@ -1027,9 +1027,9 @@ def test_plan_debug_routing_flag_prints_observability_details(capsys):
     rc = main(["plan", "--task", "Can you help?", "--debug-routing", "--no-use-task-analyzer"])
     out = capsys.readouterr().out
     assert rc == 0
-    assert "ROUTING DEBUG" in out
-    assert "Feature pressures:" in out
-    assert "Analyzer state:" in out
+    assert "=== Debug ===" in out
+    assert "Feature pressures" in out
+    assert "Analyzer state" in out
 
 
 def test_plan_populates_router_state():

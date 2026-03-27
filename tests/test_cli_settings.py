@@ -178,7 +178,7 @@ def test_run_and_plan_use_persisted_defaults(monkeypatch, tmp_path, capsys):
 
     assert rc_run == 0
     assert rc_plan == 0
-    assert "ROUTING DEBUG" in plan_out
+    assert "=== Debug ===" in plan_out
     assert "Saved run to:" in run_out
     assert FakeRuntime.init_calls[0]["use_task_analyzer"] is True
     assert FakeRuntime.init_calls[0]["task_analyzer_model"] == "llama3.2"
@@ -232,3 +232,17 @@ def test_explicit_run_flags_override_stored_defaults(monkeypatch, tmp_path, caps
     assert FakeRuntime.execute_calls[0]["model"] == "llama3.1"
     assert FakeRuntime.execute_calls[0]["bounded_orchestration"] is False
     assert FakeRuntime.execute_calls[0]["max_switches"] == 1
+
+
+def test_plan_output_sections_compact_mode(monkeypatch, capsys):
+    monkeypatch.setattr("router.cli.CognitiveRouterRuntime", FakeRuntime)
+    FakeRuntime.reset()
+
+    rc = main(["--output", "compact", "plan", "--task", "Choose a direction", "--no-use-task-analyzer"])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "=== Routing summary ===" in out
+    assert "=== Regime output ===" in out
+    assert "=== Handoff ===" in out
+    assert "Confidence detail" not in out

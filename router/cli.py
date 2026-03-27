@@ -13,31 +13,53 @@ from .state import Handoff, make_record
 from .storage import SessionStore
 
 
-def print_routing(decision: RoutingDecision) -> None:
-    print("ROUTING HEADER")
-    print(f"- Current bottleneck: {decision.bottleneck}")
-    print(f"- Primary regime: {decision.primary_regime.value}")
-    print(f"- Runner-up regime: {decision.runner_up_regime.value if decision.runner_up_regime else 'none'}")
-    print(
-        f"- Confidence: {decision.confidence.level} "
-        f"(top={decision.confidence.top_stage_score}, runner-up={decision.confidence.runner_up_score}, gap={decision.confidence.score_gap})"
-    )
-    print(f"- Confidence rationale: {decision.confidence.rationale}")
-    print(f"- Deterministic scores: {decision.deterministic_score_summary or 'n/a'}")
-    if decision.deterministic_score_contributions:
-        print(f"- Deterministic contributions: {Router._format_stage_contributions(decision.deterministic_score_contributions)}")
-    print(
-        f"- Analyzer enabled: {decision.analyzer_enabled}"
-    )
-    print(
-        f"- Analyzer used: {decision.analyzer_used} "
-        f"(changed primary={decision.analyzer_changed_primary}, changed runner-up={decision.analyzer_changed_runner_up})"
+class CliOutputFormatter:
+    def __init__(self, mode: str = "verbose") -> None:
+        self.mode = mode
+
+    @property
+    def compact(self) -> bool:
+        return self.mode == "compact"
+
+    def print_section(self, title: str) -> None:
+        print()
+        print(f"=== {title} ===")
+
+    def print_kv(self, key: str, value: object) -> None:
+        print(f"{key:<28}: {value}")
+
+    def print_block(self, title: str, body: str) -> None:
+        self.print_section(title)
+        print(body)
+
+
+def print_routing(decision: RoutingDecision, fmt: CliOutputFormatter) -> None:
+    fmt.print_section("Routing summary")
+    fmt.print_kv("Current bottleneck", decision.bottleneck)
+    fmt.print_kv("Primary regime", decision.primary_regime.value)
+    fmt.print_kv("Runner-up regime", decision.runner_up_regime.value if decision.runner_up_regime else "none")
+    fmt.print_kv("Confidence level", decision.confidence.level)
+    if not fmt.compact:
+        fmt.print_kv(
+            "Confidence scores",
+            f"top={decision.confidence.top_stage_score}, runner-up={decision.confidence.runner_up_score}, gap={decision.confidence.score_gap}",
+        )
+        fmt.print_kv("Confidence rationale", decision.confidence.rationale)
+    fmt.print_kv("Deterministic scores", decision.deterministic_score_summary or "n/a")
+    if decision.deterministic_score_contributions and not fmt.compact:
+        fmt.print_kv(
+            "Deterministic contributions",
+            Router._format_stage_contributions(decision.deterministic_score_contributions),
+        )
+    fmt.print_kv("Analyzer enabled", decision.analyzer_enabled)
+    fmt.print_kv(
+        "Analyzer used",
+        f"{decision.analyzer_used} (changed primary={decision.analyzer_changed_primary}, changed runner-up={decision.analyzer_changed_runner_up})",
     )
     if decision.analyzer_summary:
-        print(f"- Analyzer summary: {decision.analyzer_summary}")
-    print(f"- Why primary wins now: {decision.why_primary_wins_now}")
-    print(f"- Switch trigger: {decision.switch_trigger}")
-    print()
+        fmt.print_kv("Analyzer summary", decision.analyzer_summary)
+    fmt.print_kv("Why primary wins now", decision.why_primary_wins_now)
+    fmt.print_kv("Switch trigger", decision.switch_trigger)
 
 
 def print_routing_debug(
@@ -46,46 +68,49 @@ def print_routing_debug(
     features: RoutingFeatures,
     signals: List[str],
     risks: Set[str],
+    fmt: CliOutputFormatter,
 ) -> None:
-    print("ROUTING DEBUG")
-    print(f"- Structural signals: {signals or []}")
-    print(f"- Risk profile: {sorted(risks)}")
-    print(f"- Feature pressures: decision={features.decision_pressure}, evidence={features.evidence_demand}, fragility={features.fragility_pressure}, recurrence={features.recurrence_potential}, possibility={features.possibility_space_need}")
-    print(f"- Detected markers: {json.dumps(features.detected_markers, ensure_ascii=False)}")
-    print(
-        f"- Confidence detail: level={decision.confidence.level}, rationale={decision.confidence.rationale}, "
-        f"nontrivial_stage_count={decision.confidence.nontrivial_stage_count}, weak_lexical_dependence={decision.confidence.weak_lexical_dependence}, structural_feature_state={decision.confidence.structural_feature_state}"
+    fmt.print_section("Debug")
+    fmt.print_kv("Structural signals", signals or [])
+    fmt.print_kv("Risk profile", sorted(risks))
+    fmt.print_kv(
+        "Feature pressures",
+        f"decision={features.decision_pressure}, evidence={features.evidence_demand}, fragility={features.fragility_pressure}, recurrence={features.recurrence_potential}, possibility={features.possibility_space_need}",
     )
-    print(f"- Stage scores: {decision.deterministic_score_summary or 'n/a'}")
-    print(f"- Stage contributions: {Router._format_stage_contributions(decision.deterministic_score_contributions)}")
-    print(
-        f"- Analyzer state: enabled={decision.analyzer_enabled}, used={decision.analyzer_used}, "
-        f"summary={decision.analyzer_summary or 'n/a'}"
+    if not fmt.compact:
+        fmt.print_kv("Detected markers", json.dumps(features.detected_markers, ensure_ascii=False))
+        fmt.print_kv(
+            "Confidence detail",
+            f"level={decision.confidence.level}, rationale={decision.confidence.rationale}, nontrivial_stage_count={decision.confidence.nontrivial_stage_count}, weak_lexical_dependence={decision.confidence.weak_lexical_dependence}, structural_feature_state={decision.confidence.structural_feature_state}",
+        )
+        fmt.print_kv("Stage scores", decision.deterministic_score_summary or "n/a")
+        fmt.print_kv("Stage contributions", Router._format_stage_contributions(decision.deterministic_score_contributions))
+    fmt.print_kv(
+        "Analyzer state",
+        f"enabled={decision.analyzer_enabled}, used={decision.analyzer_used}, summary={decision.analyzer_summary or 'n/a'}",
     )
-    print()
 
 
-def print_handoff(handoff: Handoff) -> None:
-    print("HANDOFF")
-    print(f"- Current bottleneck: {handoff.current_bottleneck}")
-    print(f"- Dominant frame: {handoff.dominant_frame}")
-    print(f"- What is known: {', '.join(handoff.what_is_known)}")
-    print(f"- What remains uncertain: {', '.join(handoff.what_remains_uncertain)}")
-    print(f"- Active contradictions: {', '.join(handoff.active_contradictions)}")
-    print(f"- Assumptions in play: {', '.join(handoff.assumptions_in_play)}")
-    print(f"- Main risk if continue: {handoff.main_risk_if_continue}")
-    print(f"- Recommended next regime: {handoff.recommended_next_regime.value if handoff.recommended_next_regime else 'none'}")
-    print(f"- Minimum useful artifact: {handoff.minimum_useful_artifact}")
-    print()
+def print_handoff(handoff: Handoff, fmt: CliOutputFormatter) -> None:
+    fmt.print_section("Handoff")
+    fmt.print_kv("Current bottleneck", handoff.current_bottleneck)
+    fmt.print_kv("Dominant frame", handoff.dominant_frame)
+    fmt.print_kv("What is known", ", ".join(handoff.what_is_known))
+    fmt.print_kv("What remains uncertain", ", ".join(handoff.what_remains_uncertain))
+    if not fmt.compact:
+        fmt.print_kv("Active contradictions", ", ".join(handoff.active_contradictions))
+        fmt.print_kv("Assumptions in play", ", ".join(handoff.assumptions_in_play))
+    fmt.print_kv("Main risk if continue", handoff.main_risk_if_continue)
+    fmt.print_kv("Recommended next regime", handoff.recommended_next_regime.value if handoff.recommended_next_regime else "none")
+    fmt.print_kv("Minimum useful artifact", handoff.minimum_useful_artifact)
 
 
-def print_validation(validation: Dict[str, object]) -> None:
-    print("VALIDATION")
+def print_validation(validation: Dict[str, object], fmt: CliOutputFormatter) -> None:
+    fmt.print_section("Validation")
     for k, v in validation.items():
         if k == "parsed":
             continue
-        print(f"- {k}: {v}")
-    print()
+        fmt.print_kv(str(k), v)
 
 
 def parse_risk_profile(raw: Optional[str]) -> Set[str]:
@@ -120,6 +145,7 @@ def _resolved_cli_settings(args: argparse.Namespace) -> CliSettings:
 
 def cmd_run(args: argparse.Namespace) -> int:
     settings = _resolved_cli_settings(args)
+    fmt = CliOutputFormatter(args.output)
     runtime = CognitiveRouterRuntime(
         ollama_base_url=args.base_url,
         use_task_analyzer=settings.use_task_analyzer,
@@ -137,14 +163,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         max_switches=settings.max_switches,
     )
 
-    print_routing(decision)
-    print(regime.render())
-    print()
-    print("MODEL OUTPUT")
-    print(result.raw_response)
-    print()
-    print_validation(result.validation)
-    print_handoff(handoff)
+    print_routing(decision, fmt)
+    fmt.print_block("Regime output", regime.render())
+    fmt.print_block("Model output", result.raw_response)
+    print_validation(result.validation, fmt)
+    print_handoff(handoff, fmt)
 
     record = make_record(args.task, risk_profile, settings.model, decision, regime, result, handoff, runtime.router_state)
     path = store.save(record, filename=args.save_as)
@@ -154,6 +177,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def cmd_plan(args: argparse.Namespace) -> int:
     settings = _resolved_cli_settings(args)
+    fmt = CliOutputFormatter(args.output)
     runtime = CognitiveRouterRuntime(
         ollama_base_url=args.base_url,
         use_task_analyzer=settings.use_task_analyzer,
@@ -164,15 +188,14 @@ def cmd_plan(args: argparse.Namespace) -> int:
         risk_profile=parse_risk_profile(args.risks),
         handoff_expected=not args.no_handoff,
     )
-    print_routing(decision)
+    print_routing(decision, fmt)
     if settings.debug_routing:
         features = extract_routing_features(args.task)
         signals = features.structural_signals
         risks = infer_risk_profile(args.task, parse_risk_profile(args.risks))
-        print_routing_debug(decision=decision, features=features, signals=signals, risks=risks)
-    print(regime.render())
-    print()
-    print_handoff(handoff)
+        print_routing_debug(decision=decision, features=features, signals=signals, risks=risks, fmt=fmt)
+    fmt.print_block("Regime output", regime.render())
+    print_handoff(handoff, fmt)
     return 0
 
 
@@ -252,6 +275,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-url", default="http://localhost:11434", help="Ollama base URL")
     parser.add_argument("--out-dir", default="runs", help="Directory for saved JSON runs")
     parser.add_argument("--settings-file", default=".router_settings.json", help="Path to persisted CLI settings JSON")
+    parser.add_argument(
+        "--output",
+        choices=["verbose", "compact"],
+        default="verbose",
+        help="Console output style for plan/run commands",
+    )
 
     sub = parser.add_subparsers(dest="command", required=True)
 
