@@ -89,6 +89,7 @@ class Handoff:
     main_risk_if_continue: str
     recommended_next_regime: Optional[Stage]
     minimum_useful_artifact: str
+    recommended_next_regime_full: Optional[Regime] = None
 
 
 @dataclass

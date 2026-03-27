@@ -61,6 +61,7 @@ def test_handoff_fields_are_router_state_backed_after_plan():
     assert handoff.active_contradictions == state.contradictions
     assert handoff.assumptions_in_play == state.assumptions
     assert handoff.recommended_next_regime == state.recommended_next_regime.stage
+    assert handoff.recommended_next_regime_full is state.recommended_next_regime
     assert handoff.recommended_next_regime == decision.runner_up_regime
 
 
@@ -73,8 +74,10 @@ def test_handoff_recommended_next_regime_remains_stage_shaped_after_execute(synt
     assert runtime.router_state is not None
     assert runtime.router_state.recommended_next_regime is not None
     assert runtime.router_state.recommended_next_regime.stage == decision.runner_up_regime
+    assert runtime.router_state.recommended_next_regime is runtime.router_state.runner_up_regime
     assert isinstance(handoff.recommended_next_regime, Stage)
     assert handoff.recommended_next_regime == decision.runner_up_regime
+    assert handoff.recommended_next_regime_full is runtime.router_state.recommended_next_regime
 
 
 def test_execute_overrides_recommended_next_regime_from_validated_output():
