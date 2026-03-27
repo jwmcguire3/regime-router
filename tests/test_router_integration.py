@@ -241,6 +241,18 @@ def test_mixed_with_immediate_decision_still_routes_operator():
     assert decision.primary_regime == Stage.OPERATOR
 
 
+def test_mixed_perspectives_with_recommendation_now_routes_operator():
+    decision = Router().route(
+        "Give me the main perspectives, but end with a recommendation for what we should do now."
+    )
+    assert decision.primary_regime == Stage.OPERATOR
+
+
+def test_map_options_and_make_a_call_routes_operator():
+    decision = Router().route("Map the options quickly and make a call.")
+    assert decision.primary_regime == Stage.OPERATOR
+
+
 def test_mixed_with_explicit_keep_open_routes_exploration():
     decision = Router().route(
         "Give multiple frames and interpretations, and keep it open rather than converging, "
@@ -249,9 +261,9 @@ def test_mixed_with_explicit_keep_open_routes_exploration():
     assert decision.primary_regime == Stage.EXPLORATION
 
 
-def test_ambiguous_map_space_then_choose_prefers_exploration():
+def test_map_space_with_explicit_anti_convergence_prefers_exploration():
     decision = Router().route(
-        "Map the space and give multiple perspectives before a decision."
+        "Map the space and give multiple perspectives. Keep it open and delay convergence before narrowing."
     )
     assert decision.primary_regime == Stage.EXPLORATION
 

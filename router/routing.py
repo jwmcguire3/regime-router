@@ -59,10 +59,17 @@ def extract_routing_features(task: str) -> RoutingFeatures:
         "decision",
         "choose",
         "commit",
+        "recommend",
+        "recommendation",
+        "make a call",
+        "what should we do",
         "next move",
         "time pressure",
         "ship now",
         "best option now",
+        "now",
+        "this week",
+        "immediate",
         "select",
     )
     tradeoff_words = ("tradeoff", "trade-off", "between options", "opportunity cost")
@@ -245,6 +252,13 @@ class RegimeConfidenceCalculator:
             "decision",
             "choose",
             "choose now",
+            "recommend",
+            "recommendation",
+            "make a call",
+            "what should we do",
+            "now",
+            "this week",
+            "immediate",
             "commit",
             "next move",
             "best option now",
@@ -395,8 +409,8 @@ class Router:
     def __init__(self) -> None:
         self.confidence_calculator = RegimeConfidenceCalculator()
         self.precedence_order = [
-            Stage.EXPLORATION,
             Stage.OPERATOR,
+            Stage.EXPLORATION,
             Stage.EPISTEMIC,
             Stage.ADVERSARIAL,
             Stage.SYNTHESIS,
@@ -676,6 +690,13 @@ class Router:
                 "decide": 4,
                 "decision": 4,
                 "choose": 4,
+                "recommend": 4,
+                "recommendation": 4,
+                "make a call": 5,
+                "what should we do": 5,
+                "now": 2,
+                "this week": 2,
+                "immediate": 3,
                 "commit": 3,
                 "next move": 4,
                 "tradeoff": 4,
@@ -839,26 +860,6 @@ class Router:
                 "structural",
                 f"feature:possibility_space_need={features.possibility_space_need}",
             )
-        if (
-            features.decision_pressure > 0
-            and features.possibility_space_need > 0
-            and (
-                set(features.detected_markers.get("decision_tradeoff_commitment", []))
-                & RegimeConfidenceCalculator.EXPLICIT_DECISION_MARKERS
-            )
-        ):
-            add_score(
-                Stage.OPERATOR,
-                2,
-                "structural",
-                "mixed_prompt:explicit_decision_now_precedence",
-            )
-            add_score(
-                Stage.EXPLORATION,
-                2,
-                "structural",
-                "mixed_prompt:exploration_retained_as_runner_up",
-            )
         if "open_possibility_space" in features.detected_markers and "anti_convergence_preference" in features.detected_markers:
             add_score(Stage.EXPLORATION, 3, "structural", "anti_convergence:keep_space_open")
             suppress_score(Stage.OPERATOR, 3, "structural", "anti_convergence:suppress_forced_closure")
@@ -885,25 +886,39 @@ class Router:
                 "structural",
                 "explicit_open_space_request:frames_perspectives_keep_open",
             )
-        urgency_commitment_markers = (" now", "immediate", "right away", "commit")
-        has_urgency_commitment_marker = any(marker in b for marker in urgency_commitment_markers)
-        if (
-            explicit_open_space_markers & open_space_advantage_markers
-            and features.decision_pressure > 0
-            and not has_urgency_commitment_marker
-        ):
-            add_score(
-                Stage.EXPLORATION,
-                2,
-                "structural",
-                "mixed_prompt:open_space_without_urgency_prefers_exploration",
+        if features.decision_pressure > 0 and features.possibility_space_need > 0:
+            explicit_closure_markers = (
+                set(features.detected_markers.get("decision_tradeoff_commitment", []))
+                & RegimeConfidenceCalculator.EXPLICIT_DECISION_MARKERS
             )
-            suppress_score(
-                Stage.OPERATOR,
-                2,
-                "structural",
-                "mixed_prompt:no_urgency_reduce_operator_pull",
-            )
+            has_explicit_anti_convergence = "anti_convergence_preference" in features.detected_markers
+            if explicit_closure_markers:
+                add_score(
+                    Stage.OPERATOR,
+                    2,
+                    "structural",
+                    "mixed_prompt:explicit_decision_now_precedence",
+                )
+                add_score(
+                    Stage.EXPLORATION,
+                    2,
+                    "structural",
+                    "mixed_prompt:exploration_retained_as_runner_up",
+                )
+            if has_explicit_anti_convergence:
+                add_score(
+                    Stage.EXPLORATION,
+                    1,
+                    "structural",
+                    "mixed_prompt:explicit_keep_open_precedence",
+                )
+            if explicit_closure_markers:
+                suppress_score(
+                    Stage.EXPLORATION,
+                    2,
+                    "structural",
+                    "mixed_prompt:hard_closure_overrides_open_space_bonus",
+                )
 
         if deterministic_stage_scores:
             for stage in Stage:
