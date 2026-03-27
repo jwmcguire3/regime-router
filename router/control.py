@@ -264,6 +264,138 @@ class MisroutingDetector:
         return len(state.assumptions) > 0
 
 
+@dataclass(frozen=True)
+class SwitchOrchestrationResult:
+    next_regime: Optional[Regime]
+    switch_recommended_now: bool
+    reason_for_switch: str
+    updated_state: RouterState
+
+
+class SwitchOrchestrator:
+    _ALLOWED_PATHWAYS = {
+        Stage.EXPLORATION: {Stage.SYNTHESIS},
+        Stage.SYNTHESIS: {Stage.EPISTEMIC, Stage.ADVERSARIAL},
+        Stage.EPISTEMIC: {Stage.OPERATOR},
+        Stage.ADVERSARIAL: {Stage.OPERATOR},
+        Stage.OPERATOR: {Stage.BUILDER},
+        Stage.BUILDER: set(),
+    }
+
+    def __init__(self) -> None:
+        self._composer = RegimeComposer()
+
+    def orchestrate(
+        self,
+        state: RouterState,
+        output: RegimeOutputContract,
+        detection: MisroutingDetectionResult,
+        *,
+        switches_used: int,
+        max_switches: int = 2,
+    ) -> SwitchOrchestrationResult:
+        completion_signal = self._signal_from_output(output, key="completion_signal")
+        failure_signal = self._signal_from_output(output, key="failure_signal")
+        bounded = switches_used >= max_switches
+
+        if bounded:
+            state.switch_trigger = "switch_bound_reached"
+            return SwitchOrchestrationResult(
+                next_regime=None,
+                switch_recommended_now=False,
+                reason_for_switch="Switch limit reached; execution remains on current regime.",
+                updated_state=state,
+            )
+
+        if self._assumption_or_frame_collapse(state, failure_signal):
+            next_regime = self._resolve_stage(state, Stage.EXPLORATION)
+            state.recommended_next_regime = next_regime
+            state.switch_trigger = "assumption_or_frame_collapse"
+            return SwitchOrchestrationResult(
+                next_regime=next_regime,
+                switch_recommended_now=True,
+                reason_for_switch="Assumptions or frame collapsed; fallback to exploration.",
+                updated_state=state,
+            )
+
+        if not completion_signal and not failure_signal and not detection.misrouting_detected:
+            return SwitchOrchestrationResult(
+                next_regime=None,
+                switch_recommended_now=False,
+                reason_for_switch="No structured switching signal is active.",
+                updated_state=state,
+            )
+
+        next_stage = self._next_stage(state, completion_signal, failure_signal, detection)
+        if next_stage is None:
+            return SwitchOrchestrationResult(
+                next_regime=None,
+                switch_recommended_now=False,
+                reason_for_switch="Current regime should continue; no allowed transition selected.",
+                updated_state=state,
+            )
+
+        next_regime = self._resolve_stage(state, next_stage)
+        state.recommended_next_regime = next_regime
+        state.switch_trigger = failure_signal or completion_signal or "misrouting_detected"
+        return SwitchOrchestrationResult(
+            next_regime=next_regime,
+            switch_recommended_now=True,
+            reason_for_switch=f"Switching from {state.current_regime.stage.value} to {next_stage.value}.",
+            updated_state=state,
+        )
+
+    def _next_stage(
+        self,
+        state: RouterState,
+        completion_signal: str,
+        failure_signal: str,
+        detection: MisroutingDetectionResult,
+    ) -> Optional[Stage]:
+        current_stage = state.current_regime.stage
+        allowed = self._ALLOWED_PATHWAYS.get(current_stage, set())
+        recommended = detection.recommended_next_stage
+        if detection.misrouting_detected and recommended in allowed:
+            return recommended
+
+        if current_stage == Stage.EXPLORATION and completion_signal:
+            return Stage.SYNTHESIS
+        if current_stage == Stage.SYNTHESIS and failure_signal:
+            if recommended == Stage.ADVERSARIAL and Stage.ADVERSARIAL in allowed:
+                return Stage.ADVERSARIAL
+            return Stage.EPISTEMIC if Stage.EPISTEMIC in allowed else None
+        if current_stage in {Stage.EPISTEMIC, Stage.ADVERSARIAL} and completion_signal:
+            return Stage.OPERATOR if Stage.OPERATOR in allowed else None
+        if current_stage == Stage.OPERATOR and completion_signal and state.recurrence_potential >= 2.0:
+            return Stage.BUILDER if Stage.BUILDER in allowed else None
+        return None
+
+    def _resolve_stage(self, state: RouterState, stage: Stage) -> Regime:
+        if state.current_regime.stage == stage:
+            return state.current_regime
+        if state.runner_up_regime and state.runner_up_regime.stage == stage:
+            return state.runner_up_regime
+        if state.recommended_next_regime and state.recommended_next_regime.stage == stage:
+            return state.recommended_next_regime
+        return self._composer.compose(stage)
+
+    def _signal_from_output(self, output: RegimeOutputContract, *, key: str) -> str:
+        parsed = output.validation.get("parsed", {})
+        if isinstance(parsed, dict):
+            value = parsed.get(key)
+            if isinstance(value, str):
+                return value.strip()
+        return ""
+
+    def _assumption_or_frame_collapse(self, state: RouterState, failure_signal: str) -> bool:
+        normalized = " ".join(failure_signal.lower().split())
+        assumption_collapse_signaled = "assumption" in normalized and "collapse" in normalized
+        frame_collapse_signaled = "frame" in normalized and "collapse" in normalized and "pressure" not in normalized
+        if not (assumption_collapse_signaled or frame_collapse_signaled):
+            return False
+        return bool(state.assumptions) and (bool(state.contradictions) or assumption_collapse_signaled)
+
+
 class EvolutionEngine:
     def propose_revision(self, regime: Regime, failure: FailureLog) -> RevisionProposal:
         if failure.recurrence_count >= 2 and failure.severity == Severity.HIGH:
