@@ -75,3 +75,47 @@ def test_handoff_recommended_next_regime_remains_stage_shaped_after_execute(synt
     assert runtime.router_state.recommended_next_regime.stage == decision.runner_up_regime
     assert isinstance(handoff.recommended_next_regime, Stage)
     assert handoff.recommended_next_regime == decision.runner_up_regime
+
+
+def test_execute_overrides_recommended_next_regime_from_validated_output():
+    runtime = CognitiveRuntime()
+    execution_json = json.dumps(
+        {
+            "regime": "Synthesis Core",
+            "purpose": "Compress to a coherent frame grounded in the task's structural signals.",
+            "stage": "synthesis",
+            "artifact_type": "dominant_frame",
+            "completion_signal": "coherent_frame_stable",
+            "failure_signal": "frame_collapses_under_pressure_points",
+            "recommended_next_regime": "adversarial",
+            "artifact": {
+                "central_claim": "Defining the effort expands it because concrete slices miss the spine.",
+                "organizing_idea": "A spine-level frame explains why fragments look coherent only in isolation.",
+                "key_tensions": ["Concrete detail vs structural spine coherence."],
+                "supporting_structure": ["Task signals explicitly connect define→expand and fragment→spine gap."],
+                "pressure_points": ["If expansion disappears when definition tightens, the frame is wrong."],
+            },
+        }
+    )
+    runtime.ollama = FakeOllama([execution_json, execution_json])
+
+    task = "What is the strongest interpretation, and what evidence is missing?"
+    decision, _, _, handoff = runtime.execute(task=task, model="fake")
+
+    assert decision.runner_up_regime == Stage.EPISTEMIC
+    assert runtime.router_state is not None
+    assert runtime.router_state.recommended_next_regime is not None
+    assert runtime.router_state.recommended_next_regime.stage == Stage.ADVERSARIAL
+    assert handoff.recommended_next_regime == Stage.ADVERSARIAL
+
+
+def test_execute_records_completion_and_failure_signals_in_prior_regime_summary(synthesis_ok_json):
+    runtime = CognitiveRuntime()
+    runtime.ollama = FakeOllama([synthesis_ok_json, synthesis_ok_json])
+
+    runtime.execute(task=STRUCTURAL_TASK, model="fake")
+
+    assert runtime.router_state is not None
+    summary = runtime.router_state.prior_regimes[-1].outcome_summary
+    assert "completion_signal=" in summary
+    assert "failure_signal=" in summary
