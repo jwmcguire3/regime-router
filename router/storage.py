@@ -30,6 +30,17 @@ class SessionStore:
             data = json.load(f)
         if isinstance(data, dict) and "router_state" not in data:
             data["router_state"] = None
+        if isinstance(data, dict) and "orchestration" not in data:
+            data["orchestration"] = {
+                "bounded_orchestration": False,
+                "max_switches": 0,
+                "switches_attempted": 0,
+                "switches_executed": 0,
+                "switch_history": [],
+                "final_current_regime": None,
+                "execution_stages": [],
+                "stop_reason": "legacy_record",
+            }
         return data
 
     def load_router_state(self, filename: str, resolve_stage: Callable[[Stage], Regime]) -> Optional[RouterState]:
