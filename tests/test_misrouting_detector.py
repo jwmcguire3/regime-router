@@ -117,6 +117,31 @@ def test_exploration_fail_stays_exploration_fail_when_sprawl_is_undifferentiated
     assert result.recommended_next_regime.stage == Stage.SYNTHESIS
 
 
+def test_exploration_structured_open_space_marks_completion():
+    detector = MisroutingDetector()
+    state = _state_for(Stage.EXPLORATION)
+    result = detector.detect(
+        state,
+        _output_for(
+            Stage.EXPLORATION,
+            {
+                "candidate_frames": [
+                    "User-impact vs system-risk framing",
+                    "Cost-efficiency tradeoff grouped by time horizon",
+                    "Strategic options compared along reversibility axis",
+                ],
+                "selection_criteria": "",
+                "unresolved_axes": "",
+            },
+        ),
+    )
+
+    assert result.current_regime.stage == Stage.EXPLORATION
+    assert result.misrouting_detected is False
+    assert result.still_productive is True
+    assert result.recommended_next_regime is None
+
+
 def test_synthesis_positive_detects_unsupported_unification_and_flattened_contradictions():
     detector = MisroutingDetector()
     state = _state_for(Stage.SYNTHESIS, contradictions=["Signal A conflicts with signal B"])
@@ -203,6 +228,29 @@ def test_adversarial_complete_still_works_with_revision_movement():
     assert result.misrouting_detected is False
     assert result.still_productive is True
     assert result.recommended_next_regime is None
+
+
+def test_adversarial_objections_only_without_revisions_fails():
+    detector = MisroutingDetector()
+    state = _state_for(Stage.ADVERSARIAL)
+    result = detector.detect(
+        state,
+        _output_for(
+            Stage.ADVERSARIAL,
+            {
+                "top_destabilizers": ["Objection A", "Objection B"],
+                "hidden_assumptions": ["Assumption 1"],
+                "break_conditions": ["Break if X"],
+                "survivable_revisions": "",
+                "residual_risks": ["Residual Risk C"],
+            },
+        ),
+    )
+
+    assert result.current_regime.stage == Stage.ADVERSARIAL
+    assert result.misrouting_detected is True
+    assert result.still_productive is False
+    assert result.recommended_next_regime.stage == Stage.OPERATOR
 
 
 def test_operator_positive_detects_forced_closure_and_routes_to_epistemic_when_support_is_missing():
@@ -336,6 +384,28 @@ def test_synthesis_fail_remains_failure_in_synthesis_even_if_next_is_epistemic()
     assert result.recommended_next_regime.stage == Stage.EPISTEMIC
 
 
+def test_synthesis_forced_unification_with_suppressed_pressure_points_fails():
+    detector = MisroutingDetector()
+    state = _state_for(Stage.SYNTHESIS)
+    result = detector.detect(
+        state,
+        _output_for(
+            Stage.SYNTHESIS,
+            {
+                "central_claim": "Give one clean unifying explanation that ties everything together.",
+                "organizing_idea": "Use a single mechanism even if some observations do not fit.",
+                "supporting_structure": "",
+                "pressure_points": "Do not spend time on contradictions, weak support, or pressure points.",
+            },
+        ),
+    )
+
+    assert result.current_regime.stage == Stage.SYNTHESIS
+    assert result.misrouting_detected is True
+    assert result.still_productive is False
+    assert result.recommended_next_regime.stage == Stage.EPISTEMIC
+
+
 def test_epistemic_fail_remains_epistemic_fail_when_no_support_split_and_no_uncertainty_handling():
     detector = MisroutingDetector()
     state = _state_for(Stage.EPISTEMIC, assumptions=[], contradictions=[])
@@ -357,6 +427,31 @@ def test_epistemic_fail_remains_epistemic_fail_when_no_support_split_and_no_unce
     assert result.misrouting_detected is True
     assert result.still_productive is False
     assert result.recommended_next_regime.stage == Stage.OPERATOR
+
+
+def test_epistemic_support_map_with_uncertainty_and_no_recommendation_completes():
+    detector = MisroutingDetector()
+    state = _state_for(Stage.EPISTEMIC, assumptions=[], contradictions=[])
+    result = detector.detect(
+        state,
+        _output_for(
+            Stage.EPISTEMIC,
+            {
+                "supported_claims": ["Claim A has direct support."],
+                "weakly_supported_claims": ["Claim B has partial support."],
+                "unsupported_claims": ["Claim C currently has no support."],
+                "assumptions": ["Assumes stable demand."],
+                "uncertainty": ["Magnitude of effect is uncertain."],
+                "evidence_gaps": ["Need 4 more weeks of outcomes."],
+                "decision_relevant_conclusions": "Decision-relevant implications listed without recommendation.",
+            },
+        ),
+    )
+
+    assert result.current_regime.stage == Stage.EPISTEMIC
+    assert result.misrouting_detected is False
+    assert result.still_productive is True
+    assert result.recommended_next_regime is None
 
 
 def test_detector_does_not_trigger_constantly_across_balanced_cases():
@@ -466,18 +561,19 @@ def test_failure_transition_defaults_are_spec_aligned():
     )
     assert exploration.recommended_next_regime.stage == Stage.SYNTHESIS
 
-    # Synthesis failure can branch to epistemic (default) or adversarial (explicit pressure points).
+    # Synthesis failure defaults to epistemic when unsupported unification appears.
     synthesis_default = detector.detect(
         _state_for(Stage.SYNTHESIS),
         _output_for(Stage.SYNTHESIS, {"central_claim": "c", "organizing_idea": "o", "supporting_structure": "", "pressure_points": ""}),
     )
     assert synthesis_default.recommended_next_regime.stage == Stage.EPISTEMIC
 
-    synthesis_stress = detector.detect(
+    synthesis_thin_with_pressure = detector.detect(
         _state_for(Stage.SYNTHESIS),
         _output_for(Stage.SYNTHESIS, {"central_claim": "c", "organizing_idea": "o", "supporting_structure": "", "pressure_points": ["stress this"]}),
     )
-    assert synthesis_stress.recommended_next_regime.stage == Stage.ADVERSARIAL
+    assert synthesis_thin_with_pressure.misrouting_detected is False
+    assert synthesis_thin_with_pressure.recommended_next_regime is None
 
     epistemic = detector.detect(
         _state_for(Stage.EPISTEMIC, assumptions=[], contradictions=[]),
