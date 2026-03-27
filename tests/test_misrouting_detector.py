@@ -56,7 +56,7 @@ def _output_for(stage: Stage, artifact: dict) -> RegimeOutputContract:
     )
 
 
-def test_exploration_positive_detects_branch_sprawl_without_selection_criteria():
+def test_exploration_complete_stays_complete_with_multiple_distinct_frames():
     detector = MisroutingDetector()
     state = _state_for(Stage.EXPLORATION)
     result = detector.detect(
@@ -71,8 +71,10 @@ def test_exploration_positive_detects_branch_sprawl_without_selection_criteria()
         ),
     )
 
-    assert result.misrouting_detected is True
-    assert result.recommended_next_regime.stage == Stage.SYNTHESIS
+    assert result.misrouting_detected is False
+    assert result.still_productive is True
+    assert result.current_regime.stage == Stage.EXPLORATION
+    assert result.recommended_next_regime is None
 
 
 def test_exploration_negative_does_not_trigger_with_two_or_three_frames_and_criteria():
@@ -92,6 +94,27 @@ def test_exploration_negative_does_not_trigger_with_two_or_three_frames_and_crit
 
     assert result.misrouting_detected is False
     assert result.recommended_next_regime is None
+
+
+def test_exploration_fail_stays_exploration_fail_when_sprawl_is_undifferentiated():
+    detector = MisroutingDetector()
+    state = _state_for(Stage.EXPLORATION)
+    result = detector.detect(
+        state,
+        _output_for(
+            Stage.EXPLORATION,
+            {
+                "candidate_frames": ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"],
+                "selection_criteria": "",
+                "unresolved_axes": "",
+            },
+        ),
+    )
+
+    assert result.current_regime.stage == Stage.EXPLORATION
+    assert result.misrouting_detected is True
+    assert result.still_productive is False
+    assert result.recommended_next_regime.stage == Stage.SYNTHESIS
 
 
 def test_synthesis_positive_detects_unsupported_unification_and_flattened_contradictions():
@@ -114,7 +137,7 @@ def test_synthesis_positive_detects_unsupported_unification_and_flattened_contra
     assert result.recommended_next_regime.stage == Stage.EPISTEMIC
 
 
-def test_epistemic_positive_detects_support_map_without_decision_useful_conclusion():
+def test_epistemic_complete_stays_complete_without_decision_recommendation():
     detector = MisroutingDetector()
     state = _state_for(Stage.EPISTEMIC)
     result = detector.detect(
@@ -131,8 +154,10 @@ def test_epistemic_positive_detects_support_map_without_decision_useful_conclusi
         ),
     )
 
-    assert result.misrouting_detected is True
-    assert result.recommended_next_regime.stage == Stage.OPERATOR
+    assert result.current_regime.stage == Stage.EPISTEMIC
+    assert result.misrouting_detected is False
+    assert result.still_productive is True
+    assert result.recommended_next_regime is None
 
 
 def test_adversarial_positive_detects_repetitive_objections_and_defaults_to_operator():
@@ -157,6 +182,29 @@ def test_adversarial_positive_detects_repetitive_objections_and_defaults_to_oper
     assert result.recommended_next_regime.stage == Stage.OPERATOR
 
 
+def test_adversarial_complete_still_works_with_revision_movement():
+    detector = MisroutingDetector()
+    state = _state_for(Stage.ADVERSARIAL)
+    result = detector.detect(
+        state,
+        _output_for(
+            Stage.ADVERSARIAL,
+            {
+                "top_destabilizers": ["Objection A", "Objection B"],
+                "hidden_assumptions": ["Assumption 1"],
+                "break_conditions": ["Break if X"],
+                "survivable_revisions": ["Revise step 2"],
+                "residual_risks": ["Risk C"],
+            },
+        ),
+    )
+
+    assert result.current_regime.stage == Stage.ADVERSARIAL
+    assert result.misrouting_detected is False
+    assert result.still_productive is True
+    assert result.recommended_next_regime is None
+
+
 def test_operator_positive_detects_forced_closure_and_routes_to_epistemic_when_support_is_missing():
     detector = MisroutingDetector()
     state = _state_for(Stage.OPERATOR, assumptions=["Assume demand stays flat"])
@@ -179,6 +227,48 @@ def test_operator_positive_detects_forced_closure_and_routes_to_epistemic_when_s
     assert result.recommended_next_regime.stage == Stage.EPISTEMIC
 
 
+def test_operator_complete_and_fail_still_work():
+    detector = MisroutingDetector()
+
+    complete_state = _state_for(Stage.OPERATOR)
+    complete_result = detector.detect(
+        complete_state,
+        _output_for(
+            Stage.OPERATOR,
+            {
+                "decision": "Choose option B",
+                "rationale": "Reversible and aligned with current constraints.",
+                "tradeoff_accepted": "Lower short-term speed for resilience.",
+                "next_actions": ["Start pilot"],
+                "fallback_trigger": "Metric M drops below threshold",
+                "review_point": "next week",
+            },
+        ),
+    )
+    assert complete_result.misrouting_detected is False
+    assert complete_result.still_productive is True
+    assert complete_result.recommended_next_regime is None
+
+    fail_state = _state_for(Stage.OPERATOR, assumptions=["Assume supplier lead time is stable"])
+    fail_result = detector.detect(
+        fail_state,
+        _output_for(
+            Stage.OPERATOR,
+            {
+                "decision": "Choose option A",
+                "rationale": "",
+                "tradeoff_accepted": "",
+                "next_actions": ["Execute immediately"],
+                "fallback_trigger": "",
+                "review_point": "later",
+            },
+        ),
+    )
+    assert fail_result.current_regime.stage == Stage.OPERATOR
+    assert fail_result.misrouting_detected is True
+    assert fail_result.recommended_next_regime.stage == Stage.EPISTEMIC
+
+
 def test_builder_positive_detects_premature_architecture_with_weak_recurrence():
     detector = MisroutingDetector()
     state = _state_for(Stage.BUILDER, recurrence_potential=0.0)
@@ -199,6 +289,73 @@ def test_builder_positive_detects_premature_architecture_with_weak_recurrence():
     )
 
     assert result.misrouting_detected is True
+    assert result.recommended_next_regime.stage == Stage.OPERATOR
+
+
+def test_synthesis_complete_stays_synthesis_complete_with_thin_but_coherent_structure():
+    detector = MisroutingDetector()
+    state = _state_for(Stage.SYNTHESIS, contradictions=["A and B are in tension"])
+    result = detector.detect(
+        state,
+        _output_for(
+            Stage.SYNTHESIS,
+            {
+                "central_claim": "A central pattern is emerging.",
+                "organizing_idea": "",
+                "supporting_structure": "",
+                "pressure_points": ["Pattern fails if key assumption breaks"],
+            },
+        ),
+    )
+
+    assert result.current_regime.stage == Stage.SYNTHESIS
+    assert result.misrouting_detected is False
+    assert result.still_productive is True
+    assert result.recommended_next_regime is None
+
+
+def test_synthesis_fail_remains_failure_in_synthesis_even_if_next_is_epistemic():
+    detector = MisroutingDetector()
+    state = _state_for(Stage.SYNTHESIS)
+    result = detector.detect(
+        state,
+        _output_for(
+            Stage.SYNTHESIS,
+            {
+                "central_claim": "Everything can be explained by one frame.",
+                "organizing_idea": "Single mechanism is sufficient.",
+                "supporting_structure": "",
+                "pressure_points": "",
+            },
+        ),
+    )
+
+    assert result.current_regime.stage == Stage.SYNTHESIS
+    assert result.misrouting_detected is True
+    assert result.still_productive is False
+    assert result.recommended_next_regime.stage == Stage.EPISTEMIC
+
+
+def test_epistemic_fail_remains_epistemic_fail_when_no_support_split_and_no_uncertainty_handling():
+    detector = MisroutingDetector()
+    state = _state_for(Stage.EPISTEMIC, assumptions=[], contradictions=[])
+    result = detector.detect(
+        state,
+        _output_for(
+            Stage.EPISTEMIC,
+            {
+                "supported_claims": "",
+                "plausible_but_unproven": "",
+                "contradictions": "",
+                "omitted_due_to_insufficient_support": "",
+                "decision_relevant_conclusions": "Proceed anyway.",
+            },
+        ),
+    )
+
+    assert result.current_regime.stage == Stage.EPISTEMIC
+    assert result.misrouting_detected is True
+    assert result.still_productive is False
     assert result.recommended_next_regime.stage == Stage.OPERATOR
 
 
@@ -248,7 +405,7 @@ def test_detector_does_not_trigger_constantly_across_balanced_cases():
 
 def test_any_regime_can_fallback_to_exploration_on_assumption_collapse():
     detector = MisroutingDetector()
-    for stage in [Stage.SYNTHESIS, Stage.EPISTEMIC, Stage.ADVERSARIAL, Stage.OPERATOR, Stage.BUILDER]:
+    for stage in [Stage.SYNTHESIS, Stage.ADVERSARIAL, Stage.OPERATOR, Stage.BUILDER]:
         state = _state_for(stage, assumptions=["Core assumption"])
         # Ensure each stage has its stage-specific failure signal active.
         stage_artifact = {
@@ -299,13 +456,13 @@ def test_any_regime_can_fallback_to_exploration_on_assumption_collapse():
         assert result.recommended_next_regime.stage == Stage.EXPLORATION
 
 
-def test_deterministic_transition_defaults_are_spec_aligned():
+def test_failure_transition_defaults_are_spec_aligned():
     detector = MisroutingDetector()
 
-    # Exploration completion-like failure signal defaults to synthesis.
+    # Exploration failure defaults to synthesis.
     exploration = detector.detect(
         _state_for(Stage.EXPLORATION),
-        _output_for(Stage.EXPLORATION, {"candidate_frames": ["a", "b", "c", "d"], "selection_criteria": "", "unresolved_axes": ["u"]}),
+        _output_for(Stage.EXPLORATION, {"candidate_frames": ["a", "b", "c", "d", "e", "f"], "selection_criteria": "", "unresolved_axes": ""}),
     )
     assert exploration.recommended_next_regime.stage == Stage.SYNTHESIS
 
@@ -323,15 +480,15 @@ def test_deterministic_transition_defaults_are_spec_aligned():
     assert synthesis_stress.recommended_next_regime.stage == Stage.ADVERSARIAL
 
     epistemic = detector.detect(
-        _state_for(Stage.EPISTEMIC),
+        _state_for(Stage.EPISTEMIC, assumptions=[], contradictions=[]),
         _output_for(
             Stage.EPISTEMIC,
             {
-                "supported_claims": ["S1"],
-                "plausible_but_unproven": ["P1"],
-                "contradictions": ["C1"],
-                "omitted_due_to_insufficient_support": ["O1"],
-                "decision_relevant_conclusions": "",
+                "supported_claims": "",
+                "plausible_but_unproven": "",
+                "contradictions": "",
+                "omitted_due_to_insufficient_support": "",
+                "decision_relevant_conclusions": "Proceed.",
             },
         ),
     )

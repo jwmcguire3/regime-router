@@ -39,6 +39,7 @@ class MisroutingDetectionResult:
 class MisroutingDetector:
     JUSTIFICATION_SWITCH = "Current regime is hitting its dominant failure mode. Switching is justified."
     JUSTIFICATION_STAY = "Current regime remains productive. Switching is not justified."
+    JUSTIFICATION_INCOMPLETE = "Current regime is incomplete but not in dominant failure mode yet. Switching is not justified."
 
     _DEFAULT_NEXT_REGIME_BY_STAGE = {
         Stage.EXPLORATION: Stage.SYNTHESIS,
@@ -65,17 +66,20 @@ class MisroutingDetector:
         artifact = self._extract_artifact(output)
         current_regime = state.current_regime
         stage = current_regime.stage
-        signal_active = self._signal_active(stage, state, artifact)
-        recommended_next = self._recommended_next_regime(state, artifact, signal_active)
-        if signal_active:
+        failure_signal = self._failure_signal_active(stage, state, artifact)
+        completion_signal = self._completion_signal_active(stage, state, artifact)
+        recommended_next = self._recommended_next_regime(state, artifact, failure_signal)
+        if failure_signal:
             justification = self.JUSTIFICATION_SWITCH
-        else:
+        elif completion_signal:
             justification = self.JUSTIFICATION_STAY
+        else:
+            justification = self.JUSTIFICATION_INCOMPLETE
         return MisroutingDetectionResult(
             current_regime=current_regime,
             dominant_failure_mode=self._DOMINANT_FAILURE_MODE_BY_STAGE[stage],
-            still_productive=not signal_active,
-            misrouting_detected=signal_active,
+            still_productive=completion_signal,
+            misrouting_detected=failure_signal,
             justification=justification,
             recommended_next_regime=recommended_next,
         )
@@ -125,11 +129,11 @@ class MisroutingDetector:
         artifact = raw.get("artifact", {})
         return artifact if isinstance(artifact, dict) else {}
 
-    def _signal_active(self, stage: Stage, state: RouterState, artifact: Dict[str, object]) -> bool:
+    def _failure_signal_active(self, stage: Stage, state: RouterState, artifact: Dict[str, object]) -> bool:
         if stage == Stage.EXPLORATION:
             candidate_frames = self._item_count(artifact.get("candidate_frames"))
-            has_selection_criteria = self._present(artifact.get("selection_criteria"))
-            return candidate_frames >= 4 and not has_selection_criteria
+            has_differentiation = self._exploration_has_differentiation(artifact)
+            return candidate_frames >= 5 and not has_differentiation
 
         if stage == Stage.SYNTHESIS:
             has_central_claim = self._present(artifact.get("central_claim"))
@@ -137,14 +141,15 @@ class MisroutingDetector:
             has_support = self._present(artifact.get("supporting_structure"))
             contradictions_live = len(state.contradictions) > 0
             has_pressure_points = self._present(artifact.get("pressure_points"))
-            unsupported_unification = has_central_claim and has_organizing_idea and not has_support
-            contradictions_flattened = contradictions_live and not has_pressure_points
-            return unsupported_unification or contradictions_flattened
+            unsupported_unification = has_central_claim and has_organizing_idea and not has_support and not has_pressure_points
+            stress_without_structure = has_central_claim and has_organizing_idea and has_pressure_points and not has_support
+            contradictions_flattened = contradictions_live and not has_pressure_points and not has_support
+            return unsupported_unification or stress_without_structure or contradictions_flattened
 
         if stage == Stage.EPISTEMIC:
-            has_support_map = self._present(artifact.get("supported_claims")) or self._present(artifact.get("plausible_but_unproven"))
-            has_decision_conclusion = self._present(artifact.get("decision_relevant_conclusions"))
-            return has_support_map and not has_decision_conclusion
+            has_support_separation = self._epistemic_has_support_separation(artifact)
+            has_uncertainty_handling = self._epistemic_has_uncertainty_handling(state, artifact)
+            return not has_support_separation and not has_uncertainty_handling
 
         if stage == Stage.ADVERSARIAL:
             destabilizers = artifact.get("top_destabilizers")
@@ -168,6 +173,53 @@ class MisroutingDetector:
             return has_modules_or_interfaces and not self._recurrence_established(state)
 
         return False
+
+    def _completion_signal_active(self, stage: Stage, state: RouterState, artifact: Dict[str, object]) -> bool:
+        if stage == Stage.EXPLORATION:
+            candidate_frames = self._item_count(artifact.get("candidate_frames"))
+            has_differentiation = self._exploration_has_differentiation(artifact)
+            return candidate_frames >= 3 and has_differentiation
+
+        if stage == Stage.SYNTHESIS:
+            has_central_pattern = self._present(artifact.get("central_claim")) or self._present(artifact.get("organizing_idea"))
+            has_connective_structure = self._present(artifact.get("supporting_structure")) or self._present(artifact.get("pressure_points"))
+            if len(state.contradictions) > 0:
+                has_connective_structure = has_connective_structure or self._present(artifact.get("contradictions"))
+            return has_central_pattern and has_connective_structure
+
+        if stage == Stage.EPISTEMIC:
+            has_support_separation = self._epistemic_has_support_separation(artifact)
+            has_uncertainty_handling = self._epistemic_has_uncertainty_handling(state, artifact)
+            return has_support_separation and has_uncertainty_handling
+
+        return not self._failure_signal_active(stage, state, artifact)
+
+    def _exploration_has_differentiation(self, artifact: Dict[str, object]) -> bool:
+        has_selection_criteria = self._present(artifact.get("selection_criteria"))
+        has_unresolved_axes = self._present(artifact.get("unresolved_axes"))
+        candidate_frames = artifact.get("candidate_frames")
+        rich_frames = 0
+        if isinstance(candidate_frames, list):
+            for frame in candidate_frames:
+                if isinstance(frame, str) and len(frame.strip().split()) >= 2:
+                    rich_frames += 1
+        frame_text = self._normalized(candidate_frames)
+        unique_tokens = {token for token in frame_text.split() if len(token) > 2}
+        has_frame_diversity = len(unique_tokens) >= 6 and rich_frames >= 2
+        return has_selection_criteria or has_unresolved_axes or has_frame_diversity
+
+    def _epistemic_has_support_separation(self, artifact: Dict[str, object]) -> bool:
+        has_supported = self._present(artifact.get("supported_claims"))
+        has_unproven = self._present(artifact.get("plausible_but_unproven")) or self._present(artifact.get("omitted_due_to_insufficient_support"))
+        return has_supported and has_unproven
+
+    def _epistemic_has_uncertainty_handling(self, state: RouterState, artifact: Dict[str, object]) -> bool:
+        has_uncertainty_markers = (
+            self._present(artifact.get("contradictions"))
+            or self._present(artifact.get("omitted_due_to_insufficient_support"))
+            or self._present(artifact.get("hidden_assumptions"))
+        )
+        return has_uncertainty_markers or len(state.assumptions) > 0 or len(state.contradictions) > 0
 
     def _item_count(self, value: object) -> int:
         if isinstance(value, list):
