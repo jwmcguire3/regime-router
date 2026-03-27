@@ -296,7 +296,7 @@ class CognitiveRouterRuntime:
             if isinstance(recommended_next, str):
                 normalized_stage = recommended_next.strip().lower()
                 if normalized_stage in Stage._value2member_map_:
-                    state.recommended_next_regime = self.composer.compose(Stage(normalized_stage))
+                    state.recommended_next_regime = self._resolve_next_regime(state, Stage(normalized_stage))
 
         semantic_failures = [str(f) for f in result.validation.get("semantic_failures", [])]
         if semantic_failures:
@@ -331,6 +331,7 @@ class CognitiveRouterRuntime:
                 main_risk_if_continue="",
                 recommended_next_regime=None,
                 minimum_useful_artifact="",
+                recommended_next_regime_full=None,
             )
         return Handoff(
             current_bottleneck=state.current_bottleneck,
@@ -342,7 +343,17 @@ class CognitiveRouterRuntime:
             main_risk_if_continue=state.risks[-1] if state.risks else "",
             recommended_next_regime=state.recommended_next_regime.stage if state.recommended_next_regime else None,
             minimum_useful_artifact=state.stage_goal,
+            recommended_next_regime_full=state.recommended_next_regime,
         )
+
+    def _resolve_next_regime(self, state: RouterState, stage: Stage) -> Regime:
+        if state.current_regime.stage == stage:
+            return state.current_regime
+        if state.runner_up_regime and state.runner_up_regime.stage == stage:
+            return state.runner_up_regime
+        if state.recommended_next_regime and state.recommended_next_regime.stage == stage:
+            return state.recommended_next_regime
+        return self.composer.compose(stage)
 
 # ============================================================
 # JSON persistence
