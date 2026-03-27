@@ -6,6 +6,8 @@ from typing import Dict, List, Optional, Set
 from .models import (
     ARTIFACT_FIELDS,
     ARTIFACT_HINTS,
+    CANONICAL_FAILURE_IF_OVERUSED,
+    REGIME_OUTPUT_CONTRACT_KEYS,
     Stage,
     STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL,
     STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED,
@@ -77,6 +79,7 @@ class OutputValidator:
             "missing_artifact_fields": [],
             "artifact_type_matches": False,
             "stage_matches": False,
+            "control_fields_valid": False,
             "semantic_valid": False,
             "semantic_failures": [],
             "parsed": None,
@@ -90,7 +93,7 @@ class OutputValidator:
             result["error"] = f"JSON decode error: {e}"
             return result
 
-        required = {"regime", "stage", "artifact_type", "artifact"}
+        required = set(REGIME_OUTPUT_CONTRACT_KEYS)
         parsed_keys = set(parsed.keys()) if isinstance(parsed, dict) else set()
         missing_keys = sorted(required - parsed_keys)
         result["missing_keys"] = missing_keys
@@ -111,6 +114,7 @@ class OutputValidator:
         result["artifact_fields_present"] = len(missing_artifact_fields) == 0
         result["artifact_type_matches"] = parsed.get("artifact_type") == ARTIFACT_HINTS[stage]
         result["stage_matches"] = parsed.get("stage") == stage.value
+        result["control_fields_valid"] = self._validate_control_fields(stage, parsed, result)
 
         structural_valid = bool(
             result["valid_json"]
@@ -118,6 +122,7 @@ class OutputValidator:
             and result["artifact_fields_present"]
             and result["artifact_type_matches"]
             and result["stage_matches"]
+            and result["control_fields_valid"]
         )
 
         if not structural_valid:
@@ -135,6 +140,32 @@ class OutputValidator:
         result["semantic_valid"] = len(semantic_failures) == 0
         result["is_valid"] = structural_valid and result["semantic_valid"]
         return result
+
+    def _validate_control_fields(self, stage: Stage, parsed: Dict[str, object], result: Dict[str, object]) -> bool:
+        errors: List[str] = []
+        for key in ("purpose", "completion_signal", "failure_signal"):
+            value = parsed.get(key)
+            if not isinstance(value, str) or len(value.strip()) < 3:
+                errors.append(f"{key} must be a non-empty string")
+
+        next_regime = parsed.get("recommended_next_regime")
+        allowed_next_regimes = {s.value for s in Stage} | {"none"}
+        if not isinstance(next_regime, str) or next_regime not in allowed_next_regimes:
+            errors.append(
+                "recommended_next_regime must be one of: "
+                + ", ".join(sorted(allowed_next_regimes))
+            )
+
+        failure_signal = str(parsed.get("failure_signal", "")).lower()
+        expected_failure = CANONICAL_FAILURE_IF_OVERUSED[stage].lower()
+        expected_tokens = {tok for tok in self._tokenize(expected_failure) if len(tok) > 3}
+        if expected_tokens and not (self._tokenize(failure_signal) & expected_tokens):
+            errors.append("failure_signal does not align with the regime's dominant failure mode")
+
+        if errors:
+            result["error"] = "; ".join(errors)
+            return False
+        return True
 
     def _semantic_checks(
         self,

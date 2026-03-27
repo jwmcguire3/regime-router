@@ -179,8 +179,19 @@ class CognitiveRouterRuntime:
             task_signals=task_signals,
             risks_inferred=True,
         )
-        system_prompt = self.prompt_builder.build_system_prompt(regime, task_signals=task_signals, risk_profile=inferred_risks)
-        user_prompt = self.prompt_builder.build_user_prompt(task, regime, task_signals=task_signals, risk_profile=inferred_risks)
+        system_prompt = self.prompt_builder.build_system_prompt(
+            regime,
+            task_signals=task_signals,
+            risk_profile=inferred_risks,
+            recommended_next_regime=decision.runner_up_regime,
+        )
+        user_prompt = self.prompt_builder.build_user_prompt(
+            task,
+            regime,
+            task_signals=task_signals,
+            risk_profile=inferred_risks,
+            recommended_next_regime=decision.runner_up_regime,
+        )
 
         response = self.ollama.generate(model=model, system=system_prompt, prompt=user_prompt, stream=False)
         raw_text = str(response.get("response", "")).strip()

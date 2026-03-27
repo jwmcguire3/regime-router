@@ -42,7 +42,11 @@ def synthesis_ok_json() -> str:
     payload = {
         "regime": "Synthesis Core",
         "stage": "synthesis",
+        "purpose": "Produce the strongest current structural interpretation of the task.",
         "artifact_type": "dominant_frame",
+        "completion_signal": "A coherent dominant frame is grounded in the structural signals and ready for stress testing.",
+        "failure_signal": "false unification",
+        "recommended_next_regime": "adversarial",
         "artifact": {
             "central_claim": "The frame must expand when defined because the concrete view shrinks the real structure.",
             "organizing_idea": "Definition changes the unit of analysis: it connects fragments into a spine, which makes narrow concrete cuts look too small.",
@@ -68,7 +72,11 @@ def synthesis_polished_but_generic_json() -> str:
     payload = {
         "regime": "Synthesis Core",
         "stage": "synthesis",
+        "purpose": "Produce a synthesis frame for the task.",
         "artifact_type": "dominant_frame",
+        "completion_signal": "The synthesis artifact is complete.",
+        "failure_signal": "false unification",
+        "recommended_next_regime": "adversarial",
         "artifact": {
             "central_claim": "This effort is about navigating complexity with careful consideration across multiple perspectives.",
             "organizing_idea": "The project requires deeper analysis and understanding of various factors over time.",
@@ -85,7 +93,11 @@ def synthesis_bad_pressure_points_json() -> str:
     payload = {
         "regime": "Synthesis Core",
         "stage": "synthesis",
+        "purpose": "Produce the strongest current structural interpretation of the task.",
         "artifact_type": "dominant_frame",
+        "completion_signal": "The dominant frame is concrete enough to hand off.",
+        "failure_signal": "false unification",
+        "recommended_next_regime": "adversarial",
         "artifact": {
             "central_claim": "Defining the work expands scope because each concrete cut removes the spine-level relation.",
             "organizing_idea": "Fragments make sense locally, but a shared spine only appears when the frame tracks expansion under definition.",
@@ -448,7 +460,11 @@ def test_validator_rejects_pressure_points_as_execution_risks(synthesis_bad_pres
                 {
                     "regime": "Synthesis Core",
                     "stage": "synthesis",
+                    "purpose": "Produce a frame for current task structure.",
                     "artifact_type": "dominant_frame",
+                    "completion_signal": "Artifact is complete for this pass.",
+                    "failure_signal": "false unification",
+                    "recommended_next_regime": "adversarial",
                     "artifact": {
                         "central_claim": "This effort is about navigating complexity across various factors and multiple perspectives.",
                         "organizing_idea": "A deeper analysis helps understanding of systemic issues over time.",
@@ -465,7 +481,11 @@ def test_validator_rejects_pressure_points_as_execution_risks(synthesis_bad_pres
                 {
                     "regime": "Synthesis Core",
                     "stage": "synthesis",
+                    "purpose": "Produce a frame for current task structure.",
                     "artifact_type": "dominant_frame",
+                    "completion_signal": "Artifact is complete for this pass.",
+                    "failure_signal": "false unification",
+                    "recommended_next_regime": "adversarial",
                     "artifact": {
                         "central_claim": "Define and expand the frame through fragments and spine linkage.",
                         "organizing_idea": "Define and expand the frame through fragments and spine linkage.",
@@ -496,6 +516,90 @@ def test_repair_dispatch_selects_expected_mode(first_response, expected_mode, sy
 
     assert selected_modes == [expected_mode]
     assert result.validation["repair_attempted"] is True
+
+
+def test_validator_rejects_missing_required_control_fields():
+    payload = {
+        "regime": "Synthesis Core",
+        "stage": "synthesis",
+        "artifact_type": "dominant_frame",
+        "artifact": {
+            "central_claim": "Defining expands the frame because concrete slices hide the spine.",
+            "organizing_idea": "Fragment-level clarity masks the missing cross-fragment spine.",
+            "key_tensions": ["Concrete detail versus spine-level coherence."],
+            "supporting_structure": ["Fragments are known while the spine is missing."],
+            "pressure_points": ["If no expansion appears when defining boundaries, the frame weakens."],
+        },
+    }
+    validation = OutputValidator().validate(
+        Stage.SYNTHESIS,
+        json.dumps(payload),
+        task=STRUCTURAL_TASK,
+        task_signals=extract_structural_signals(STRUCTURAL_TASK),
+        risk_profile=infer_risk_profile(STRUCTURAL_TASK, set()),
+    )
+    assert validation["required_keys_present"] is False
+    assert sorted(validation["missing_keys"]) == sorted(
+        ["purpose", "completion_signal", "failure_signal", "recommended_next_regime"]
+    )
+
+
+def test_validator_accepts_epistemic_output_with_new_contract():
+    payload = {
+        "regime": "Epistemic Core",
+        "stage": "epistemic",
+        "purpose": "Separate what is supported from what is still speculative.",
+        "artifact_type": "evidence_map",
+        "completion_signal": "Claims are partitioned into supported, uncertain, and omitted buckets for decision use.",
+        "failure_signal": "under-synthesis / decision drag",
+        "recommended_next_regime": "operator",
+        "artifact": {
+            "supported_claims": ["Defining the effort has repeatedly expanded scope in the provided description."],
+            "plausible_but_unproven": ["A hidden shared structure likely links the understood fragments."],
+            "contradictions": ["Concrete examples feel too small while frame-level interpretation keeps expanding."],
+            "omitted_due_to_insufficient_support": ["No claim is made about implementation sequence because the task provides no process evidence."],
+            "decision_relevant_conclusions": ["Proceed only with hypotheses that explicitly preserve the fragment-to-spine linkage test."],
+        },
+    }
+    validation = OutputValidator().validate(
+        Stage.EPISTEMIC,
+        json.dumps(payload),
+        task=STRUCTURAL_TASK,
+        task_signals=extract_structural_signals(STRUCTURAL_TASK),
+        risk_profile=infer_risk_profile(STRUCTURAL_TASK, set()),
+    )
+    assert validation["is_valid"] is True
+
+
+def test_validator_accepts_operator_output_with_new_contract():
+    payload = {
+        "regime": "Operator Core",
+        "stage": "operator",
+        "purpose": "Commit to a concrete next move under current uncertainty.",
+        "artifact_type": "decision_packet",
+        "completion_signal": "A single decision is chosen with executable actions and a review trigger.",
+        "failure_signal": "forced closure",
+        "recommended_next_regime": "epistemic",
+        "artifact": {
+            "decision": "Adopt a spine-first framing checkpoint before any further concrete decomposition.",
+            "rationale": "This protects against recurring expansion-by-definition and keeps decisions tied to structural integrity.",
+            "tradeoff_accepted": "Short-term delivery detail is deferred to avoid cementing a too-small frame.",
+            "next_actions": [
+                "Draft one page that maps fragments to a proposed spine.",
+                "Test one concrete example against the shared spine mapping rule.",
+            ],
+            "fallback_trigger": "If two examples cannot share the same spine mapping, pause and return to epistemic verification.",
+            "review_point": "Review after the first two mapping tests complete or within 48 hours.",
+        },
+    }
+    validation = OutputValidator().validate(
+        Stage.OPERATOR,
+        json.dumps(payload),
+        task=STRUCTURAL_TASK,
+        task_signals=extract_structural_signals(STRUCTURAL_TASK),
+        risk_profile=infer_risk_profile(STRUCTURAL_TASK, set()),
+    )
+    assert validation["is_valid"] is True
 
 
 @pytest.mark.parametrize(

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple, TypedDict
 
 STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED = "expansion_when_defined"
 STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL = "concrete_versions_feel_too_small"
@@ -186,6 +186,40 @@ class RegimeExecutionResult:
     artifact_text: str
     validation: Dict[str, object]
     ollama_meta: Dict[str, object] = field(default_factory=dict)
+
+
+class RegimeOutputContract(TypedDict):
+    regime: str
+    stage: str
+    purpose: str
+    artifact_type: str
+    artifact: Dict[str, object]
+    completion_signal: str
+    failure_signal: str
+    recommended_next_regime: Optional[str]
+
+
+ControlPlaneKey = Literal[
+    "regime",
+    "stage",
+    "purpose",
+    "artifact_type",
+    "artifact",
+    "completion_signal",
+    "failure_signal",
+    "recommended_next_regime",
+]
+
+REGIME_OUTPUT_CONTRACT_KEYS: Tuple[ControlPlaneKey, ...] = (
+    "regime",
+    "stage",
+    "purpose",
+    "artifact_type",
+    "artifact",
+    "completion_signal",
+    "failure_signal",
+    "recommended_next_regime",
+)
 
 
 LIBRARY: Dict[str, LinePrimitive] = {

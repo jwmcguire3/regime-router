@@ -3,7 +3,14 @@ from __future__ import annotations
 import textwrap
 from typing import Dict, List, Optional, Set
 
-from .models import ARTIFACT_FIELDS, ARTIFACT_HINTS, Regime, Stage
+from .models import (
+    ARTIFACT_FIELDS,
+    ARTIFACT_HINTS,
+    CANONICAL_FAILURE_IF_OVERUSED,
+    REGIME_OUTPUT_CONTRACT_KEYS,
+    Regime,
+    Stage,
+)
 from .routing import extract_structural_signals
 
 
@@ -13,10 +20,16 @@ class PromptBuilder:
     REPAIR_MODE_REDUCE_GENERICITY = "reduce_genericity_repair"
 
     @staticmethod
-    def build_system_prompt(regime: Regime, task_signals: Optional[List[str]] = None, risk_profile: Optional[Set[str]] = None) -> str:
+    def build_system_prompt(
+        regime: Regime,
+        task_signals: Optional[List[str]] = None,
+        risk_profile: Optional[Set[str]] = None,
+        recommended_next_regime: Optional[Stage] = None,
+    ) -> str:
         artifact_name = ARTIFACT_HINTS[regime.stage]
         fields = ARTIFACT_FIELDS[regime.stage]
         field_list = "\n".join(f"- {f}" for f in fields)
+        contract_keys = "\n".join(f"- {k}" for k in REGIME_OUTPUT_CONTRACT_KEYS)
         task_signals = task_signals or []
 
         field_rules = PromptBuilder._field_rules(regime.stage)
@@ -37,6 +50,9 @@ class PromptBuilder:
                 - pressure_points must falsify or weaken the interpretation, not describe implementation difficulty.
                 """
             ).strip()
+        next_regime_value = recommended_next_regime.value if recommended_next_regime else "none"
+        completion_signal = f"artifact for {regime.stage.value} is complete and ready for handoff"
+        failure_signal = CANONICAL_FAILURE_IF_OVERUSED[regime.stage]
 
         return textwrap.dedent(
             f"""
@@ -59,12 +75,19 @@ class PromptBuilder:
             - If the input is too thin to support a strong artifact, say so concretely inside the relevant fields rather than padding with abstractions.
 
             Top-level JSON keys must be:
-            - regime
-            - stage
-            - artifact_type
-            - artifact
+            {contract_keys}
 
             artifact_type must be exactly: {artifact_name}
+            purpose must be a concise statement of what this regime is trying to produce now.
+            completion_signal must say what condition means this regime pass is done.
+            failure_signal must name the dominant overuse/failure mode for this regime.
+            recommended_next_regime must be the most likely next regime from this set:
+            exploration, synthesis, epistemic, adversarial, operator, builder, none
+
+            Suggested control-plane defaults for this run:
+            - completion_signal: {completion_signal}
+            - failure_signal: {failure_signal}
+            - recommended_next_regime: {next_regime_value}
 
             artifact must include these keys:
             {field_list}
@@ -98,10 +121,17 @@ class PromptBuilder:
         ).strip()
 
     @staticmethod
-    def build_user_prompt(task: str, regime: Regime, task_signals: Optional[List[str]] = None, risk_profile: Optional[Set[str]] = None) -> str:
+    def build_user_prompt(
+        task: str,
+        regime: Regime,
+        task_signals: Optional[List[str]] = None,
+        risk_profile: Optional[Set[str]] = None,
+        recommended_next_regime: Optional[Stage] = None,
+    ) -> str:
         artifact_name = ARTIFACT_HINTS[regime.stage]
         signals = ", ".join(task_signals or []) or "none"
         risks = ", ".join(sorted(risk_profile or set())) or "none"
+        next_regime = recommended_next_regime.value if recommended_next_regime else "none"
         return textwrap.dedent(
             f"""
             Task:
@@ -114,7 +144,10 @@ class PromptBuilder:
             {risks}
 
           Return one JSON object with exactly these top-level keys:
-          regime, stage, artifact_type, artifact
+          regime, stage, purpose, artifact_type, artifact, completion_signal, failure_signal, recommended_next_regime
+
+          recommended_next_regime should be: {next_regime}
+          failure_signal should align with this regime's dominant failure mode.
 
             Use only the information in the task.
             Do not invent missing specifics.
@@ -215,7 +248,7 @@ class PromptBuilder:
             Original task:
             {task}
 
-            Required top-level keys: regime, stage, artifact_type, artifact
+            Required top-level keys: regime, stage, purpose, artifact_type, artifact, completion_signal, failure_signal, recommended_next_regime
             artifact_type must be exactly: {artifact_name}
             Required artifact fields: {required_fields}
 
@@ -354,4 +387,3 @@ class PromptBuilder:
                 if failure.startswith(f"{field} ") and field not in detected:
                     detected.append(field)
         return detected
-
