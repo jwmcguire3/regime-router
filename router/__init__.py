@@ -1,5 +1,5 @@
 from .analyzer import TaskAnalyzer
-from .control import EvolutionEngine
+from .control import EvolutionEngine, MisroutingDetectionResult, MisroutingDetector, RegimeOutputContract
 from .models import *
 from .prompts import PromptBuilder
 from .routing import *
