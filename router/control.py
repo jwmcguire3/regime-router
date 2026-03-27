@@ -29,12 +29,12 @@ class MisroutingDetector:
     JUSTIFICATION_SWITCH = "Current regime is hitting its dominant failure mode. Switching is justified."
     JUSTIFICATION_STAY = "Current regime remains productive. Switching is not justified."
 
-    _NEXT_REGIME_BY_STAGE = {
+    _DEFAULT_NEXT_REGIME_BY_STAGE = {
         Stage.EXPLORATION: Stage.SYNTHESIS,
         Stage.SYNTHESIS: Stage.EPISTEMIC,
         Stage.EPISTEMIC: Stage.OPERATOR,
-        Stage.ADVERSARIAL: Stage.SYNTHESIS,
-        Stage.OPERATOR: Stage.EPISTEMIC,
+        Stage.ADVERSARIAL: Stage.OPERATOR,
+        Stage.OPERATOR: Stage.OPERATOR,
         Stage.BUILDER: Stage.OPERATOR,
     }
 
@@ -51,7 +51,7 @@ class MisroutingDetector:
         artifact = self._extract_artifact(output)
         stage = state.current_regime.stage
         signal_active = self._signal_active(stage, state, artifact)
-        recommended_next = self._recommended_next_regime(state, signal_active)
+        recommended_next = self._recommended_next_regime(state, artifact, signal_active)
         if signal_active:
             justification = self.JUSTIFICATION_SWITCH
         else:
@@ -65,12 +65,26 @@ class MisroutingDetector:
             recommended_next_regime=recommended_next,
         )
 
-    def _recommended_next_regime(self, state: RouterState, signal_active: bool) -> Optional[Stage]:
+    def _recommended_next_regime(
+        self,
+        state: RouterState,
+        artifact: Dict[str, object],
+        signal_active: bool,
+    ) -> Optional[Stage]:
         if not signal_active:
             return None
-        if state.recommended_next_regime is not None:
-            return state.recommended_next_regime.stage
-        return self._NEXT_REGIME_BY_STAGE[state.current_regime.stage]
+        if self._assumption_collapse_detected(state, artifact):
+            return Stage.EXPLORATION
+
+        stage = state.current_regime.stage
+        if stage == Stage.SYNTHESIS and self._adversarial_needed(artifact):
+            return Stage.ADVERSARIAL
+        if stage == Stage.OPERATOR:
+            if self._recurrence_established(state):
+                return Stage.BUILDER
+            if self._operator_evidence_gap(artifact):
+                return Stage.EPISTEMIC
+        return self._DEFAULT_NEXT_REGIME_BY_STAGE[stage]
 
     def _extract_artifact(self, output: RegimeOutputContract) -> Dict[str, object]:
         parsed = output.validation.get("parsed", {})
@@ -89,74 +103,89 @@ class MisroutingDetector:
 
     def _signal_active(self, stage: Stage, state: RouterState, artifact: Dict[str, object]) -> bool:
         if stage == Stage.EXPLORATION:
-            frames = self._list_len(artifact.get("candidate_frames"))
-            has_criteria = self._text_len(artifact.get("selection_criteria")) >= 5
-            unresolved_axes = self._list_len(artifact.get("unresolved_axes"))
-            too_many_without_criteria = frames >= 4 and not has_criteria
-            novelty_outruns_relevance = frames >= 3 and unresolved_axes >= 3 and not has_criteria
-            return too_many_without_criteria or novelty_outruns_relevance
+            candidate_frames = self._item_count(artifact.get("candidate_frames"))
+            has_selection_criteria = self._present(artifact.get("selection_criteria"))
+            return candidate_frames >= 4 and not has_selection_criteria
 
         if stage == Stage.SYNTHESIS:
-            support_is_thin = self._text_len(artifact.get("supporting_structure")) < 8
-            claim_is_clean = self._text_len(artifact.get("central_claim")) >= 8
+            has_central_claim = self._present(artifact.get("central_claim"))
+            has_organizing_idea = self._present(artifact.get("organizing_idea"))
+            has_support = self._present(artifact.get("supporting_structure"))
             contradictions_live = len(state.contradictions) > 0
-            pressure_points = self._text_value(artifact.get("pressure_points"))
-            flattening_contradiction = contradictions_live and "contradict" not in pressure_points
-            return (claim_is_clean and support_is_thin) or flattening_contradiction
+            has_pressure_points = self._present(artifact.get("pressure_points"))
+            unsupported_unification = has_central_claim and has_organizing_idea and not has_support
+            contradictions_flattened = contradictions_live and not has_pressure_points
+            return unsupported_unification or contradictions_flattened
 
         if stage == Stage.EPISTEMIC:
-            decision_useful = self._text_len(artifact.get("decision_relevant_conclusions")) >= 6
-            uncertainty_items = self._list_len(artifact.get("plausible_but_unproven"))
-            practical_movement = self._contains_any(
-                self._text_value(artifact.get("decision_relevant_conclusions")),
-                ("next", "do", "choose", "act", "trigger"),
-            )
-            reportorial_only = not decision_useful
-            uncertainty_without_movement = uncertainty_items >= 3 and not practical_movement
-            return reportorial_only or uncertainty_without_movement
+            has_support_map = self._present(artifact.get("supported_claims")) or self._present(artifact.get("plausible_but_unproven"))
+            has_decision_conclusion = self._present(artifact.get("decision_relevant_conclusions"))
+            return has_support_map and not has_decision_conclusion
 
         if stage == Stage.ADVERSARIAL:
-            destabilizers = self._text_value(artifact.get("top_destabilizers"))
-            residual_risks = self._text_value(artifact.get("residual_risks"))
-            survivable_revisions = self._text_len(artifact.get("survivable_revisions"))
-            repetitive_critique = destabilizers != "" and destabilizers == residual_risks
-            attack_loop = self._text_len(artifact.get("break_conditions")) >= 6 and survivable_revisions < 6
-            return repetitive_critique or attack_loop
+            destabilizers = artifact.get("top_destabilizers")
+            residual_risks = artifact.get("residual_risks")
+            same_objections = self._normalized(destabilizers) == self._normalized(residual_risks) and self._present(destabilizers)
+            no_revision_movement = not self._present(artifact.get("survivable_revisions"))
+            return same_objections or (self._present(destabilizers) and no_revision_movement)
 
         if stage == Stage.OPERATOR:
-            assumptions_live = len(state.assumptions) > 0
-            tradeoff_stable = self._text_len(artifact.get("tradeoff_accepted")) >= 6
-            rationale_stable = self._text_len(artifact.get("rationale")) >= 8
-            forced_before_stable = assumptions_live and (not tradeoff_stable or not rationale_stable)
-            return forced_before_stable
+            has_decision = self._present(artifact.get("decision"))
+            if not has_decision:
+                return False
+            missing_tradeoff = not self._present(artifact.get("tradeoff_accepted"))
+            missing_rationale = not self._present(artifact.get("rationale"))
+            missing_fallback = not self._present(artifact.get("fallback_trigger"))
+            assumptions_hidden = self._has_live_assumptions(state) and missing_rationale and missing_fallback
+            return missing_tradeoff or missing_rationale or missing_fallback or assumptions_hidden
 
         if stage == Stage.BUILDER:
-            recurrence_established = state.recurrence_potential >= 2.0
-            has_architecture = self._text_len(artifact.get("modules")) >= 6 or self._text_len(artifact.get("interfaces")) >= 6
-            return has_architecture and not recurrence_established
+            has_modules_or_interfaces = self._present(artifact.get("modules")) or self._present(artifact.get("interfaces"))
+            return has_modules_or_interfaces and not self._recurrence_established(state)
 
         return False
 
-    def _list_len(self, value: object) -> int:
+    def _item_count(self, value: object) -> int:
         if isinstance(value, list):
-            return len(value)
+            return sum(1 for item in value if self._present(item))
         return 0
 
-    def _text_value(self, value: object) -> str:
+    def _present(self, value: object) -> bool:
+        if isinstance(value, str):
+            return bool(value.strip())
         if isinstance(value, list):
-            value = " ".join(str(item) for item in value)
-        if not isinstance(value, str):
+            return any(self._present(item) for item in value)
+        if isinstance(value, dict):
+            return any(self._present(v) for v in value.values())
+        return value is not None
+
+    def _normalized(self, value: object) -> str:
+        if isinstance(value, list):
+            return " | ".join(self._normalized(item) for item in value if self._present(item)).strip()
+        if isinstance(value, dict):
+            return " | ".join(f"{k}:{self._normalized(v)}" for k, v in sorted(value.items()) if self._present(v)).strip()
+        if isinstance(value, str):
+            return " ".join(value.lower().split())
+        if value is None:
             return ""
-        return value.strip().lower()
+        return str(value).strip().lower()
 
-    def _text_len(self, value: object) -> int:
-        text = self._text_value(value)
-        if not text:
-            return 0
-        return len(text.split())
+    def _assumption_collapse_detected(self, state: RouterState, artifact: Dict[str, object]) -> bool:
+        if not self._has_live_assumptions(state):
+            return False
+        return self._present(artifact.get("hidden_assumptions")) or self._present(artifact.get("contradictions"))
 
-    def _contains_any(self, text: str, markers: tuple[str, ...]) -> bool:
-        return any(marker in text for marker in markers)
+    def _adversarial_needed(self, artifact: Dict[str, object]) -> bool:
+        return self._present(artifact.get("pressure_points"))
+
+    def _operator_evidence_gap(self, artifact: Dict[str, object]) -> bool:
+        return self._present(artifact.get("decision")) and not self._present(artifact.get("rationale"))
+
+    def _recurrence_established(self, state: RouterState) -> bool:
+        return state.recurrence_potential >= 2.0
+
+    def _has_live_assumptions(self, state: RouterState) -> bool:
+        return len(state.assumptions) > 0
 
 
 class EvolutionEngine:
