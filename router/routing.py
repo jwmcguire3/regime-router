@@ -652,8 +652,15 @@ class Router:
             "stress points",
             "what would break this frame",
         ]
+        adversarial_negation_markers = [
+            "without turning this into a stress test",
+            "without turning this into stress test",
+            "not a stress test",
+            "do not stress test",
+            "don't stress test",
+        ]
 
-        if any(k in b for k in adversarial_shortcut_markers):
+        if any(k in b for k in adversarial_shortcut_markers) and not any(k in b for k in adversarial_negation_markers):
             return RoutingDecision(
                 bottleneck=bottleneck,
                 primary_regime=Stage.ADVERSARIAL,
@@ -863,6 +870,9 @@ class Router:
                 "what would break it": 5,
             },
         )
+        if any(marker in b for marker in adversarial_negation_markers):
+            suppress_score(Stage.ADVERSARIAL, 4, "lexical", "negated_adversarial:stress_test_language_is_scoped_down")
+            add_score(Stage.SYNTHESIS, 2, "lexical", "negated_adversarial:integration_remains_primary")
         if any(k in b for k in interpretation_shortcut_markers):
             add_score(Stage.SYNTHESIS, 4, "lexical", "interpretation_shortcut_marker")
             if any(k in b for k in epistemic_markers):

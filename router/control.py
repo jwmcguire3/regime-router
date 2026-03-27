@@ -68,17 +68,18 @@ class MisroutingDetector:
         stage = current_regime.stage
         failure_signal = self._failure_signal_active(stage, state, artifact)
         completion_signal = self._completion_signal_active(stage, state, artifact)
+        still_productive = completion_signal and not failure_signal
         recommended_next = self._recommended_next_regime(state, artifact, failure_signal)
         if failure_signal:
             justification = self.JUSTIFICATION_SWITCH
-        elif completion_signal:
+        elif still_productive:
             justification = self.JUSTIFICATION_STAY
         else:
             justification = self.JUSTIFICATION_INCOMPLETE
         return MisroutingDetectionResult(
             current_regime=current_regime,
             dominant_failure_mode=self._DOMINANT_FAILURE_MODE_BY_STAGE[stage],
-            still_productive=completion_signal,
+            still_productive=still_productive,
             misrouting_detected=failure_signal,
             justification=justification,
             recommended_next_regime=recommended_next,
@@ -142,9 +143,9 @@ class MisroutingDetector:
             contradictions_live = len(state.contradictions) > 0
             has_pressure_points = self._present(artifact.get("pressure_points"))
             unsupported_unification = has_central_claim and has_organizing_idea and not has_support and not has_pressure_points
-            stress_without_structure = has_central_claim and has_organizing_idea and has_pressure_points and not has_support
             contradictions_flattened = contradictions_live and not has_pressure_points and not has_support
-            return unsupported_unification or stress_without_structure or contradictions_flattened
+            forced_unification = self._synthesis_forced_unification(artifact)
+            return unsupported_unification or contradictions_flattened or forced_unification
 
         if stage == Stage.EPISTEMIC:
             has_support_separation = self._epistemic_has_support_separation(artifact)
@@ -154,9 +155,9 @@ class MisroutingDetector:
         if stage == Stage.ADVERSARIAL:
             destabilizers = artifact.get("top_destabilizers")
             residual_risks = artifact.get("residual_risks")
-            same_objections = self._normalized(destabilizers) == self._normalized(residual_risks) and self._present(destabilizers)
             no_revision_movement = not self._present(artifact.get("survivable_revisions"))
-            return same_objections or (self._present(destabilizers) and no_revision_movement)
+            same_objections = self._normalized(destabilizers) == self._normalized(residual_risks) and self._present(destabilizers)
+            return self._present(destabilizers) and no_revision_movement and (same_objections or self._present(destabilizers))
 
         if stage == Stage.OPERATOR:
             has_decision = self._present(artifact.get("decision"))
@@ -198,19 +199,41 @@ class MisroutingDetector:
         has_selection_criteria = self._present(artifact.get("selection_criteria"))
         has_unresolved_axes = self._present(artifact.get("unresolved_axes"))
         candidate_frames = artifact.get("candidate_frames")
-        rich_frames = 0
-        if isinstance(candidate_frames, list):
-            for frame in candidate_frames:
-                if isinstance(frame, str) and len(frame.strip().split()) >= 2:
-                    rich_frames += 1
-        frame_text = self._normalized(candidate_frames)
-        unique_tokens = {token for token in frame_text.split() if len(token) > 2}
-        has_frame_diversity = len(unique_tokens) >= 6 and rich_frames >= 2
-        return has_selection_criteria or has_unresolved_axes or has_frame_diversity
+        has_structured_comparison = self._exploration_frames_show_structure(candidate_frames)
+        return has_selection_criteria or has_unresolved_axes or has_structured_comparison
+
+    def _exploration_frames_show_structure(self, candidate_frames: object) -> bool:
+        if not isinstance(candidate_frames, list):
+            return False
+        comparison_markers = (
+            " vs ",
+            " versus ",
+            " compared",
+            " contrast",
+            " tradeoff",
+            " grouped",
+            " grouped by",
+            " cluster",
+            " category",
+            " axis",
+            " dimensions",
+            " narrow",
+            " prioritize",
+            " distinguish",
+        )
+        rich_frames = [frame for frame in candidate_frames if isinstance(frame, str) and len(frame.strip().split()) >= 3]
+        if len(rich_frames) < 2:
+            return False
+        return any(marker in self._normalized(rich_frames) for marker in comparison_markers)
 
     def _epistemic_has_support_separation(self, artifact: Dict[str, object]) -> bool:
         has_supported = self._present(artifact.get("supported_claims"))
-        has_unproven = self._present(artifact.get("plausible_but_unproven")) or self._present(artifact.get("omitted_due_to_insufficient_support"))
+        has_unproven = (
+            self._present(artifact.get("plausible_but_unproven"))
+            or self._present(artifact.get("omitted_due_to_insufficient_support"))
+            or self._present(artifact.get("weakly_supported_claims"))
+            or self._present(artifact.get("unsupported_claims"))
+        )
         return has_supported and has_unproven
 
     def _epistemic_has_uncertainty_handling(self, state: RouterState, artifact: Dict[str, object]) -> bool:
@@ -218,8 +241,43 @@ class MisroutingDetector:
             self._present(artifact.get("contradictions"))
             or self._present(artifact.get("omitted_due_to_insufficient_support"))
             or self._present(artifact.get("hidden_assumptions"))
+            or self._present(artifact.get("assumptions"))
+            or self._present(artifact.get("uncertainty"))
+            or self._present(artifact.get("evidence_gaps"))
         )
         return has_uncertainty_markers or len(state.assumptions) > 0 or len(state.contradictions) > 0
+
+    def _synthesis_forced_unification(self, artifact: Dict[str, object]) -> bool:
+        text = self._normalized(
+            [
+                artifact.get("central_claim"),
+                artifact.get("organizing_idea"),
+                artifact.get("supporting_structure"),
+                artifact.get("pressure_points"),
+            ]
+        )
+        if not text:
+            return False
+        unification_markers = (
+            "one clean unifying",
+            "ties everything together",
+            "single mechanism",
+            "one frame explains everything",
+            "even if some observations do not fit",
+            "everything together",
+        )
+        suppression_markers = (
+            "do not spend time on contradictions",
+            "ignore contradictions",
+            "suppress contradictions",
+            "ignore weak support",
+            "suppress weak support",
+            "do not spend time on pressure points",
+            "without pressure points",
+        )
+        has_unification_push = any(marker in text for marker in unification_markers)
+        has_integrity_suppression = any(marker in text for marker in suppression_markers)
+        return has_unification_push and has_integrity_suppression
 
     def _item_count(self, value: object) -> int:
         if isinstance(value, list):
@@ -252,7 +310,19 @@ class MisroutingDetector:
         return self._present(artifact.get("hidden_assumptions")) or self._present(artifact.get("contradictions"))
 
     def _adversarial_needed(self, artifact: Dict[str, object]) -> bool:
-        return self._present(artifact.get("pressure_points"))
+        if not self._present(artifact.get("pressure_points")):
+            return False
+        pressure_text = self._normalized(artifact.get("pressure_points"))
+        suppressed_pressure_testing = any(
+            marker in pressure_text
+            for marker in (
+                "without pressure points",
+                "ignore pressure points",
+            )
+        )
+        if "do not spend time on" in pressure_text and "pressure points" in pressure_text:
+            suppressed_pressure_testing = True
+        return not suppressed_pressure_testing
 
     def _operator_evidence_gap(self, artifact: Dict[str, object]) -> bool:
         return self._present(artifact.get("decision")) and not self._present(artifact.get("rationale"))

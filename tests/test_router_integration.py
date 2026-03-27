@@ -288,6 +288,14 @@ def test_boundary_synthesis_with_minor_uncertainty_stays_synthesis():
     assert decision.primary_regime == Stage.SYNTHESIS
 
 
+def test_boundary_synthesis_with_minor_pressure_point_not_stress_test_stays_synthesis():
+    decision = Router().route(
+        "Pull the observations into one coherent explanation, identify the central pattern, "
+        "and briefly note the main pressure point without turning this into a stress test."
+    )
+    assert decision.primary_regime == Stage.SYNTHESIS
+
+
 def test_boundary_adversarial_with_revisions_stays_adversarial():
     decision = Router().route(
         "Stress test the proposal, identify attack points and failure modes, then propose revisions."
