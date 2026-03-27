@@ -88,18 +88,18 @@ def test_execute_populates_router_state_and_mutation_helpers(synthesis_ok_json):
     assert state.recommended_next_regime is not None
     assert state.recommended_next_regime.stage == decision.runner_up_regime
     assert state.prior_regimes
-    assert state.prior_regimes[-1].regime == decision.primary_regime
+    assert state.prior_regimes[-1].regime.stage == decision.primary_regime
 
     before_len = len(state.prior_regimes)
     state.record_regime_step(
-        regime=Stage.OPERATOR,
+        regime=runtime.composer.compose(Stage.OPERATOR),
         reason_entered="Need convergence.",
         completion_signal_seen=False,
         failure_signal_seen=True,
         outcome_summary="Escalated due to decision pressure.",
     )
     assert len(state.prior_regimes) == before_len + 1
-    assert state.prior_regimes[-1].regime == Stage.OPERATOR
+    assert state.prior_regimes[-1].regime.stage == Stage.OPERATOR
 
     state.apply_dominant_frame("Updated frame")
     assert state.dominant_frame == "Updated frame"

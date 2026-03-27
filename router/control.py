@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 
 from .models import FailureLog, LIBRARY, Regime, RevisionProposal, Severity, Stage
+from .routing import RegimeComposer
 from .state import RouterState
 
 
@@ -17,12 +18,22 @@ class RegimeOutputContract:
 
 @dataclass(frozen=True)
 class MisroutingDetectionResult:
-    current_regime: Stage
+    current_regime: Regime
     dominant_failure_mode: str
     still_productive: bool
     misrouting_detected: bool
     justification: str
-    recommended_next_regime: Optional[Stage]
+    recommended_next_regime: Optional[Regime]
+
+    @property
+    def current_stage(self) -> Stage:
+        return self.current_regime.stage
+
+    @property
+    def recommended_next_stage(self) -> Optional[Stage]:
+        if self.recommended_next_regime is None:
+            return None
+        return self.recommended_next_regime.stage
 
 
 class MisroutingDetector:
@@ -47,9 +58,13 @@ class MisroutingDetector:
         Stage.BUILDER: "premature architecture",
     }
 
+    def __init__(self) -> None:
+        self._composer = RegimeComposer()
+
     def detect(self, state: RouterState, output: RegimeOutputContract) -> MisroutingDetectionResult:
         artifact = self._extract_artifact(output)
-        stage = state.current_regime.stage
+        current_regime = state.current_regime
+        stage = current_regime.stage
         signal_active = self._signal_active(stage, state, artifact)
         recommended_next = self._recommended_next_regime(state, artifact, signal_active)
         if signal_active:
@@ -57,7 +72,7 @@ class MisroutingDetector:
         else:
             justification = self.JUSTIFICATION_STAY
         return MisroutingDetectionResult(
-            current_regime=stage,
+            current_regime=current_regime,
             dominant_failure_mode=self._DOMINANT_FAILURE_MODE_BY_STAGE[stage],
             still_productive=not signal_active,
             misrouting_detected=signal_active,
@@ -70,21 +85,30 @@ class MisroutingDetector:
         state: RouterState,
         artifact: Dict[str, object],
         signal_active: bool,
-    ) -> Optional[Stage]:
+    ) -> Optional[Regime]:
         if not signal_active:
             return None
         if self._assumption_collapse_detected(state, artifact):
-            return Stage.EXPLORATION
+            return self._regime_for_stage(state, Stage.EXPLORATION)
 
         stage = state.current_regime.stage
         if stage == Stage.SYNTHESIS and self._adversarial_needed(artifact):
-            return Stage.ADVERSARIAL
+            return self._regime_for_stage(state, Stage.ADVERSARIAL)
         if stage == Stage.OPERATOR:
             if self._recurrence_established(state):
-                return Stage.BUILDER
+                return self._regime_for_stage(state, Stage.BUILDER)
             if self._operator_evidence_gap(artifact):
-                return Stage.EPISTEMIC
-        return self._DEFAULT_NEXT_REGIME_BY_STAGE[stage]
+                return self._regime_for_stage(state, Stage.EPISTEMIC)
+        return self._regime_for_stage(state, self._DEFAULT_NEXT_REGIME_BY_STAGE[stage])
+
+    def _regime_for_stage(self, state: RouterState, stage: Stage) -> Regime:
+        if state.current_regime.stage == stage:
+            return state.current_regime
+        if state.runner_up_regime and state.runner_up_regime.stage == stage:
+            return state.runner_up_regime
+        if state.recommended_next_regime and state.recommended_next_regime.stage == stage:
+            return state.recommended_next_regime
+        return self._composer.compose(stage)
 
     def _extract_artifact(self, output: RegimeOutputContract) -> Dict[str, object]:
         parsed = output.validation.get("parsed", {})
