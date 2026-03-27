@@ -103,8 +103,31 @@ def extract_routing_features(task: str) -> RoutingFeatures:
     recurrence_words_generic = ("pattern",)
     builder_words = ("productize", "modules", "interfaces", "workflow", "automation")
 
-    possibility_words = ("possibility", "explore", "exploration", "brainstorm", "alternatives", "option space", "open")
+    possibility_words = (
+        "possibility",
+        "explore",
+        "exploration",
+        "brainstorm",
+        "alternatives",
+        "option space",
+        "open",
+        "multiple frames",
+        "multiple possible frames",
+        "multiple perspectives",
+        "multiple interpretations",
+        "perspectives",
+        "interpretations",
+        "map the space",
+    )
     convergence_words = ("too early", "premature", "locked in", "single frame", "compresses", "narrowing")
+    anti_convergence_words = (
+        "keep it open",
+        "rather than converging",
+        "instead of converging",
+        "delay convergence",
+        "delaying convergence",
+        "before narrowing",
+    )
 
     matches: Dict[str, List[str]] = {}
 
@@ -128,6 +151,7 @@ def extract_routing_features(task: str) -> RoutingFeatures:
     builder_hits = _contains_any(text, builder_words)
     possibility_hits = _contains_any(text, possibility_words)
     convergence_hits = _contains_any(text, convergence_words)
+    anti_convergence_hits = _contains_any(text, anti_convergence_words)
 
     structural_signals: List[str] = []
 
@@ -167,8 +191,10 @@ def extract_routing_features(task: str) -> RoutingFeatures:
         matches["recurrence_systemization"] = sorted(
             set(recurrence_hits_strong + recurrence_hits_generic + builder_hits)
         )
-    if possibility_hits or convergence_hits:
-        matches["open_possibility_space"] = sorted(set(possibility_hits + convergence_hits))
+    if possibility_hits or convergence_hits or anti_convergence_hits:
+        matches["open_possibility_space"] = sorted(set(possibility_hits + convergence_hits + anti_convergence_hits))
+    if anti_convergence_hits:
+        matches["anti_convergence_preference"] = sorted(set(anti_convergence_hits))
 
     return RoutingFeatures(
         structural_signals=structural_signals,
@@ -176,7 +202,7 @@ def extract_routing_features(task: str) -> RoutingFeatures:
         evidence_demand=_score_from_matches(evidence_hits, uncertainty_hits, uncertainty_characterization_hits),
         fragility_pressure=_score_from_matches(fragility_hits, launch_hits),
         recurrence_potential=min(10, (2 * len(recurrence_hits_strong)) + (2 * len(builder_hits))),
-        possibility_space_need=_score_from_matches(possibility_hits, convergence_hits),
+        possibility_space_need=_score_from_matches(possibility_hits, convergence_hits, anti_convergence_hits),
         detected_markers=matches,
     )
 
@@ -630,6 +656,16 @@ class Router:
                 structural_scores[stage] += amount
             stage_contributions[stage].append(f"+{amount} {bucket}:{reason}")
 
+        def suppress_score(stage: Stage, amount: int, bucket: str, reason: str) -> None:
+            if amount <= 0:
+                return
+            stage_scores[stage] = max(0, stage_scores[stage] - amount)
+            if bucket == "lexical":
+                lexical_scores[stage] = max(0, lexical_scores[stage] - amount)
+            else:
+                structural_scores[stage] = max(0, structural_scores[stage] - amount)
+            stage_contributions[stage].append(f"-{amount} {bucket}:{reason}")
+
         def add_phrase_weights(stage: Stage, weighted_terms: Dict[str, int]) -> None:
             for phrase, weight in weighted_terms.items():
                 if phrase in b:
@@ -768,9 +804,11 @@ class Router:
             if "uncertainty_characterization" in features.detected_markers:
                 add_score(Stage.EPISTEMIC, 2, "structural", "feature:uncertainty_characterization")
         if features.decision_pressure > 0:
+            decision_markers = set(features.detected_markers.get("decision_tradeoff_commitment", []))
+            has_explicit_decision_marker = bool(decision_markers & RegimeConfidenceCalculator.EXPLICIT_DECISION_MARKERS)
             add_score(
                 Stage.OPERATOR,
-                2 + min(3, features.decision_pressure // 2),
+                1 + min(3, features.decision_pressure // 2) + (1 if has_explicit_decision_marker else 0),
                 "structural",
                 f"feature:decision_pressure={features.decision_pressure}",
             )
@@ -812,16 +850,19 @@ class Router:
         ):
             add_score(
                 Stage.OPERATOR,
-                3,
+                2,
                 "structural",
                 "mixed_prompt:explicit_decision_now_precedence",
             )
             add_score(
                 Stage.EXPLORATION,
-                1,
+                2,
                 "structural",
                 "mixed_prompt:exploration_retained_as_runner_up",
             )
+        if "open_possibility_space" in features.detected_markers and "anti_convergence_preference" in features.detected_markers:
+            add_score(Stage.EXPLORATION, 3, "structural", "anti_convergence:keep_space_open")
+            suppress_score(Stage.OPERATOR, 3, "structural", "anti_convergence:suppress_forced_closure")
 
         if deterministic_stage_scores:
             for stage in Stage:
