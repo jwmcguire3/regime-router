@@ -3,7 +3,15 @@ from __future__ import annotations
 import textwrap
 from typing import Dict, List, Optional, Set
 
-from .models import ARTIFACT_FIELDS, ARTIFACT_HINTS, Regime, Stage
+from .models import (
+    ARTIFACT_FIELDS,
+    ARTIFACT_HINTS,
+    COMPLETION_SIGNAL_HINTS,
+    FAILURE_SIGNAL_HINTS,
+    REGIME_PURPOSE_HINTS,
+    Regime,
+    Stage,
+)
 from .routing import extract_structural_signals
 
 
@@ -60,11 +68,19 @@ class PromptBuilder:
 
             Top-level JSON keys must be:
             - regime
-            - stage
+            - purpose
             - artifact_type
             - artifact
+            - completion_signal
+            - failure_signal
+            - recommended_next_regime
 
             artifact_type must be exactly: {artifact_name}
+            purpose should align with: {REGIME_PURPOSE_HINTS[regime.stage]}
+            completion_signal should use this control language: {COMPLETION_SIGNAL_HINTS[regime.stage]}
+            failure_signal should use this control language: {FAILURE_SIGNAL_HINTS[regime.stage]}
+            recommended_next_regime must be a valid regime stage value
+            (exploration|synthesis|epistemic|adversarial|operator|builder)
 
             artifact must include these keys:
             {field_list}
@@ -114,7 +130,7 @@ class PromptBuilder:
             {risks}
 
           Return one JSON object with exactly these top-level keys:
-          regime, stage, artifact_type, artifact
+          regime, purpose, artifact_type, artifact, completion_signal, failure_signal, recommended_next_regime
 
             Use only the information in the task.
             Do not invent missing specifics.
@@ -215,7 +231,7 @@ class PromptBuilder:
             Original task:
             {task}
 
-            Required top-level keys: regime, stage, artifact_type, artifact
+            Required top-level keys: regime, purpose, artifact_type, artifact, completion_signal, failure_signal, recommended_next_regime
             artifact_type must be exactly: {artifact_name}
             Required artifact fields: {required_fields}
 
@@ -231,6 +247,8 @@ class PromptBuilder:
             - Return only valid JSON.
             - Keep existing content where possible; perform minimal structural edits.
             - Do not add commentary or markdown fences.
+            - completion_signal should fit this regime language: {COMPLETION_SIGNAL_HINTS[regime.stage]}
+            - failure_signal should fit this regime language: {FAILURE_SIGNAL_HINTS[regime.stage]}
             """
         ).strip()
 
@@ -354,4 +372,3 @@ class PromptBuilder:
                 if failure.startswith(f"{field} ") and field not in detected:
                     detected.append(field)
         return detected
-

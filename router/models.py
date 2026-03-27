@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED = "expansion_when_defined"
 STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL = "concrete_versions_feel_too_small"
@@ -186,6 +186,16 @@ class RegimeExecutionResult:
     artifact_text: str
     validation: Dict[str, object]
     ollama_meta: Dict[str, object] = field(default_factory=dict)
+
+
+class RegimeOutputContract(TypedDict):
+    regime: str
+    purpose: str
+    artifact_type: str
+    artifact: Dict[str, Any]
+    completion_signal: str
+    failure_signal: str
+    recommended_next_regime: str
 
 
 LIBRARY: Dict[str, LinePrimitive] = {
@@ -655,6 +665,33 @@ ARTIFACT_FIELDS: Dict[Stage, List[str]] = {
         "implementation_sequence",
         "compounding_path",
     ],
+}
+
+REGIME_PURPOSE_HINTS: Dict[Stage, str] = {
+    Stage.EXPLORATION: "Generate and compare structurally distinct candidate frames.",
+    Stage.SYNTHESIS: "Produce the strongest coherent interpretation from live signals.",
+    Stage.EPISTEMIC: "Separate supported claims from uncertainty and gaps.",
+    Stage.ADVERSARIAL: "Stress test the frame with destabilizers and break conditions.",
+    Stage.OPERATOR: "Commit to a concrete decision with executable next moves.",
+    Stage.BUILDER: "Convert insight into reusable architecture and modules.",
+}
+
+COMPLETION_SIGNAL_HINTS: Dict[Stage, str] = {
+    Stage.EXPLORATION: "selection_criteria_ready",
+    Stage.SYNTHESIS: "coherent_frame_stable",
+    Stage.EPISTEMIC: "evidence_boundary_clear",
+    Stage.ADVERSARIAL: "critical_breakpoints_mapped",
+    Stage.OPERATOR: "decision_committed_with_actions",
+    Stage.BUILDER: "blueprint_ready_for_build_sequence",
+}
+
+FAILURE_SIGNAL_HINTS: Dict[Stage, str] = {
+    Stage.EXPLORATION: "frames_not_structurally_distinct",
+    Stage.SYNTHESIS: "frame_collapses_under_pressure_points",
+    Stage.EPISTEMIC: "insufficient_support_for_key_claims",
+    Stage.ADVERSARIAL: "destabilizers_unresolved_or_redundant",
+    Stage.OPERATOR: "decision_not_actionable_under_constraints",
+    Stage.BUILDER: "architecture_not_modular_or_reusable",
 }
 
 
