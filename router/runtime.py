@@ -281,12 +281,22 @@ class CognitiveRouterRuntime:
         if state is None:
             return
         parsed = result.validation.get("parsed", {})
+        completion_signal = ""
+        failure_signal = ""
         if isinstance(parsed, dict):
+            completion_signal = str(parsed.get("completion_signal", "")).strip()
+            failure_signal = str(parsed.get("failure_signal", "")).strip()
+
             artifact = parsed.get("artifact", {})
             if isinstance(artifact, dict):
                 central_claim = artifact.get("central_claim")
                 if isinstance(central_claim, str) and central_claim.strip():
                     state.apply_dominant_frame(central_claim.strip())
+            recommended_next = parsed.get("recommended_next_regime")
+            if isinstance(recommended_next, str):
+                normalized_stage = recommended_next.strip().lower()
+                if normalized_stage in Stage._value2member_map_:
+                    state.recommended_next_regime = self.composer.compose(Stage(normalized_stage))
 
         semantic_failures = [str(f) for f in result.validation.get("semantic_failures", [])]
         if semantic_failures:
@@ -294,12 +304,19 @@ class CognitiveRouterRuntime:
                 contradictions=state.contradictions + semantic_failures,
                 assumptions=state.assumptions + ["Validation semantic failures were observed and should shape next regime."],
             )
+
+        is_valid = bool(result.validation.get("is_valid", False))
+        summary_chunks = ["Execution yielded a valid artifact." if is_valid else "Execution yielded validation failures."]
+        if completion_signal:
+            summary_chunks.append(f"completion_signal={completion_signal}")
+        if failure_signal:
+            summary_chunks.append(f"failure_signal={failure_signal}")
         state.record_regime_step(
             regime=state.current_regime,
             reason_entered=decision.why_primary_wins_now,
-            completion_signal_seen=bool(result.validation.get("is_valid", False)),
-            failure_signal_seen=not bool(result.validation.get("is_valid", False)),
-            outcome_summary="Execution yielded a valid artifact." if result.validation.get("is_valid", False) else "Execution yielded validation failures.",
+            completion_signal_seen=is_valid,
+            failure_signal_seen=not is_valid,
+            outcome_summary=" ".join(summary_chunks),
         )
 
     def _handoff_from_state(self, state: Optional[RouterState]) -> Handoff:
