@@ -1,4 +1,7 @@
 runs/
+cases/
+batch_runs/
 *.bat
 __pycache__/
 *.pyc
+router_batch.py
