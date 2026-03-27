@@ -64,9 +64,8 @@ def extract_routing_features(task: str) -> RoutingFeatures:
         "ship now",
         "best option now",
         "select",
-        "now",
     )
-    tradeoff_words = ("tradeoff", "trade-off", "between options", "selection", "opportunity cost")
+    tradeoff_words = ("tradeoff", "trade-off", "between options", "opportunity cost")
 
     fragility_words = (
         "fragile",
@@ -396,12 +395,12 @@ class Router:
     def __init__(self) -> None:
         self.confidence_calculator = RegimeConfidenceCalculator()
         self.precedence_order = [
+            Stage.EXPLORATION,
             Stage.OPERATOR,
             Stage.EPISTEMIC,
             Stage.ADVERSARIAL,
             Stage.SYNTHESIS,
             Stage.BUILDER,
-            Stage.EXPLORATION,
         ]
 
     @staticmethod
@@ -863,6 +862,48 @@ class Router:
         if "open_possibility_space" in features.detected_markers and "anti_convergence_preference" in features.detected_markers:
             add_score(Stage.EXPLORATION, 3, "structural", "anti_convergence:keep_space_open")
             suppress_score(Stage.OPERATOR, 3, "structural", "anti_convergence:suppress_forced_closure")
+        explicit_open_space_markers = set(features.detected_markers.get("open_possibility_space", []))
+        open_space_advantage_markers = {
+            "multiple frames",
+            "multiple possible frames",
+            "multiple perspectives",
+            "multiple interpretations",
+            "perspectives",
+            "interpretations",
+            "map the space",
+            "keep it open",
+            "rather than converging",
+            "instead of converging",
+            "delay convergence",
+            "delaying convergence",
+            "before narrowing",
+        }
+        if explicit_open_space_markers & open_space_advantage_markers:
+            add_score(
+                Stage.EXPLORATION,
+                2,
+                "structural",
+                "explicit_open_space_request:frames_perspectives_keep_open",
+            )
+        urgency_commitment_markers = (" now", "immediate", "right away", "commit")
+        has_urgency_commitment_marker = any(marker in b for marker in urgency_commitment_markers)
+        if (
+            explicit_open_space_markers & open_space_advantage_markers
+            and features.decision_pressure > 0
+            and not has_urgency_commitment_marker
+        ):
+            add_score(
+                Stage.EXPLORATION,
+                2,
+                "structural",
+                "mixed_prompt:open_space_without_urgency_prefers_exploration",
+            )
+            suppress_score(
+                Stage.OPERATOR,
+                2,
+                "structural",
+                "mixed_prompt:no_urgency_reduce_operator_pull",
+            )
 
         if deterministic_stage_scores:
             for stage in Stage:

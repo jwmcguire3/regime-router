@@ -249,6 +249,13 @@ def test_mixed_with_explicit_keep_open_routes_exploration():
     assert decision.primary_regime == Stage.EXPLORATION
 
 
+def test_ambiguous_map_space_then_choose_prefers_exploration():
+    decision = Router().route(
+        "Map the space and give multiple perspectives before a decision."
+    )
+    assert decision.primary_regime == Stage.EXPLORATION
+
+
 def test_routing_vague_pattern_with_uncertainty_does_not_trigger_builder():
     decision = Router().route("There’s a pattern here but I can’t tell what kind.")
     assert decision.primary_regime in {Stage.EPISTEMIC, Stage.EXPLORATION}
