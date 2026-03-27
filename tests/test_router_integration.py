@@ -216,7 +216,7 @@ def test_explore_several_frames_before_selecting_one_is_consistent_with_confiden
 def test_mixed_prompt_debug_contributions_show_operator_precedence_reason():
     decision = Router().route("Explore a few alternatives, then choose the best option now.")
     operator_contributions = decision.deterministic_score_contributions.get(Stage.OPERATOR, [])
-    assert any("mixed_prompt:explicit_decision_now_precedence" in line for line in operator_contributions)
+    assert any("mixed_prompt:explicit_closure_precedence" in line for line in operator_contributions)
 
 
 def test_open_space_multi_frame_prompt_routes_exploration():
@@ -247,6 +247,25 @@ def test_mixed_with_explicit_keep_open_routes_exploration():
         "even if a decision could be made now."
     )
     assert decision.primary_regime == Stage.EXPLORATION
+
+
+def test_map_space_with_explicit_anti_convergence_prefers_exploration():
+    decision = Router().route(
+        "Map the space and give multiple perspectives before narrowing to a decision."
+    )
+    assert decision.primary_regime == Stage.EXPLORATION
+
+
+def test_mixed_perspectives_with_recommendation_now_routes_operator():
+    decision = Router().route(
+        "Give me the main perspectives, but end with a recommendation for what we should do now."
+    )
+    assert decision.primary_regime == Stage.OPERATOR
+
+
+def test_map_options_and_make_a_call_routes_operator():
+    decision = Router().route("Map the options quickly and make a call.")
+    assert decision.primary_regime == Stage.OPERATOR
 
 
 def test_routing_vague_pattern_with_uncertainty_does_not_trigger_builder():

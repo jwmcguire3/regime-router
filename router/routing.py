@@ -58,15 +58,21 @@ def extract_routing_features(task: str) -> RoutingFeatures:
         "decide",
         "decision",
         "choose",
+        "recommend",
+        "recommendation",
+        "make a call",
+        "what should we do",
         "commit",
         "next move",
         "time pressure",
         "ship now",
         "best option now",
+        "this week",
+        "immediate",
         "select",
         "now",
     )
-    tradeoff_words = ("tradeoff", "trade-off", "between options", "selection", "opportunity cost")
+    tradeoff_words = ("tradeoff", "trade-off", "between options", "opportunity cost")
 
     fragility_words = (
         "fragile",
@@ -246,9 +252,16 @@ class RegimeConfidenceCalculator:
             "decision",
             "choose",
             "choose now",
+            "recommend",
+            "recommendation",
+            "make a call",
+            "what should we do",
             "commit",
             "next move",
             "best option now",
+            "this week",
+            "immediate",
+            "now",
             "select",
             "select now",
             "select one",
@@ -685,6 +698,13 @@ class Router:
                 "select between options": 5,
                 "choose between": 5,
                 "time pressure": 3,
+                "recommend": 4,
+                "recommendation": 4,
+                "make a call": 6,
+                "what should we do": 6,
+                "this week": 3,
+                "immediate": 3,
+                "now": 2,
             },
         )
         add_phrase_weights(
@@ -840,29 +860,64 @@ class Router:
                 "structural",
                 f"feature:possibility_space_need={features.possibility_space_need}",
             )
-        if (
-            features.decision_pressure > 0
-            and features.possibility_space_need > 0
-            and (
-                set(features.detected_markers.get("decision_tradeoff_commitment", []))
-                & RegimeConfidenceCalculator.EXPLICIT_DECISION_MARKERS
-            )
-        ):
+        mixed_prompt = features.decision_pressure > 0 and features.possibility_space_need > 0
+        explicit_decision_markers = set(features.detected_markers.get("decision_tradeoff_commitment", []))
+        has_explicit_closure = bool(explicit_decision_markers & RegimeConfidenceCalculator.EXPLICIT_DECISION_MARKERS)
+        has_explicit_anti_convergence = "anti_convergence_preference" in features.detected_markers
+        if mixed_prompt and has_explicit_anti_convergence:
             add_score(
+                Stage.EXPLORATION,
+                3,
+                "structural",
+                "mixed_prompt:explicit_anti_convergence_precedence",
+            )
+            suppress_score(
                 Stage.OPERATOR,
                 2,
                 "structural",
-                "mixed_prompt:explicit_decision_now_precedence",
+                "mixed_prompt:anti_convergence_limits_closure",
             )
+        elif mixed_prompt and has_explicit_closure:
             add_score(
-                Stage.EXPLORATION,
-                2,
+                Stage.OPERATOR,
+                3,
                 "structural",
-                "mixed_prompt:exploration_retained_as_runner_up",
+                "mixed_prompt:explicit_closure_precedence",
+            )
+            suppress_score(
+                Stage.EXPLORATION,
+                1,
+                "structural",
+                "mixed_prompt:closure_limits_generic_open_space",
             )
         if "open_possibility_space" in features.detected_markers and "anti_convergence_preference" in features.detected_markers:
             add_score(Stage.EXPLORATION, 3, "structural", "anti_convergence:keep_space_open")
             suppress_score(Stage.OPERATOR, 3, "structural", "anti_convergence:suppress_forced_closure")
+        explicit_open_space_markers = set(features.detected_markers.get("open_possibility_space", []))
+        open_space_advantage_markers = {
+            "multiple frames",
+            "multiple possible frames",
+            "multiple perspectives",
+            "multiple interpretations",
+            "perspectives",
+            "interpretations",
+            "map the space",
+            "keep it open",
+            "rather than converging",
+            "instead of converging",
+            "delay convergence",
+            "delaying convergence",
+            "before narrowing",
+        }
+        if explicit_open_space_markers & open_space_advantage_markers and not (
+            has_explicit_closure and not has_explicit_anti_convergence
+        ):
+            add_score(
+                Stage.EXPLORATION,
+                2,
+                "structural",
+                "explicit_open_space_request:frames_perspectives_keep_open",
+            )
 
         if deterministic_stage_scores:
             for stage in Stage:
