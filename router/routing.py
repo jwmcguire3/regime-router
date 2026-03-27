@@ -134,6 +134,17 @@ def extract_routing_features(task: str) -> RoutingFeatures:
         "delaying convergence",
         "before narrowing",
     )
+    negated_closure_words = (
+        "do not decide",
+        "don't decide",
+        "not decide yet",
+        "do not recommend",
+        "don't recommend",
+        "do not choose",
+        "don't choose",
+        "do not make a call",
+        "not ready to decide",
+    )
 
     matches: Dict[str, List[str]] = {}
 
@@ -158,6 +169,12 @@ def extract_routing_features(task: str) -> RoutingFeatures:
     possibility_hits = _contains_any(text, possibility_words)
     convergence_hits = _contains_any(text, convergence_words)
     anti_convergence_hits = _contains_any(text, anti_convergence_words)
+    negated_closure_hits = _contains_any(text, negated_closure_words)
+
+    if negated_closure_hits:
+        negated_tokens = {"decide", "recommend", "choose", "make a call"}
+        decision_hits = [hit for hit in decision_hits if hit not in negated_tokens]
+        anti_convergence_hits = sorted(set(anti_convergence_hits + negated_closure_hits))
 
     structural_signals: List[str] = []
 
@@ -201,6 +218,8 @@ def extract_routing_features(task: str) -> RoutingFeatures:
         matches["open_possibility_space"] = sorted(set(possibility_hits + convergence_hits + anti_convergence_hits))
     if anti_convergence_hits:
         matches["anti_convergence_preference"] = sorted(set(anti_convergence_hits))
+    if negated_closure_hits:
+        matches["negated_closure_preference"] = sorted(set(negated_closure_hits))
 
     return RoutingFeatures(
         structural_signals=structural_signals,
@@ -707,6 +726,31 @@ class Router:
                 "time pressure": 3,
             },
         )
+        negated_closure_weights = {
+            "do not decide": 4,
+            "don't decide": 4,
+            "not decide yet": 4,
+            "do not recommend": 4,
+            "don't recommend": 4,
+            "do not choose": 4,
+            "don't choose": 4,
+            "do not make a call": 5,
+            "not ready to decide": 4,
+        }
+        negated_hits = [phrase for phrase in negated_closure_weights if phrase in b]
+        for phrase in negated_hits:
+            suppress_score(
+                Stage.OPERATOR,
+                negated_closure_weights[phrase],
+                "lexical",
+                f"negated_closure:phrase='{phrase}'",
+            )
+            add_score(
+                Stage.EXPLORATION,
+                2,
+                "lexical",
+                f"negated_closure:keep_open_phrase='{phrase}'",
+            )
         add_phrase_weights(
             Stage.EPISTEMIC,
             {
@@ -863,6 +907,9 @@ class Router:
         if "open_possibility_space" in features.detected_markers and "anti_convergence_preference" in features.detected_markers:
             add_score(Stage.EXPLORATION, 3, "structural", "anti_convergence:keep_space_open")
             suppress_score(Stage.OPERATOR, 3, "structural", "anti_convergence:suppress_forced_closure")
+        if "negated_closure_preference" in features.detected_markers:
+            add_score(Stage.EXPLORATION, 2, "structural", "negated_closure:delay_commitment")
+            suppress_score(Stage.OPERATOR, 2, "structural", "negated_closure:suppress_closure_cues")
         explicit_open_space_markers = set(features.detected_markers.get("open_possibility_space", []))
         open_space_advantage_markers = {
             "multiple frames",

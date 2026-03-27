@@ -248,6 +248,26 @@ def test_mixed_perspectives_with_recommendation_now_routes_operator():
     assert decision.primary_regime == Stage.OPERATOR
 
 
+def test_mixed_perspectives_with_negated_decision_routes_exploration():
+    decision = Router().route("Give multiple perspectives, but do not decide yet.")
+    assert decision.primary_regime == Stage.EXPLORATION
+
+
+def test_mixed_perspectives_then_decide_routes_operator():
+    decision = Router().route("Give multiple perspectives, then decide.")
+    assert decision.primary_regime == Stage.OPERATOR
+
+
+def test_negated_recommendation_map_options_first_routes_exploration():
+    decision = Router().route("Do not recommend yet; map the options first.")
+    assert decision.primary_regime == Stage.EXPLORATION
+
+
+def test_recommend_now_routes_operator():
+    decision = Router().route("Recommend what we should do now.")
+    assert decision.primary_regime == Stage.OPERATOR
+
+
 def test_map_options_and_make_a_call_routes_operator():
     decision = Router().route("Map the options quickly and make a call.")
     assert decision.primary_regime == Stage.OPERATOR
