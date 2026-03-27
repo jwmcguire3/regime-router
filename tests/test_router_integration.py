@@ -12,6 +12,7 @@ from router.models import RoutingFeatures, Stage, TaskAnalyzerOutput
 from router.prompts import PromptBuilder
 from router.routing import RegimeComposer, Router, extract_routing_features, extract_structural_signals, infer_risk_profile
 from router.runtime import CognitiveRuntime
+from router.state import make_record
 from router.validation import OutputValidator
 
 
@@ -342,6 +343,39 @@ def test_structural_signals_and_risk_profile_plumbed_into_prompts_and_synthesis_
     assert "Active risk profile:" in system_prompt
     assert "false_unification" in system_prompt
     assert result.validation["is_valid"] is True
+
+
+def test_plan_populates_router_state():
+    runtime = CognitiveRuntime()
+    decision, regime, handoff = runtime.plan("Can you help?")
+
+    assert runtime.router_state is not None
+    assert runtime.router_state.current_bottleneck == "Can you help?"
+    assert runtime.router_state.current_regime == decision.primary_regime
+    assert runtime.router_state.runner_up_regime == decision.runner_up_regime
+    assert runtime.router_state.stage_goal == regime.dominant_line.text
+    assert runtime.router_state.recommended_next_regime == handoff.recommended_next_regime
+    assert runtime.router_state.decision_pressure >= 0
+
+
+def test_execute_populates_router_state_and_record_serializes_it(synthesis_ok_json):
+    runtime = CognitiveRuntime()
+    runtime.ollama = FakeOllama([synthesis_ok_json])
+
+    decision, regime, result, handoff = runtime.execute(task=STRUCTURAL_TASK, model="fake")
+
+    assert runtime.router_state is not None
+    assert runtime.router_state.task_summary == STRUCTURAL_TASK
+    assert runtime.router_state.current_regime == decision.primary_regime
+    assert runtime.router_state.regime_confidence == decision.confidence.level
+    assert runtime.router_state.prior_regimes == [decision.primary_regime]
+
+    record = make_record(STRUCTURAL_TASK, set(), "fake", decision, regime, result, handoff, runtime.router_state)
+    assert record.router_state is not None
+    assert record.router_state["current_regime"] == decision.primary_regime.value
+    assert record.router_state["recommended_next_regime"] == (
+        decision.runner_up_regime.value if decision.runner_up_regime else None
+    )
 
 
 def test_synthesis_prompt_contains_anchor_contract_and_role_guidance():

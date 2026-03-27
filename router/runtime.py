@@ -2,15 +2,24 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Set, Tuple
 import json
+from uuid import uuid4
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .analyzer import TaskAnalyzer
 from .control import EvolutionEngine
-from .models import CANONICAL_FAILURE_IF_OVERUSED, Regime, RegimeExecutionResult, RoutingDecision, Stage, TaskAnalyzerOutput
+from .models import (
+    CANONICAL_FAILURE_IF_OVERUSED,
+    Regime,
+    RegimeExecutionResult,
+    RoutingDecision,
+    RoutingFeatures,
+    Stage,
+    TaskAnalyzerOutput,
+)
 from .prompts import PromptBuilder
 from .routing import RegimeComposer, Router, extract_routing_features, extract_structural_signals, infer_risk_profile
-from .state import Handoff
+from .state import Handoff, RouterState
 from .validation import OutputValidator
 
 class OllamaClient:
@@ -76,6 +85,7 @@ class CognitiveRouterRuntime:
         self.ollama = OllamaClient(base_url=ollama_base_url)
         self.use_task_analyzer = use_task_analyzer
         self.task_analyzer = TaskAnalyzer(self.ollama, model=task_analyzer_model) if use_task_analyzer else None
+        self.router_state: Optional[RouterState] = None
 
     def plan(
         self,
@@ -145,6 +155,17 @@ class CognitiveRouterRuntime:
             main_risk_if_continue=CANONICAL_FAILURE_IF_OVERUSED[decision.primary_regime],
             recommended_next_regime=decision.runner_up_regime,
             minimum_useful_artifact="A typed artifact from the current regime plus a switch trigger.",
+        )
+        self.router_state = self._build_router_state(
+            task_id=f"task-{uuid4().hex[:12]}",
+            task_summary=bottleneck,
+            bottleneck=bottleneck,
+            decision=decision,
+            regime=regime,
+            handoff=handoff,
+            features=features,
+            risks=risks,
+            prior_regimes=[],
         )
         return decision, regime, handoff
 
@@ -216,6 +237,17 @@ class CognitiveRouterRuntime:
             },
             ollama_meta={k: v for k, v in response.items() if k != "response"},
         )
+        self.router_state = self._build_router_state(
+            task_id=self.router_state.task_id if self.router_state else f"task-{uuid4().hex[:12]}",
+            task_summary=task,
+            bottleneck=task,
+            decision=decision,
+            regime=regime,
+            handoff=handoff,
+            features=extract_routing_features(task),
+            risks=inferred_risks,
+            prior_regimes=[decision.primary_regime],
+        )
         return decision, regime, result, handoff
 
     def _select_repair_mode(self, validation: Dict[str, object]) -> str:
@@ -231,6 +263,40 @@ class CognitiveRouterRuntime:
         if any(marker in failure for failure in semantic_failures for marker in genericity_markers):
             return PromptBuilder.REPAIR_MODE_REDUCE_GENERICITY
         return PromptBuilder.REPAIR_MODE_SEMANTIC
+
+    def _build_router_state(
+        self,
+        *,
+        task_id: str,
+        task_summary: str,
+        bottleneck: str,
+        decision: RoutingDecision,
+        regime: Regime,
+        handoff: Handoff,
+        features: RoutingFeatures,
+        risks: Set[str],
+        prior_regimes: List[Stage],
+    ) -> RouterState:
+        return RouterState(
+            task_id=task_id,
+            task_summary=task_summary,
+            current_bottleneck=bottleneck,
+            current_regime=decision.primary_regime,
+            runner_up_regime=decision.runner_up_regime,
+            regime_confidence=decision.confidence.level,
+            stage_goal=regime.dominant_line.text,
+            knowns=list(handoff.what_is_known),
+            uncertainties=list(handoff.what_remains_uncertain),
+            contradictions=list(handoff.active_contradictions),
+            assumptions=list(handoff.assumptions_in_play),
+            risks=sorted(risks),
+            decision_pressure=features.decision_pressure,
+            evidence_quality=features.evidence_demand,
+            recurrence_potential=features.recurrence_potential,
+            prior_regimes=prior_regimes,
+            switch_trigger=decision.switch_trigger,
+            recommended_next_regime=handoff.recommended_next_regime,
+        )
 
 # ============================================================
 # JSON persistence

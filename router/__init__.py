@@ -5,5 +5,5 @@ from .prompts import PromptBuilder
 from .routing import *
 from .runtime import CognitiveRouterRuntime, CognitiveRuntime
 from .storage import SessionStore
-from .state import Handoff, SessionRecord, make_record, to_jsonable
+from .state import Handoff, RouterState, SessionRecord, make_record, to_jsonable
 from .validation import OutputValidator

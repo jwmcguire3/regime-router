@@ -22,6 +22,28 @@ class Handoff:
 
 
 @dataclass
+class RouterState:
+    task_id: str
+    task_summary: str
+    current_bottleneck: str
+    current_regime: Stage
+    runner_up_regime: Optional[Stage]
+    regime_confidence: str
+    stage_goal: str
+    knowns: List[str]
+    uncertainties: List[str]
+    contradictions: List[str]
+    assumptions: List[str]
+    risks: List[str]
+    decision_pressure: int
+    evidence_quality: int
+    recurrence_potential: int
+    prior_regimes: List[Stage]
+    switch_trigger: str
+    recommended_next_regime: Optional[Stage]
+
+
+@dataclass
 class SessionRecord:
     timestamp_utc: str
     task: str
@@ -31,6 +53,7 @@ class SessionRecord:
     regime: Dict[str, object]
     result: Dict[str, object]
     handoff: Dict[str, object]
+    router_state: Optional[Dict[str, object]] = None
 
 
 def to_jsonable(obj: object) -> object:
@@ -53,6 +76,7 @@ def make_record(
     regime: Regime,
     result: RegimeExecutionResult,
     handoff: Handoff,
+    router_state: Optional[RouterState] = None,
 ) -> SessionRecord:
     return SessionRecord(
         timestamp_utc=datetime.now(timezone.utc).isoformat(),
@@ -63,4 +87,5 @@ def make_record(
         regime=to_jsonable(regime),
         result=to_jsonable(result),
         handoff=to_jsonable(handoff),
+        router_state=to_jsonable(router_state) if router_state is not None else None,
     )
