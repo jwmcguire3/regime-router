@@ -2,13 +2,10 @@
 param(
     [Parameter(Position = 0)]
     [ValidateSet(
-    "menu", "plan", "run", "smoke", "models",
-    "list", "list-runs", "show", "show-run", "last",
-    "settings", "settings-show", "settings-set", "settings-reset",
-    "settings-model-show", "settings-model-set", "settings-model-reset"
+        "menu", "plan", "run", "smoke", "models", "list", "list-runs", "show", "show-run", "last",
+        "settings", "settings-show", "settings-set", "settings-reset",
+        "settings-model-show", "settings-model-set", "settings-model-reset"
     )]
-    [ValidateSet("strict", "balanced", "lenient", "off")]
-    [string]$ModelProfile = "",
     [string]$Command = "menu",
 
     [Parameter(Position = 1)]
@@ -22,6 +19,8 @@ param(
     [string]$SaveAs = "",
     [string]$Filename = "",
     [string]$TaskAnalyzerModel = "",
+    [ValidateSet("strict", "balanced", "lenient", "off")]
+    [string]$ModelProfile = "",
     [switch]$NoHandoff,
     [switch]$UseTaskAnalyzer,
     [switch]$DebugRouting,
@@ -130,9 +129,9 @@ function Add-PlanFlags {
         $result += "--debug-routing"
     }
     if ($ModelProfile) {
-    $result += @("--model-profile", $ModelProfile)
+        $result += @("--model-profile", $ModelProfile)
     }
-    
+
     return $result
 }
 
@@ -166,8 +165,9 @@ function Add-RunFlags {
         $result += @("--max-switches", "$MaxSwitches")
     }
     if ($ModelProfile) {
-    $result += @("--model-profile", $ModelProfile)
+        $result += @("--model-profile", $ModelProfile)
     }
+
     return $result
 }
 
@@ -190,24 +190,6 @@ function Invoke-Plan {
     } else {
         Invoke-RouterPython -ArgList $argList
     }
-}
-
-function Invoke-SettingsModelShow {
-    $argList = @("--settings-file", $SettingsFile, "settings", "model-show")
-    Invoke-RouterPython -ArgList $argList
-   }
-
-function Invoke-SettingsModelSet {
-    $argList = @("--settings-file", $SettingsFile, "settings", "model-set")
-    if ($ModelProfile) {
-        $argList += @("--model-profile", $ModelProfile)
-    }
-    Invoke-RouterPython -ArgList $argList
-}
-
-function Invoke-SettingsModelReset {
-    $argList = @("--settings-file", $SettingsFile, "settings", "model-reset")
-    Invoke-RouterPython -ArgList $argList
 }
 
 function Invoke-Run {
@@ -262,13 +244,31 @@ function Invoke-SettingsSet {
         $argList += @("--max-switches", "$MaxSwitches")
     }
     if ($ModelProfile) {
-    $argList += @("--model-profile", $ModelProfile)
+        $argList += @("--model-profile", $ModelProfile)
     }
     Invoke-RouterPython -ArgList $argList
 }
 
 function Invoke-SettingsReset {
     $argList = @("--settings-file", $SettingsFile, "settings", "reset")
+    Invoke-RouterPython -ArgList $argList
+}
+
+function Invoke-SettingsModelShow {
+    $argList = @("--settings-file", $SettingsFile, "settings", "model-show")
+    Invoke-RouterPython -ArgList $argList
+}
+
+function Invoke-SettingsModelSet {
+    $argList = @("--settings-file", $SettingsFile, "settings", "model-set")
+    if ($ModelProfile) {
+        $argList += @("--model-profile", $ModelProfile)
+    }
+    Invoke-RouterPython -ArgList $argList
+}
+
+function Invoke-SettingsModelReset {
+    $argList = @("--settings-file", $SettingsFile, "settings", "model-reset")
     Invoke-RouterPython -ArgList $argList
 }
 
@@ -413,6 +413,9 @@ function Invoke-Smoke {
         if ($case.Debug) {
             $caseArgs += "--debug-routing"
         }
+        if ($ModelProfile) {
+            $caseArgs += @("--model-profile", $ModelProfile)
+        }
 
         $result = Invoke-RouterPython -ArgList $caseArgs -Capture
 
@@ -490,6 +493,11 @@ function Get-AdvancedOverrideArgs {
         $extraArgs += "--no-debug-routing"
     }
 
+    $profileText = Read-Host "Override model profile strict|balanced|lenient|off (blank = persisted/default)"
+    if (-not [string]::IsNullOrWhiteSpace($profileText)) {
+        $extraArgs += @("--model-profile", $profileText.Trim().ToLowerInvariant())
+    }
+
     if ($Mode -eq "run") {
         $boundedChoice = Read-TriStateChoice -Prompt "Override bounded orchestration"
         if ($boundedChoice -eq "true") {
@@ -555,7 +563,7 @@ function Update-SettingsInteractive {
     if (-not [string]::IsNullOrWhiteSpace($profileText)) {
         $argList += @("--model-profile", $profileText.Trim().ToLowerInvariant())
     }
-    
+
     Invoke-RouterPython -ArgList $argList
 }
 
@@ -570,7 +578,7 @@ function Show-Menu {
         Write-Host "6. Update settings"
         Write-Host "7. Reset ALL settings to defaults"
         Write-Host "8. Show model-control settings"
-        Write-Host "9. Set model profile"
+        Write-Host "9. Set model-control profile"
         Write-Host "10. Reset model-controls only"
         Write-Host "11. List models"
         Write-Host "12. List saved runs"
@@ -621,8 +629,8 @@ function Show-Menu {
                 Invoke-SettingsModelShow
                 Pause
             }
-            "9"  {
-                $profile = Read-Host "Model profile (strict|balanced|lenient|off)"
+            "9" {
+                $profile = Read-Host "Model profile strict|balanced|lenient|off"
                 if (-not [string]::IsNullOrWhiteSpace($profile)) {
                     $script:ModelProfile = $profile.Trim().ToLowerInvariant()
                     Invoke-SettingsModelSet
@@ -634,7 +642,6 @@ function Show-Menu {
             "10" {
                 Invoke-SettingsModelReset
                 Pause
-            }
             }
             "11" {
                 Invoke-Models
@@ -707,6 +714,15 @@ try {
         "settings-reset" {
             Invoke-SettingsReset
         }
+        "settings-model-show" {
+            Invoke-SettingsModelShow
+        }
+        "settings-model-set" {
+            Invoke-SettingsModelSet
+        }
+        "settings-model-reset" {
+            Invoke-SettingsModelReset
+        }
         "list" {
             Invoke-ListRuns
         }
@@ -733,17 +749,6 @@ try {
         }
         default {
             throw "Unknown command: $Command"
-        }
-        "settings-model-show" {
-            Invoke-SettingsModelShow
-        }
-        "settings-model-set" {
-            Invoke-SettingsModelSet
-        }
-        "settings-model-reset" {
-            Invoke-SettingsModelReset
-        }
-        
         }
     }
 }
