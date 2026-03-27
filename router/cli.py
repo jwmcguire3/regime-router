@@ -126,41 +126,62 @@ def _resolve_setting(override: Optional[object], stored: object) -> object:
 def _resolved_cli_settings(args: argparse.Namespace) -> CliSettings:
     store = CliSettingsStore(path=args.settings_file)
     stored = store.load()
-    settings = CliSettings(
-        model=str(_resolve_setting(getattr(args, "model", None), stored.model)),
-        use_task_analyzer=bool(_resolve_setting(getattr(args, "use_task_analyzer", None), stored.use_task_analyzer)),
-        task_analyzer_model=str(
-            _resolve_setting(getattr(args, "task_analyzer_model", None), stored.task_analyzer_model)
+
+    user = stored.user
+    model_controls = stored.model_controls
+
+    updated = CliSettings(
+        user=type(user)(
+            model=str(_resolve_setting(getattr(args, "model", None), user.model)),
+            use_task_analyzer=bool(_resolve_setting(getattr(args, "use_task_analyzer", None), user.use_task_analyzer)),
+            task_analyzer_model=str(_resolve_setting(getattr(args, "task_analyzer_model", None), user.task_analyzer_model)),
+            debug_routing=bool(_resolve_setting(getattr(args, "debug_routing", None), user.debug_routing)),
+            bounded_orchestration=bool(_resolve_setting(getattr(args, "bounded_orchestration", None), user.bounded_orchestration)),
+            max_switches=int(_resolve_setting(getattr(args, "max_switches", None), user.max_switches)),
         ),
-        debug_routing=bool(_resolve_setting(getattr(args, "debug_routing", None), stored.debug_routing)),
-        bounded_orchestration=bool(
-            _resolve_setting(getattr(args, "bounded_orchestration", None), stored.bounded_orchestration)
+        model_controls=type(model_controls)(
+            model_profile=str(_resolve_setting(getattr(args, "model_profile", None), model_controls.model_profile)).strip().lower()
         ),
-        max_switches=int(_resolve_setting(getattr(args, "max_switches", None), stored.max_switches)),
     )
-    if settings.max_switches < 0:
+
+    if updated.user.max_switches < 0:
         raise ValueError("--max-switches must be >= 0")
-    return settings
+    if updated.model_controls.model_profile not in {"strict", "balanced", "lenient", "off"}:
+        raise ValueError("--model-profile must be one of: strict, balanced, lenient, off")
+    return updated
+
+
+def _make_runtime(args: argparse.Namespace, settings: CliSettings) -> CognitiveRouterRuntime:
+    # Keep backward compatibility if runtime hasn't yet been updated to accept model_profile.
+    try:
+        return CognitiveRouterRuntime(
+            ollama_base_url=args.base_url,
+            use_task_analyzer=settings.user.use_task_analyzer,
+            task_analyzer_model=settings.user.task_analyzer_model,
+            model_profile=settings.model_controls.model_profile,  # type: ignore[arg-type]
+        )
+    except TypeError:
+        return CognitiveRouterRuntime(
+            ollama_base_url=args.base_url,
+            use_task_analyzer=settings.user.use_task_analyzer,
+            task_analyzer_model=settings.user.task_analyzer_model,
+        )
 
 
 def cmd_run(args: argparse.Namespace) -> int:
     settings = _resolved_cli_settings(args)
     fmt = CliOutputFormatter(args.output)
-    runtime = CognitiveRouterRuntime(
-        ollama_base_url=args.base_url,
-        use_task_analyzer=settings.use_task_analyzer,
-        task_analyzer_model=settings.task_analyzer_model,
-    )
+    runtime = _make_runtime(args, settings)
     store = SessionStore(root=args.out_dir)
     risk_profile = parse_risk_profile(args.risks)
 
     decision, regime, result, handoff = runtime.execute(
         task=args.task,
-        model=settings.model,
+        model=settings.user.model,
         risk_profile=risk_profile,
         handoff_expected=not args.no_handoff,
-        bounded_orchestration=settings.bounded_orchestration,
-        max_switches=settings.max_switches,
+        bounded_orchestration=settings.user.bounded_orchestration,
+        max_switches=settings.user.max_switches,
     )
 
     print_routing(decision, fmt)
@@ -172,14 +193,14 @@ def cmd_run(args: argparse.Namespace) -> int:
     record = make_record(
         args.task,
         risk_profile,
-        settings.model,
+        settings.user.model,
         decision,
         regime,
         result,
         handoff,
         runtime.router_state,
-        bounded_orchestration=settings.bounded_orchestration,
-        max_switches=settings.max_switches,
+        bounded_orchestration=settings.user.bounded_orchestration,
+        max_switches=settings.user.max_switches,
     )
     path = store.save(record, filename=args.save_as)
     print(f"Saved run to: {path}")
@@ -189,18 +210,14 @@ def cmd_run(args: argparse.Namespace) -> int:
 def cmd_plan(args: argparse.Namespace) -> int:
     settings = _resolved_cli_settings(args)
     fmt = CliOutputFormatter(args.output)
-    runtime = CognitiveRouterRuntime(
-        ollama_base_url=args.base_url,
-        use_task_analyzer=settings.use_task_analyzer,
-        task_analyzer_model=settings.task_analyzer_model,
-    )
+    runtime = _make_runtime(args, settings)
     decision, regime, handoff = runtime.plan(
         bottleneck=args.task,
         risk_profile=parse_risk_profile(args.risks),
         handoff_expected=not args.no_handoff,
     )
     print_routing(decision, fmt)
-    if settings.debug_routing:
+    if settings.user.debug_routing:
         features = extract_routing_features(args.task)
         signals = features.structural_signals
         risks = infer_risk_profile(args.task, parse_risk_profile(args.risks))
@@ -238,10 +255,7 @@ def cmd_models(args: argparse.Namespace) -> int:
 def cmd_settings_show(args: argparse.Namespace) -> int:
     store = CliSettingsStore(path=args.settings_file)
     settings = store.load()
-    payload = {
-        "settings_file": str(store.path),
-        "settings": settings.to_dict(),
-    }
+    payload = {"settings_file": str(store.path), "settings": settings.to_dict()}
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 0
 
@@ -250,31 +264,65 @@ def cmd_settings_set(args: argparse.Namespace) -> int:
     store = CliSettingsStore(path=args.settings_file)
     current = store.load()
     updated = CliSettings(
-        model=str(_resolve_setting(args.model, current.model)),
-        use_task_analyzer=bool(_resolve_setting(args.use_task_analyzer, current.use_task_analyzer)),
-        task_analyzer_model=str(_resolve_setting(args.task_analyzer_model, current.task_analyzer_model)),
-        debug_routing=bool(_resolve_setting(args.debug_routing, current.debug_routing)),
-        bounded_orchestration=bool(_resolve_setting(args.bounded_orchestration, current.bounded_orchestration)),
-        max_switches=int(_resolve_setting(args.max_switches, current.max_switches)),
+        user=type(current.user)(
+            model=str(_resolve_setting(args.model, current.user.model)),
+            use_task_analyzer=bool(_resolve_setting(args.use_task_analyzer, current.user.use_task_analyzer)),
+            task_analyzer_model=str(_resolve_setting(args.task_analyzer_model, current.user.task_analyzer_model)),
+            debug_routing=bool(_resolve_setting(args.debug_routing, current.user.debug_routing)),
+            bounded_orchestration=bool(_resolve_setting(args.bounded_orchestration, current.user.bounded_orchestration)),
+            max_switches=int(_resolve_setting(args.max_switches, current.user.max_switches)),
+        ),
+        model_controls=type(current.model_controls)(
+            model_profile=str(_resolve_setting(args.model_profile, current.model_controls.model_profile)).strip().lower()
+        ),
     )
-    if updated.max_switches < 0:
+    if updated.user.max_switches < 0:
         raise ValueError("--max-switches must be >= 0")
+    if updated.model_controls.model_profile not in {"strict", "balanced", "lenient", "off"}:
+        raise ValueError("--model-profile must be one of: strict, balanced, lenient, off")
+
     path = store.save(updated)
-    payload = {
-        "settings_file": str(path),
-        "settings": updated.to_dict(),
-    }
+    payload = {"settings_file": str(path), "settings": updated.to_dict()}
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 0
 
 
 def cmd_settings_reset(args: argparse.Namespace) -> int:
     store = CliSettingsStore(path=args.settings_file)
-    settings = store.reset()
+    settings = store.reset_all()
+    payload = {"settings_file": str(store.path), "settings": settings.to_dict()}
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+    return 0
+
+
+def cmd_settings_model_show(args: argparse.Namespace) -> int:
+    store = CliSettingsStore(path=args.settings_file)
+    settings = store.load()
     payload = {
         "settings_file": str(store.path),
-        "settings": settings.to_dict(),
+        "model_controls": settings.to_dict().get("model_controls", {}),
     }
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+    return 0
+
+
+def cmd_settings_model_set(args: argparse.Namespace) -> int:
+    store = CliSettingsStore(path=args.settings_file)
+    current = store.load()
+    profile = str(_resolve_setting(args.model_profile, current.model_controls.model_profile)).strip().lower()
+    if profile not in {"strict", "balanced", "lenient", "off"}:
+        raise ValueError("--model-profile must be one of: strict, balanced, lenient, off")
+    current.model_controls.model_profile = profile
+    path = store.save(current)
+    payload = {"settings_file": str(path), "settings": current.to_dict()}
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+    return 0
+
+
+def cmd_settings_model_reset(args: argparse.Namespace) -> int:
+    store = CliSettingsStore(path=args.settings_file)
+    settings = store.reset_model_controls()
+    payload = {"settings_file": str(store.path), "settings": settings.to_dict()}
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 0
 
@@ -286,12 +334,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-url", default="http://localhost:11434", help="Ollama base URL")
     parser.add_argument("--out-dir", default="runs", help="Directory for saved JSON runs")
     parser.add_argument("--settings-file", default=".router_settings.json", help="Path to persisted CLI settings JSON")
-    parser.add_argument(
-        "--output",
-        choices=["verbose", "compact"],
-        default="verbose",
-        help="Console output style for plan/run commands",
-    )
+    parser.add_argument("--output", choices=["verbose", "compact"], default="verbose", help="Console output style")
 
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -300,54 +343,26 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--model", default=None, help="Ollama model name")
     run_p.add_argument("--risks", default="", help="Comma-separated risk profile tags")
     run_p.add_argument("--save-as", default=None, help="Optional output JSON filename")
-    run_p.add_argument("--no-handoff", action="store_true", help="Disable tail/transfer line where optional")
-    run_p.add_argument(
-        "--use-task-analyzer",
-        default=None,
-        action=argparse.BooleanOptionalAction,
-        help="Enable optional LLM task analyzer for low-confidence routing cases",
-    )
-    run_p.add_argument("--task-analyzer-model", default=None, help="Ollama model for task analyzer when enabled")
-    run_p.add_argument(
-        "--bounded-orchestration",
-        default=None,
-        action=argparse.BooleanOptionalAction,
-        help="Enable bounded switch orchestration during execution",
-    )
-    run_p.add_argument("--max-switches", default=None, type=int, help="Maximum switches allowed in bounded orchestration")
-    run_p.add_argument(
-        "--debug-routing",
-        default=None,
-        action=argparse.BooleanOptionalAction,
-        help="Override debug routing setting (effective in plan output)",
-    )
+    run_p.add_argument("--no-handoff", action="store_true", help="Disable handoff line")
+    run_p.add_argument("--use-task-analyzer", default=None, action=argparse.BooleanOptionalAction, help="Analyzer toggle")
+    run_p.add_argument("--task-analyzer-model", default=None, help="Analyzer model")
+    run_p.add_argument("--bounded-orchestration", default=None, action=argparse.BooleanOptionalAction, help="Bounded orchestration toggle")
+    run_p.add_argument("--max-switches", default=None, type=int, help="Maximum switches")
+    run_p.add_argument("--debug-routing", default=None, action=argparse.BooleanOptionalAction, help="Routing debug")
+    run_p.add_argument("--model-profile", default=None, choices=["strict", "balanced", "lenient", "off"], help="Model-control profile")
     run_p.set_defaults(func=cmd_run)
 
     plan_p = sub.add_parser("plan", help="Route + compose without calling Ollama")
     plan_p.add_argument("--task", required=True, help="Task or bottleneck description")
     plan_p.add_argument("--risks", default="", help="Comma-separated risk profile tags")
-    plan_p.add_argument("--no-handoff", action="store_true", help="Disable tail/transfer line where optional")
-    plan_p.add_argument(
-        "--use-task-analyzer",
-        default=None,
-        action=argparse.BooleanOptionalAction,
-        help="Enable optional LLM task analyzer for low-confidence routing cases",
-    )
-    plan_p.add_argument("--task-analyzer-model", default=None, help="Ollama model for task analyzer when enabled")
-    plan_p.add_argument(
-        "--debug-routing",
-        default=None,
-        action=argparse.BooleanOptionalAction,
-        help="Print inspectable routing internals (features, scores, confidence, analyzer state)",
-    )
-    plan_p.add_argument("--model", default=None, help="Override persisted default model setting for compatibility")
-    plan_p.add_argument(
-        "--bounded-orchestration",
-        default=None,
-        action=argparse.BooleanOptionalAction,
-        help="Override bounded orchestration setting for compatibility",
-    )
-    plan_p.add_argument("--max-switches", default=None, type=int, help="Override max switches setting for compatibility")
+    plan_p.add_argument("--no-handoff", action="store_true", help="Disable handoff line")
+    plan_p.add_argument("--use-task-analyzer", default=None, action=argparse.BooleanOptionalAction, help="Analyzer toggle")
+    plan_p.add_argument("--task-analyzer-model", default=None, help="Analyzer model")
+    plan_p.add_argument("--debug-routing", default=None, action=argparse.BooleanOptionalAction, help="Routing debug")
+    plan_p.add_argument("--model", default=None, help="Override default model")
+    plan_p.add_argument("--bounded-orchestration", default=None, action=argparse.BooleanOptionalAction, help="Override bounded orchestration")
+    plan_p.add_argument("--max-switches", default=None, type=int, help="Override max switches")
+    plan_p.add_argument("--model-profile", default=None, choices=["strict", "balanced", "lenient", "off"], help="Model-control profile")
     plan_p.set_defaults(func=cmd_plan)
 
     list_p = sub.add_parser("list-runs", help="List saved run files")
@@ -363,38 +378,33 @@ def build_parser() -> argparse.ArgumentParser:
     settings_p = sub.add_parser("settings", help="Show/update/reset persisted CLI defaults")
     settings_sub = settings_p.add_subparsers(dest="settings_command")
 
-    settings_show_p = settings_sub.add_parser("show", help="Show current CLI settings")
+    settings_show_p = settings_sub.add_parser("show", help="Show current settings")
     settings_show_p.set_defaults(func=cmd_settings_show)
 
-    settings_set_p = settings_sub.add_parser("set", help="Update one or more CLI settings")
+    settings_set_p = settings_sub.add_parser("set", help="Update user settings (+ optional model_profile)")
     settings_set_p.add_argument("--model", default=None, help="Default Ollama model")
-    settings_set_p.add_argument(
-        "--use-task-analyzer",
-        default=None,
-        action=argparse.BooleanOptionalAction,
-        help="Default task analyzer toggle",
-    )
+    settings_set_p.add_argument("--use-task-analyzer", default=None, action=argparse.BooleanOptionalAction, help="Default analyzer toggle")
     settings_set_p.add_argument("--task-analyzer-model", default=None, help="Default analyzer model")
-    settings_set_p.add_argument(
-        "--debug-routing",
-        default=None,
-        action=argparse.BooleanOptionalAction,
-        help="Default debug routing toggle",
-    )
-    settings_set_p.add_argument(
-        "--bounded-orchestration",
-        default=None,
-        action=argparse.BooleanOptionalAction,
-        help="Default bounded orchestration toggle",
-    )
+    settings_set_p.add_argument("--debug-routing", default=None, action=argparse.BooleanOptionalAction, help="Default debug routing")
+    settings_set_p.add_argument("--bounded-orchestration", default=None, action=argparse.BooleanOptionalAction, help="Default bounded orchestration")
     settings_set_p.add_argument("--max-switches", default=None, type=int, help="Default maximum switches")
+    settings_set_p.add_argument("--model-profile", default=None, choices=["strict", "balanced", "lenient", "off"], help="Default model-control profile")
     settings_set_p.set_defaults(func=cmd_settings_set)
 
-    settings_reset_p = settings_sub.add_parser("reset", help="Reset CLI settings to defaults")
+    settings_reset_p = settings_sub.add_parser("reset", help="Reset ALL settings (user + model controls)")
     settings_reset_p.set_defaults(func=cmd_settings_reset)
 
-    settings_p.set_defaults(func=cmd_settings_show)
+    model_show_p = settings_sub.add_parser("model-show", help="Show model-control settings only")
+    model_show_p.set_defaults(func=cmd_settings_model_show)
 
+    model_set_p = settings_sub.add_parser("model-set", help="Set model-control settings only")
+    model_set_p.add_argument("--model-profile", default=None, choices=["strict", "balanced", "lenient", "off"], help="Model-control profile")
+    model_set_p.set_defaults(func=cmd_settings_model_set)
+
+    model_reset_p = settings_sub.add_parser("model-reset", help="Reset ONLY model-control settings")
+    model_reset_p.set_defaults(func=cmd_settings_model_reset)
+
+    settings_p.set_defaults(func=cmd_settings_show)
     return parser
 
 
