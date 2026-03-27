@@ -8,9 +8,9 @@ from typing import Any, Dict
 
 @dataclass
 class CliSettings:
-    model: str = "llama3"
+    model: str = "dolphin29:latest"
     use_task_analyzer: bool = True
-    task_analyzer_model: str = "llama3"
+    task_analyzer_model: str = "dolphin29:latest"
     debug_routing: bool = False
     bounded_orchestration: bool = True
     max_switches: int = 2

@@ -162,12 +162,16 @@ function Add-RunFlags {
 function Invoke-Plan {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$TaskText
+        [string]$TaskText,
+        [string[]]$ExtraArgs = @()
     )
 
     $argList = Get-CommonArgs
     $argList += @("plan", "--task", $TaskText)
     $argList = Add-PlanFlags -ArgList $argList
+    if ($ExtraArgs.Count -gt 0) {
+        $argList += $ExtraArgs
+    }
 
     if ($Json) {
         Invoke-RouterPython -ArgList $argList -Capture
@@ -179,12 +183,16 @@ function Invoke-Plan {
 function Invoke-Run {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$TaskText
+        [string]$TaskText,
+        [string[]]$ExtraArgs = @()
     )
 
     $argList = Get-CommonArgs
     $argList += @("run", "--task", $TaskText)
     $argList = Add-RunFlags -ArgList $argList
+    if ($ExtraArgs.Count -gt 0) {
+        $argList += $ExtraArgs
+    }
 
     if ($Json) {
         Invoke-RouterPython -ArgList $argList -Capture
@@ -229,6 +237,25 @@ function Invoke-SettingsSet {
 function Invoke-SettingsReset {
     $argList = @("--settings-file", $SettingsFile, "settings", "reset")
     Invoke-RouterPython -ArgList $argList
+}
+
+function Ensure-SettingsInitialized {
+    if (Test-Path $SettingsFile) {
+        return
+    }
+
+    Write-Info ("No settings file found at '{0}'. Initializing persisted defaults." -f $SettingsFile)
+    $argList = @(
+        "--settings-file", $SettingsFile,
+        "settings", "set",
+        "--model", "dolphin29:latest",
+        "--use-task-analyzer",
+        "--bounded-orchestration",
+        "--no-debug-routing",
+        "--max-switches", "2"
+    )
+    Invoke-RouterPython -ArgList $argList | Out-Null
+    Write-Ok "Persisted defaults initialized."
 }
 
 function Invoke-ListRuns {
@@ -372,17 +399,143 @@ function Invoke-Smoke {
     Write-Host ("Failed: {0}" -f $failCount) -ForegroundColor Red
 }
 
+function Read-TriStateChoice {
+    param(
+        [string]$Prompt
+    )
+
+    while ($true) {
+        $answer = (Read-Host "$Prompt [y/n/skip]").Trim().ToLowerInvariant()
+        switch ($answer) {
+            "y" { return "true" }
+            "yes" { return "true" }
+            "n" { return "false" }
+            "no" { return "false" }
+            "s" { return "skip" }
+            "skip" { return "skip" }
+            "" { return "skip" }
+            default { Write-WarnText "Please enter y, n, or skip." }
+        }
+    }
+}
+
+function Get-AdvancedOverrideArgs {
+    param(
+        [ValidateSet("plan", "run")]
+        [string]$Mode
+    )
+
+    $extraArgs = @()
+
+    $modelText = Read-Host "Override model (blank to use persisted default)"
+    if (-not [string]::IsNullOrWhiteSpace($modelText)) {
+        $extraArgs += @("--model", $modelText.Trim())
+    }
+
+    $riskText = Read-Host "Override risks (comma-separated, optional)"
+    if (-not [string]::IsNullOrWhiteSpace($riskText)) {
+        $extraArgs += @("--risks", $riskText.Trim())
+    }
+
+    $analyzerChoice = Read-TriStateChoice -Prompt "Override task analyzer"
+    if ($analyzerChoice -eq "true") {
+        $extraArgs += "--use-task-analyzer"
+    } elseif ($analyzerChoice -eq "false") {
+        $extraArgs += "--no-use-task-analyzer"
+    }
+
+    $analyzerModelText = Read-Host "Override task analyzer model (blank = persisted/default)"
+    if (-not [string]::IsNullOrWhiteSpace($analyzerModelText)) {
+        $extraArgs += @("--task-analyzer-model", $analyzerModelText.Trim())
+    }
+
+    $debugChoice = Read-TriStateChoice -Prompt "Override debug routing"
+    if ($debugChoice -eq "true") {
+        $extraArgs += "--debug-routing"
+    } elseif ($debugChoice -eq "false") {
+        $extraArgs += "--no-debug-routing"
+    }
+
+    if ($Mode -eq "run") {
+        $boundedChoice = Read-TriStateChoice -Prompt "Override bounded orchestration"
+        if ($boundedChoice -eq "true") {
+            $extraArgs += "--bounded-orchestration"
+        } elseif ($boundedChoice -eq "false") {
+            $extraArgs += "--no-bounded-orchestration"
+        }
+
+        $maxSwitchesText = Read-Host "Override max switches (blank = persisted/default)"
+        if (-not [string]::IsNullOrWhiteSpace($maxSwitchesText)) {
+            $extraArgs += @("--max-switches", $maxSwitchesText.Trim())
+        }
+
+        $saveAsText = Read-Host "Override save-as filename (optional)"
+        if (-not [string]::IsNullOrWhiteSpace($saveAsText)) {
+            $extraArgs += @("--save-as", $saveAsText.Trim())
+        }
+    }
+
+    return $extraArgs
+}
+
+function Update-SettingsInteractive {
+    $argList = @("--settings-file", $SettingsFile, "settings", "set")
+
+    $modelText = Read-Host "Model (blank = leave unchanged)"
+    if (-not [string]::IsNullOrWhiteSpace($modelText)) {
+        $argList += @("--model", $modelText.Trim())
+    }
+
+    $analyzerChoice = Read-TriStateChoice -Prompt "Set task analyzer default"
+    if ($analyzerChoice -eq "true") {
+        $argList += "--use-task-analyzer"
+    } elseif ($analyzerChoice -eq "false") {
+        $argList += "--no-use-task-analyzer"
+    }
+
+    $analyzerModelText = Read-Host "Task analyzer model (blank = leave unchanged)"
+    if (-not [string]::IsNullOrWhiteSpace($analyzerModelText)) {
+        $argList += @("--task-analyzer-model", $analyzerModelText.Trim())
+    }
+
+    $debugChoice = Read-TriStateChoice -Prompt "Set debug routing default"
+    if ($debugChoice -eq "true") {
+        $argList += "--debug-routing"
+    } elseif ($debugChoice -eq "false") {
+        $argList += "--no-debug-routing"
+    }
+
+    $boundedChoice = Read-TriStateChoice -Prompt "Set bounded orchestration default"
+    if ($boundedChoice -eq "true") {
+        $argList += "--bounded-orchestration"
+    } elseif ($boundedChoice -eq "false") {
+        $argList += "--no-bounded-orchestration"
+    }
+
+    $maxSwitchesText = Read-Host "Max switches (blank = leave unchanged)"
+    if (-not [string]::IsNullOrWhiteSpace($maxSwitchesText)) {
+        $argList += @("--max-switches", $maxSwitchesText.Trim())
+    }
+
+    Invoke-RouterPython -ArgList $argList
+}
+
 function Show-Menu {
     while ($true) {
         Write-Section "Router menu"
-        Write-Host "1. Plan task"
-        Write-Host "2. Run task against Ollama"
-        Write-Host "3. List models"
-        Write-Host "4. List saved runs"
-        Write-Host "5. Show latest run"
-        Write-Host "6. Show named run"
-        Write-Host "7. Smoke tests"
-        Write-Host "8. Exit"
+        Write-Host "1. Plan task (default settings)"
+        Write-Host "2. Run task against Ollama (default settings)"
+        Write-Host "3. Plan task (advanced override for this run)"
+        Write-Host "4. Run task against Ollama (advanced override for this run)"
+        Write-Host "5. Show current settings"
+        Write-Host "6. Update settings"
+        Write-Host "7. Reset settings to defaults"
+        Write-Host "8. List models"
+        Write-Host "9. List saved runs"
+        Write-Host "10. Show latest run"
+        Write-Host "11. Show named run"
+        Write-Host "12. Smoke tests"
+        Write-Host "13. Exit"
         Write-Host ""
 
         $choice = Read-Host "Choose an option"
@@ -390,47 +543,47 @@ function Show-Menu {
         switch ($choice) {
             "1" {
                 $taskText = Read-Host "Task"
-                $riskText = Read-Host "Risks (comma-separated, optional)"
-                $useAnalyzerChoice = Read-BooleanChoice -Prompt "Use task analyzer" -Default $UseTaskAnalyzer.IsPresent
-                $debugChoice = Read-BooleanChoice -Prompt "Debug routing output" -Default $DebugRouting.IsPresent
-                $analyzerModelText = if ($useAnalyzerChoice) { Read-Host "Task analyzer model [$TaskAnalyzerModel]" } else { "" }
-                if ([string]::IsNullOrWhiteSpace($analyzerModelText)) {
-                    $analyzerModelText = $TaskAnalyzerModel
-                }
-                if ($useAnalyzerChoice) { $script:TaskAnalyzerModel = $analyzerModelText }
-                $script:Risks = $riskText
-                $script:UseTaskAnalyzer = [bool]$useAnalyzerChoice
-                $script:DebugRouting = [bool]$debugChoice
                 Invoke-Plan -TaskText $taskText
                 Pause
             }
             "2" {
                 $taskText = Read-Host "Task"
-                $modelText = Read-Host "Model [$Model]"
-                if ($modelText) { $script:Model = $modelText }
-                $riskText = Read-Host "Risks (comma-separated, optional)"
-                $saveText = Read-Host "Save as (optional)"
-                $useAnalyzerChoice = Read-BooleanChoice -Prompt "Use task analyzer" -Default $UseTaskAnalyzer.IsPresent
-                $analyzerModelText = if ($useAnalyzerChoice) { Read-Host "Task analyzer model [$TaskAnalyzerModel]" } else { "" }
-                if ([string]::IsNullOrWhiteSpace($analyzerModelText)) {
-                    $analyzerModelText = $TaskAnalyzerModel
-                }
-                if ($useAnalyzerChoice) { $script:TaskAnalyzerModel = $analyzerModelText }
-                $script:Risks = $riskText
-                $script:SaveAs = $saveText
-                $script:UseTaskAnalyzer = [bool]$useAnalyzerChoice
                 Invoke-Run -TaskText $taskText
                 Pause
             }
             "3" {
-                Invoke-Models
+                $taskText = Read-Host "Task"
+                $extraArgs = Get-AdvancedOverrideArgs -Mode "plan"
+                Invoke-Plan -TaskText $taskText -ExtraArgs $extraArgs
                 Pause
             }
             "4" {
-                Invoke-ListRuns
+                $taskText = Read-Host "Task"
+                $extraArgs = Get-AdvancedOverrideArgs -Mode "run"
+                Invoke-Run -TaskText $taskText -ExtraArgs $extraArgs
                 Pause
             }
             "5" {
+                Invoke-SettingsShow
+                Pause
+            }
+            "6" {
+                Update-SettingsInteractive
+                Pause
+            }
+            "7" {
+                Invoke-SettingsReset
+                Pause
+            }
+            "8" {
+                Invoke-Models
+                Pause
+            }
+            "9" {
+                Invoke-ListRuns
+                Pause
+            }
+            "10" {
                 $latest = Get-LatestRunFile
                 if ($null -eq $latest) {
                     Write-WarnText "No saved runs found."
@@ -440,7 +593,7 @@ function Show-Menu {
                 }
                 Pause
             }
-            "6" {
+            "11" {
                 $runName = Read-Host "Saved run filename"
                 if (-not [string]::IsNullOrWhiteSpace($runName)) {
                     Invoke-ShowRun -RunFileName $runName
@@ -449,11 +602,11 @@ function Show-Menu {
                 }
                 Pause
             }
-            "7" {
+            "12" {
                 Invoke-Smoke
                 Pause
             }
-            "8" {
+            "13" {
                 return
             }
             default {
@@ -465,6 +618,7 @@ function Show-Menu {
 }
 
 try {
+    Ensure-SettingsInitialized
     switch ($Command) {
         "menu" {
             Show-Menu

@@ -105,9 +105,9 @@ def test_settings_defaults_show(tmp_path, capsys):
 
     payload = json.loads(out)
     assert rc == 0
-    assert payload["settings"]["model"] == "llama3"
+    assert payload["settings"]["model"] == "dolphin29:latest"
     assert payload["settings"]["use_task_analyzer"] is True
-    assert payload["settings"]["task_analyzer_model"] == "llama3"
+    assert payload["settings"]["task_analyzer_model"] == "dolphin29:latest"
     assert payload["settings"]["debug_routing"] is False
     assert payload["settings"]["bounded_orchestration"] is True
     assert payload["settings"]["max_switches"] == 2
@@ -140,7 +140,7 @@ def test_settings_set_and_reset(tmp_path, capsys):
     rc_reset = main(["--settings-file", str(settings_file), "settings", "reset"])
     reset_payload = json.loads(capsys.readouterr().out)
     assert rc_reset == 0
-    assert reset_payload["settings"]["model"] == "llama3"
+    assert reset_payload["settings"]["model"] == "dolphin29:latest"
     assert reset_payload["settings"]["bounded_orchestration"] is True
     assert reset_payload["settings"]["max_switches"] == 2
     assert reset_payload["settings"]["debug_routing"] is False
