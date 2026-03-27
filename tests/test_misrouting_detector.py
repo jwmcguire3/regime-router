@@ -454,6 +454,75 @@ def test_epistemic_support_map_with_uncertainty_and_no_recommendation_completes(
     assert result.recommended_next_regime is None
 
 
+def test_epistemic_shallow_summary_without_support_split_fails():
+    detector = MisroutingDetector()
+    state = _state_for(Stage.EPISTEMIC, assumptions=[], contradictions=[])
+    result = detector.detect(
+        state,
+        _output_for(
+            Stage.EPISTEMIC,
+            {
+                "supported_claims": ["Things mostly look fine."],
+                "plausible_but_unproven": "",
+                "weakly_supported_claims": "",
+                "unsupported_claims": "",
+                "assumptions": "",
+                "uncertainty": "",
+                "evidence_gaps": "",
+            },
+        ),
+    )
+
+    assert result.current_regime.stage == Stage.EPISTEMIC
+    assert result.misrouting_detected is True
+    assert result.still_productive is False
+    assert result.recommended_next_regime.stage == Stage.OPERATOR
+
+
+def test_synthesis_real_integration_completes_with_pressure_points_and_structure():
+    detector = MisroutingDetector()
+    state = _state_for(Stage.SYNTHESIS, contradictions=["A and B have tension"])
+    result = detector.detect(
+        state,
+        _output_for(
+            Stage.SYNTHESIS,
+            {
+                "central_claim": "A reversible operating model best explains the pattern.",
+                "organizing_idea": "Unify around bounded optionality and measured exposure.",
+                "supporting_structure": ["Explains growth under normal demand", "Explains downside under shock"],
+                "pressure_points": ["Breaks if input volatility doubles", "Weak if supplier flexibility is overstated"],
+            },
+        ),
+    )
+
+    assert result.current_regime.stage == Stage.SYNTHESIS
+    assert result.misrouting_detected is False
+    assert result.still_productive is True
+    assert result.recommended_next_regime is None
+
+
+def test_adversarial_objections_plus_revisions_completes():
+    detector = MisroutingDetector()
+    state = _state_for(Stage.ADVERSARIAL)
+    result = detector.detect(
+        state,
+        _output_for(
+            Stage.ADVERSARIAL,
+            {
+                "top_destabilizers": ["Onboarding friction could suppress activation."],
+                "break_conditions": ["Unit economics fail if CAC rises >35%."],
+                "survivable_revisions": ["Gate launch by retention cohort quality.", "Shift spend to lower-volatility channels."],
+                "residual_risks": ["Competitor retaliation remains possible."],
+            },
+        ),
+    )
+
+    assert result.current_regime.stage == Stage.ADVERSARIAL
+    assert result.misrouting_detected is False
+    assert result.still_productive is True
+    assert result.recommended_next_regime is None
+
+
 def test_detector_does_not_trigger_constantly_across_balanced_cases():
     detector = MisroutingDetector()
     triggered = 0

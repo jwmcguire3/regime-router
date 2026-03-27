@@ -134,14 +134,15 @@ class MisroutingDetector:
         if stage == Stage.EXPLORATION:
             candidate_frames = self._item_count(artifact.get("candidate_frames"))
             has_differentiation = self._exploration_has_differentiation(artifact)
-            return candidate_frames >= 5 and not has_differentiation
+            sprawl_directive = self._exploration_is_expansion_only(artifact)
+            return (candidate_frames >= 5 and not has_differentiation) or (sprawl_directive and not has_differentiation)
 
         if stage == Stage.SYNTHESIS:
             has_central_claim = self._present(artifact.get("central_claim"))
             has_organizing_idea = self._present(artifact.get("organizing_idea"))
             has_support = self._present(artifact.get("supporting_structure"))
             contradictions_live = len(state.contradictions) > 0
-            has_pressure_points = self._present(artifact.get("pressure_points"))
+            has_pressure_points = self._synthesis_has_substantive_pressure_points(artifact)
             unsupported_unification = has_central_claim and has_organizing_idea and not has_support and not has_pressure_points
             contradictions_flattened = contradictions_live and not has_pressure_points and not has_support
             forced_unification = self._synthesis_forced_unification(artifact)
@@ -150,14 +151,12 @@ class MisroutingDetector:
         if stage == Stage.EPISTEMIC:
             has_support_separation = self._epistemic_has_support_separation(artifact)
             has_uncertainty_handling = self._epistemic_has_uncertainty_handling(state, artifact)
-            return not has_support_separation and not has_uncertainty_handling
+            return not has_support_separation or not has_uncertainty_handling
 
         if stage == Stage.ADVERSARIAL:
-            destabilizers = artifact.get("top_destabilizers")
-            residual_risks = artifact.get("residual_risks")
-            no_revision_movement = not self._present(artifact.get("survivable_revisions"))
-            same_objections = self._normalized(destabilizers) == self._normalized(residual_risks) and self._present(destabilizers)
-            return self._present(destabilizers) and no_revision_movement and (same_objections or self._present(destabilizers))
+            has_objections = self._adversarial_has_objections(artifact)
+            no_revision_movement = not self._adversarial_has_revision_movement(artifact)
+            return has_objections and no_revision_movement
 
         if stage == Stage.OPERATOR:
             has_decision = self._present(artifact.get("decision"))
@@ -183,7 +182,7 @@ class MisroutingDetector:
 
         if stage == Stage.SYNTHESIS:
             has_central_pattern = self._present(artifact.get("central_claim")) or self._present(artifact.get("organizing_idea"))
-            has_connective_structure = self._present(artifact.get("supporting_structure")) or self._present(artifact.get("pressure_points"))
+            has_connective_structure = self._present(artifact.get("supporting_structure")) or self._synthesis_has_substantive_pressure_points(artifact)
             if len(state.contradictions) > 0:
                 has_connective_structure = has_connective_structure or self._present(artifact.get("contradictions"))
             return has_central_pattern and has_connective_structure
@@ -234,7 +233,17 @@ class MisroutingDetector:
             or self._present(artifact.get("weakly_supported_claims"))
             or self._present(artifact.get("unsupported_claims"))
         )
-        return has_supported and has_unproven
+        support_map_text = self._normalized(artifact)
+        textual_support_map = (
+            ("well-supported" in support_map_text or "supported claims" in support_map_text)
+            and (
+                "weakly supported" in support_map_text
+                or "unsupported" in support_map_text
+                or "insufficient support" in support_map_text
+                or "unproven" in support_map_text
+            )
+        )
+        return (has_supported and has_unproven) or textual_support_map
 
     def _epistemic_has_uncertainty_handling(self, state: RouterState, artifact: Dict[str, object]) -> bool:
         has_uncertainty_markers = (
@@ -245,17 +254,22 @@ class MisroutingDetector:
             or self._present(artifact.get("uncertainty"))
             or self._present(artifact.get("evidence_gaps"))
         )
-        return has_uncertainty_markers or len(state.assumptions) > 0 or len(state.contradictions) > 0
+        text = self._normalized(artifact)
+        textual_uncertainty_markers = any(
+            marker in text
+            for marker in (
+                "assumption",
+                "uncertainty",
+                "evidence gap",
+                "evidence gaps",
+                "unknown",
+                "insufficient support",
+            )
+        )
+        return has_uncertainty_markers or textual_uncertainty_markers or len(state.assumptions) > 0 or len(state.contradictions) > 0
 
     def _synthesis_forced_unification(self, artifact: Dict[str, object]) -> bool:
-        text = self._normalized(
-            [
-                artifact.get("central_claim"),
-                artifact.get("organizing_idea"),
-                artifact.get("supporting_structure"),
-                artifact.get("pressure_points"),
-            ]
-        )
+        text = self._normalized(artifact)
         if not text:
             return False
         unification_markers = (
@@ -265,6 +279,7 @@ class MisroutingDetector:
             "one frame explains everything",
             "even if some observations do not fit",
             "everything together",
+            "unifying explanation",
         )
         suppression_markers = (
             "do not spend time on contradictions",
@@ -274,10 +289,79 @@ class MisroutingDetector:
             "suppress weak support",
             "do not spend time on pressure points",
             "without pressure points",
+            "do not spend time on weak support",
+            "do not examine contradictions",
+            "do not examine pressure points",
         )
         has_unification_push = any(marker in text for marker in unification_markers)
         has_integrity_suppression = any(marker in text for marker in suppression_markers)
         return has_unification_push and has_integrity_suppression
+
+    def _exploration_is_expansion_only(self, artifact: Dict[str, object]) -> bool:
+        text = self._normalized(artifact)
+        if not text:
+            return False
+        expansion_markers = (
+            "as many possible angles",
+            "keep expanding",
+            "do not narrow",
+            "do not compare",
+            "do not distinguish",
+            "do not group",
+            "do not cluster",
+            "without narrowing",
+        )
+        return any(marker in text for marker in expansion_markers)
+
+    def _synthesis_has_substantive_pressure_points(self, artifact: Dict[str, object]) -> bool:
+        pressure_points = artifact.get("pressure_points")
+        if not self._present(pressure_points):
+            return False
+        text = self._normalized(pressure_points)
+        suppression_only = any(
+            marker in text
+            for marker in (
+                "do not spend time on pressure points",
+                "without pressure points",
+                "ignore pressure points",
+                "suppress pressure points",
+            )
+        )
+        return not suppression_only
+
+    def _adversarial_has_objections(self, artifact: Dict[str, object]) -> bool:
+        objection_fields = (
+            artifact.get("top_destabilizers"),
+            artifact.get("residual_risks"),
+            artifact.get("break_conditions"),
+            artifact.get("objections"),
+        )
+        if any(self._present(field) for field in objection_fields):
+            return True
+        text = self._normalized(artifact)
+        return "objection" in text or "failure case" in text or "destabilizer" in text
+
+    def _adversarial_has_revision_movement(self, artifact: Dict[str, object]) -> bool:
+        revision_fields = (
+            artifact.get("survivable_revisions"),
+            artifact.get("revisions"),
+            artifact.get("mitigations"),
+            artifact.get("countermeasures"),
+            artifact.get("survivable_changes"),
+        )
+        if any(self._present(field) for field in revision_fields):
+            return True
+        text = self._normalized(artifact)
+        return any(
+            marker in text
+            for marker in (
+                "survivable revision",
+                "survivable change",
+                "mitigation",
+                "revise",
+                "adaptation",
+            )
+        )
 
     def _item_count(self, value: object) -> int:
         if isinstance(value, list):
