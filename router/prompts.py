@@ -3,7 +3,16 @@ from __future__ import annotations
 import textwrap
 from typing import Dict, List, Optional, Set
 
-from .models import ARTIFACT_FIELDS, ARTIFACT_HINTS, Regime, Stage
+from .models import (
+    ARTIFACT_FIELDS,
+    ARTIFACT_HINTS,
+    CANONICAL_FAILURE_IF_OVERUSED,
+    REGIME_COMPLETION_SIGNALS,
+    REGIME_OUTPUT_TOP_LEVEL_FIELDS,
+    REGIME_PURPOSE_HINTS,
+    Regime,
+    Stage,
+)
 from .routing import extract_structural_signals
 
 
@@ -17,6 +26,10 @@ class PromptBuilder:
         artifact_name = ARTIFACT_HINTS[regime.stage]
         fields = ARTIFACT_FIELDS[regime.stage]
         field_list = "\n".join(f"- {f}" for f in fields)
+        top_level_list = "\n".join(f"- {f}" for f in REGIME_OUTPUT_TOP_LEVEL_FIELDS)
+        purpose_hint = REGIME_PURPOSE_HINTS[regime.stage]
+        completion_signal_hint = REGIME_COMPLETION_SIGNALS[regime.stage]
+        failure_signal_hint = CANONICAL_FAILURE_IF_OVERUSED[regime.stage]
         task_signals = task_signals or []
 
         field_rules = PromptBuilder._field_rules(regime.stage)
@@ -59,12 +72,21 @@ class PromptBuilder:
             - If the input is too thin to support a strong artifact, say so concretely inside the relevant fields rather than padding with abstractions.
 
             Top-level JSON keys must be:
-            - regime
+            {top_level_list}
+
+            Legacy compatibility key also required:
             - stage
-            - artifact_type
-            - artifact
 
             artifact_type must be exactly: {artifact_name}
+            purpose should state why this regime output exists for this task.
+            completion_signal should state what condition indicates this regime has produced a sufficient artifact.
+            failure_signal should name the dominant overuse failure mode for this regime.
+            recommended_next_regime should be one of: exploration, synthesis, epistemic, adversarial, operator, builder, none.
+
+            Preferred control field values for this stage:
+            - purpose: {purpose_hint}
+            - completion_signal: {completion_signal_hint}
+            - failure_signal: {failure_signal_hint}
 
             artifact must include these keys:
             {field_list}
@@ -100,6 +122,7 @@ class PromptBuilder:
     @staticmethod
     def build_user_prompt(task: str, regime: Regime, task_signals: Optional[List[str]] = None, risk_profile: Optional[Set[str]] = None) -> str:
         artifact_name = ARTIFACT_HINTS[regime.stage]
+        top_level_csv = ", ".join(REGIME_OUTPUT_TOP_LEVEL_FIELDS)
         signals = ", ".join(task_signals or []) or "none"
         risks = ", ".join(sorted(risk_profile or set())) or "none"
         return textwrap.dedent(
@@ -114,7 +137,8 @@ class PromptBuilder:
             {risks}
 
           Return one JSON object with exactly these top-level keys:
-          regime, stage, artifact_type, artifact
+          {top_level_csv}
+          Also include legacy compatibility key: stage.
 
             Use only the information in the task.
             Do not invent missing specifics.
@@ -215,7 +239,7 @@ class PromptBuilder:
             Original task:
             {task}
 
-            Required top-level keys: regime, stage, artifact_type, artifact
+            Required top-level keys: {", ".join(REGIME_OUTPUT_TOP_LEVEL_FIELDS)}, stage
             artifact_type must be exactly: {artifact_name}
             Required artifact fields: {required_fields}
 
@@ -354,4 +378,3 @@ class PromptBuilder:
                 if failure.startswith(f"{field} ") and field not in detected:
                     detected.append(field)
         return detected
-

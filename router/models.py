@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED = "expansion_when_defined"
 STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL = "concrete_versions_feel_too_small"
@@ -186,6 +186,18 @@ class RegimeExecutionResult:
     artifact_text: str
     validation: Dict[str, object]
     ollama_meta: Dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RegimeOutputContract:
+    regime: str
+    purpose: str
+    artifact_type: str
+    artifact: Dict[str, Any]
+    completion_signal: str
+    failure_signal: str
+    recommended_next_regime: str
+    stage: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -621,6 +633,24 @@ ARTIFACT_HINTS: Dict[Stage, str] = {
     Stage.BUILDER: "system_blueprint",
 }
 
+REGIME_PURPOSE_HINTS: Dict[Stage, str] = {
+    Stage.EXPLORATION: "Map structurally distinct frames and define how to choose among them.",
+    Stage.SYNTHESIS: "Produce the strongest structural interpretation that unifies the task signals.",
+    Stage.EPISTEMIC: "Separate supported claims from uncertainty to improve decision quality.",
+    Stage.ADVERSARIAL: "Stress-test the active frame and surface decision-changing failure conditions.",
+    Stage.OPERATOR: "Commit to a concrete decision with immediate execution guidance.",
+    Stage.BUILDER: "Convert repeatable work into a reusable system blueprint.",
+}
+
+REGIME_COMPLETION_SIGNALS: Dict[Stage, str] = {
+    Stage.EXPLORATION: "A bounded candidate frame set with explicit selection criteria is complete.",
+    Stage.SYNTHESIS: "A coherent dominant frame with explicit pressure tests is complete.",
+    Stage.EPISTEMIC: "Decision-relevant conclusions with explicit support limits are complete.",
+    Stage.ADVERSARIAL: "Top destabilizers and survivable revisions are explicitly mapped.",
+    Stage.OPERATOR: "A clear decision and executable next actions are specified.",
+    Stage.BUILDER: "A reusable blueprint with modules, interfaces, and sequence is specified.",
+}
+
 ARTIFACT_FIELDS: Dict[Stage, List[str]] = {
     Stage.EXPLORATION: [
         "candidate_frames",
@@ -666,6 +696,16 @@ ARTIFACT_FIELDS: Dict[Stage, List[str]] = {
         "compounding_path",
     ],
 }
+
+REGIME_OUTPUT_TOP_LEVEL_FIELDS: Tuple[str, ...] = (
+    "regime",
+    "purpose",
+    "artifact_type",
+    "artifact",
+    "completion_signal",
+    "failure_signal",
+    "recommended_next_regime",
+)
 
 
 # ============================================================

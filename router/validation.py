@@ -6,6 +6,8 @@ from typing import Dict, List, Optional, Set
 from .models import (
     ARTIFACT_FIELDS,
     ARTIFACT_HINTS,
+    CANONICAL_FAILURE_IF_OVERUSED,
+    REGIME_OUTPUT_TOP_LEVEL_FIELDS,
     Stage,
     STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL,
     STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED,
@@ -75,10 +77,13 @@ class OutputValidator:
             "artifact_fields_present": False,
             "missing_keys": [],
             "missing_artifact_fields": [],
+            "control_fields_valid": False,
+            "invalid_control_fields": [],
             "artifact_type_matches": False,
             "stage_matches": False,
             "semantic_valid": False,
             "semantic_failures": [],
+            "is_valid": False,
             "parsed": None,
         }
 
@@ -90,7 +95,7 @@ class OutputValidator:
             result["error"] = f"JSON decode error: {e}"
             return result
 
-        required = {"regime", "stage", "artifact_type", "artifact"}
+        required = set(REGIME_OUTPUT_TOP_LEVEL_FIELDS) | {"stage"}
         parsed_keys = set(parsed.keys()) if isinstance(parsed, dict) else set()
         missing_keys = sorted(required - parsed_keys)
         result["missing_keys"] = missing_keys
@@ -98,6 +103,22 @@ class OutputValidator:
 
         if not result["required_keys_present"]:
             return result
+
+        control_invalid: List[str] = []
+        for field in ("purpose", "completion_signal", "failure_signal", "recommended_next_regime"):
+            value = parsed.get(field)
+            if not isinstance(value, str) or not value.strip():
+                control_invalid.append(field)
+        allowed_next_regimes = {s.value for s in Stage} | {"none"}
+        next_regime = str(parsed.get("recommended_next_regime", "")).strip().lower()
+        if next_regime and next_regime not in allowed_next_regimes:
+            control_invalid.append("recommended_next_regime")
+        failure_signal = str(parsed.get("failure_signal", "")).strip().lower()
+        canonical_failure = CANONICAL_FAILURE_IF_OVERUSED[stage].lower()
+        if canonical_failure and not any(token in failure_signal for token in canonical_failure.replace("/", " ").split()):
+            control_invalid.append("failure_signal")
+        result["invalid_control_fields"] = sorted(set(control_invalid))
+        result["control_fields_valid"] = len(control_invalid) == 0
 
         artifact = parsed.get("artifact", {})
         if not isinstance(artifact, dict):
@@ -115,6 +136,7 @@ class OutputValidator:
         structural_valid = bool(
             result["valid_json"]
             and result["required_keys_present"]
+            and result["control_fields_valid"]
             and result["artifact_fields_present"]
             and result["artifact_type_matches"]
             and result["stage_matches"]

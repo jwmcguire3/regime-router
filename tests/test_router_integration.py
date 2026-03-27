@@ -24,6 +24,22 @@ STRUCTURAL_TASK = (
     "a single frame compresses too early."
 )
 
+def _control_fields(stage: Stage, *, next_regime: str = "epistemic") -> dict:
+    failure_map = {
+        Stage.EXPLORATION: "branch sprawl",
+        Stage.SYNTHESIS: "false unification",
+        Stage.EPISTEMIC: "under-synthesis / decision drag",
+        Stage.ADVERSARIAL: "nihilistic or repetitive critique",
+        Stage.OPERATOR: "forced closure",
+        Stage.BUILDER: "over-engineering",
+    }
+    return {
+        "purpose": f"Generate the {stage.value} artifact needed for this task.",
+        "completion_signal": f"{stage.value} artifact includes all required fields with concrete grounding.",
+        "failure_signal": failure_map[stage],
+        "recommended_next_regime": next_regime,
+    }
+
 
 class FakeOllama:
     def __init__(self, responses):
@@ -43,6 +59,7 @@ def synthesis_ok_json() -> str:
         "regime": "Synthesis Core",
         "stage": "synthesis",
         "artifact_type": "dominant_frame",
+        **_control_fields(Stage.SYNTHESIS),
         "artifact": {
             "central_claim": "The frame must expand when defined because the concrete view shrinks the real structure.",
             "organizing_idea": "Definition changes the unit of analysis: it connects fragments into a spine, which makes narrow concrete cuts look too small.",
@@ -69,6 +86,7 @@ def synthesis_polished_but_generic_json() -> str:
         "regime": "Synthesis Core",
         "stage": "synthesis",
         "artifact_type": "dominant_frame",
+        **_control_fields(Stage.SYNTHESIS),
         "artifact": {
             "central_claim": "This effort is about navigating complexity with careful consideration across multiple perspectives.",
             "organizing_idea": "The project requires deeper analysis and understanding of various factors over time.",
@@ -86,6 +104,7 @@ def synthesis_bad_pressure_points_json() -> str:
         "regime": "Synthesis Core",
         "stage": "synthesis",
         "artifact_type": "dominant_frame",
+        **_control_fields(Stage.SYNTHESIS),
         "artifact": {
             "central_claim": "Defining the work expands scope because each concrete cut removes the spine-level relation.",
             "organizing_idea": "Fragments make sense locally, but a shared spine only appears when the frame tracks expansion under definition.",
@@ -439,6 +458,79 @@ def test_validator_rejects_pressure_points_as_execution_risks(synthesis_bad_pres
     assert "pressure_points use generic execution language" in failures
 
 
+@pytest.mark.parametrize("stage,artifact_type,artifact", [
+    (
+        Stage.EPISTEMIC,
+        "evidence_map",
+        {
+            "supported_claims": ["The prompt explicitly asks for verification before commitment."],
+            "plausible_but_unproven": ["The main risk may be hidden dependency chains."],
+            "contradictions": ["Urgency to commit conflicts with evidence uncertainty."],
+            "omitted_due_to_insufficient_support": ["Any claim about implementation feasibility."],
+            "decision_relevant_conclusions": ["Collect missing evidence before final commitment."],
+        },
+    ),
+    (
+        Stage.OPERATOR,
+        "decision_packet",
+        {
+            "decision": "Run a short evidence sweep before committing to a single frame.",
+            "rationale": "This preserves decision speed while reducing avoidable framing error.",
+            "tradeoff_accepted": "We accept a short delay instead of immediate closure.",
+            "next_actions": ["Collect the two highest-impact missing signals today."],
+            "fallback_trigger": "If evidence sweep is inconclusive, escalate to adversarial stress test.",
+            "review_point": "Review immediately after the sweep and commit.",
+        },
+    ),
+])
+def test_validator_accepts_new_contract_for_epistemic_and_operator(stage, artifact_type, artifact):
+    payload = {
+        "regime": f"{stage.value.title()} Core",
+        "stage": stage.value,
+        "artifact_type": artifact_type,
+        **_control_fields(stage, next_regime="operator"),
+        "artifact": artifact,
+    }
+
+    validation = OutputValidator().validate(
+        stage,
+        json.dumps(payload),
+        task="",
+        task_signals=[],
+        risk_profile=set(),
+    )
+    assert validation["is_valid"] is True
+
+
+@pytest.mark.parametrize("missing_field", ["purpose", "completion_signal", "failure_signal", "recommended_next_regime"])
+def test_validator_rejects_missing_required_control_fields(missing_field):
+    payload = {
+        "regime": "Synthesis Core",
+        "stage": "synthesis",
+        "artifact_type": "dominant_frame",
+        **_control_fields(Stage.SYNTHESIS),
+        "artifact": {
+            "central_claim": "Definition expands frame scope while concrete slices are too small.",
+            "organizing_idea": "Fragment-spine mismatch drives expansion under tighter definition.",
+            "key_tensions": ["Concrete cuts versus spine continuity across fragments."],
+            "supporting_structure": ["Fragments are legible while spine is missing in the task itself."],
+            "pressure_points": ["If concrete examples preserve the same spine, this frame weakens."],
+        },
+    }
+    payload.pop(missing_field)
+
+    validation = OutputValidator().validate(
+        Stage.SYNTHESIS,
+        json.dumps(payload),
+        task=STRUCTURAL_TASK,
+        task_signals=extract_structural_signals(STRUCTURAL_TASK),
+        risk_profile=infer_risk_profile(STRUCTURAL_TASK, set()),
+    )
+
+    assert validation["is_valid"] is False
+    assert missing_field in (validation["missing_keys"] + validation["invalid_control_fields"])
+
+
 @pytest.mark.parametrize(
     "first_response,expected_mode",
     [
@@ -449,6 +541,7 @@ def test_validator_rejects_pressure_points_as_execution_risks(synthesis_bad_pres
                     "regime": "Synthesis Core",
                     "stage": "synthesis",
                     "artifact_type": "dominant_frame",
+                    **_control_fields(Stage.SYNTHESIS),
                     "artifact": {
                         "central_claim": "This effort is about navigating complexity across various factors and multiple perspectives.",
                         "organizing_idea": "A deeper analysis helps understanding of systemic issues over time.",
@@ -466,6 +559,7 @@ def test_validator_rejects_pressure_points_as_execution_risks(synthesis_bad_pres
                     "regime": "Synthesis Core",
                     "stage": "synthesis",
                     "artifact_type": "dominant_frame",
+                    **_control_fields(Stage.SYNTHESIS),
                     "artifact": {
                         "central_claim": "Define and expand the frame through fragments and spine linkage.",
                         "organizing_idea": "Define and expand the frame through fragments and spine linkage.",
