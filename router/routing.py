@@ -42,7 +42,25 @@ def extract_routing_features(task: str) -> RoutingFeatures:
     missing_words = ("missed", "missing", "lost", "not seen", "not grasped", "not holding")
     understood_words = ("understood", "clear", "comprehensible", "makes sense", "legible")
 
-    evidence_words = ("evidence", "support", "verify", "unknown", "unclear", "unresolved", "proof", "confidence")
+    evidence_words = (
+        "evidence",
+        "support",
+        "supported",
+        "unsupported",
+        "verify",
+        "unknown",
+        "unclear",
+        "unresolved",
+        "proof",
+        "confidence",
+        "assumption",
+        "assumptions",
+        "evidence gap",
+        "evidence gaps",
+        "justified",
+        "support level",
+        "support levels",
+    )
     uncertainty_words = ("uncertain", "ambigu", "not sure", "missing information", "what is missing")
     uncertainty_characterization_words = (
         "can't tell",
@@ -77,17 +95,24 @@ def extract_routing_features(task: str) -> RoutingFeatures:
     fragility_words = (
         "fragile",
         "break",
+        "breaks",
         "stress test",
+        "stress-test",
         "failure mode",
         "failure modes",
+        "failure case",
+        "failure cases",
         "weakest points",
         "weak spots",
         "strongest objections",
+        "objections",
         "vulnerabilities",
         "where this breaks",
         "break under pressure",
         "how this could fail",
         "attack this frame",
+        "attack points",
+        "revisions",
         "stress points",
         "risk",
         "destabil",
@@ -116,7 +141,8 @@ def extract_routing_features(task: str) -> RoutingFeatures:
         "brainstorm",
         "alternatives",
         "option space",
-        "open",
+        "open space",
+        "keep it open",
         "multiple frames",
         "multiple possible frames",
         "multiple perspectives",
@@ -759,10 +785,20 @@ class Router:
                 "unresolved": 4,
                 "what is missing": 5,
                 "what do we not know": 5,
-                "support": 3,
+                "support": 1,
+                "supported": 4,
+                "unsupported": 4,
                 "evidence": 4,
+                "verify which evidence supports": 4,
+                "evidence gap": 5,
+                "evidence gaps": 5,
                 "verify": 4,
                 "rigor": 3,
+                "assumption": 4,
+                "assumptions": 4,
+                "justified": 4,
+                "support level": 4,
+                "support levels": 4,
                 "are you sure": 4,
                 "can't tell": 4,
                 "can't tell what kind": 5,
@@ -781,6 +817,15 @@ class Router:
                 "strongest interpretation": 10,
                 "strongest frame": 10,
                 "what this actually is": 10,
+                "coherent picture": 7,
+                "central pattern": 7,
+                "parts fit together": 7,
+                "how the parts fit together": 8,
+                "unify": 6,
+                "unified": 6,
+                "integration": 5,
+                "integrate": 5,
+                "organizing idea": 6,
                 "many signals": 4,
                 "no center": 4,
                 "parts are legible": 5,
@@ -795,12 +840,21 @@ class Router:
         add_phrase_weights(
             Stage.ADVERSARIAL,
             {
+                "stress-test": 7,
+                "stress test": 7,
                 "weakest points": 5,
                 "weak spots": 5,
+                "objections": 5,
                 "strongest objections": 6,
                 "vulnerabilities": 6,
+                "failure case": 6,
+                "failure cases": 6,
+                "failure mode": 6,
                 "failure modes": 6,
                 "where this breaks": 5,
+                "breaks": 5,
+                "attack points": 6,
+                "revisions": 4,
                 "break under pressure": 6,
                 "how this could fail": 6,
                 "attack this frame": 7,
@@ -813,6 +867,7 @@ class Router:
             add_score(Stage.SYNTHESIS, 4, "lexical", "interpretation_shortcut_marker")
             if any(k in b for k in epistemic_markers):
                 add_score(Stage.EPISTEMIC, 2, "lexical", "epistemic_marker_with_interpretation_shortcut")
+                add_score(Stage.SYNTHESIS, 2, "lexical", "interpretation_scope_with_epistemic_followup")
 
         add_phrase_weights(
             Stage.EXPLORATION,
@@ -859,11 +914,14 @@ class Router:
         if features.evidence_demand > 0:
             add_score(
                 Stage.EPISTEMIC,
-                2 + min(3, features.evidence_demand // 2),
+                3 + min(3, features.evidence_demand // 2),
                 "structural",
                 f"feature:evidence_demand={features.evidence_demand}",
             )
-            if "uncertainty_evidence_demand" in features.detected_markers:
+            if (
+                "uncertainty_evidence_demand" in features.detected_markers
+                and features.possibility_space_need > features.evidence_demand
+            ):
                 add_score(Stage.EXPLORATION, 1, "structural", "feature_support:uncertainty_can_require_exploration")
             if "uncertainty_characterization" in features.detected_markers:
                 add_score(Stage.EPISTEMIC, 2, "structural", "feature:uncertainty_characterization")
@@ -903,6 +961,17 @@ class Router:
                 1 + min(3, features.possibility_space_need // 2),
                 "structural",
                 f"feature:possibility_space_need={features.possibility_space_need}",
+            )
+        if (
+            features.evidence_demand >= 4
+            and "decision_tradeoff_commitment" in features.detected_markers
+            and "negated_closure_preference" not in features.detected_markers
+        ):
+            suppress_score(
+                Stage.OPERATOR,
+                2,
+                "structural",
+                "evidence_dominant_prompt:suppress_weak_closure_pull",
             )
         if "open_possibility_space" in features.detected_markers and "anti_convergence_preference" in features.detected_markers:
             add_score(Stage.EXPLORATION, 3, "structural", "anti_convergence:keep_space_open")

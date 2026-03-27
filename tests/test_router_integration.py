@@ -234,6 +234,67 @@ def test_immediate_decision_prompt_routes_operator():
     assert decision.primary_regime == Stage.OPERATOR
 
 
+def test_boundary_epistemic_supported_vs_unsupported_routes_epistemic():
+    decision = Router().route(
+        "Compare the main claims, separate supported from unsupported points, list uncertainty, "
+        "and do not recommend a course of action."
+    )
+    assert decision.primary_regime == Stage.EPISTEMIC
+
+
+def test_boundary_synthesis_coherent_picture_routes_synthesis():
+    decision = Router().route(
+        "Pull these observations into one coherent picture, identify the central pattern, "
+        "and show how the parts fit together."
+    )
+    assert decision.primary_regime == Stage.SYNTHESIS
+
+
+def test_boundary_adversarial_stress_test_objections_and_revisions_routes_adversarial():
+    decision = Router().route(
+        "Stress-test the idea, identify the strongest objections, and show what revisions "
+        "would make it more resilient."
+    )
+    assert decision.primary_regime == Stage.ADVERSARIAL
+
+
+def test_boundary_open_space_prompt_routes_exploration():
+    decision = Router().route(
+        "Map the space before narrowing. Give multiple possible frames, perspectives, or interpretations "
+        "of the situation. Keep it open rather than converging on one answer."
+    )
+    assert decision.primary_regime == Stage.EXPLORATION
+
+
+def test_boundary_explicit_closure_prompt_routes_operator():
+    decision = Router().route(
+        "Make a decision now. Choose one option, state the tradeoff, and define a fallback trigger."
+    )
+    assert decision.primary_regime == Stage.OPERATOR
+
+
+def test_boundary_epistemic_with_weak_decision_hint_stays_epistemic():
+    decision = Router().route(
+        "Separate supported from unsupported claims, list assumptions and evidence gaps, "
+        "and if needed note what decision could follow later."
+    )
+    assert decision.primary_regime == Stage.EPISTEMIC
+
+
+def test_boundary_synthesis_with_minor_uncertainty_stays_synthesis():
+    decision = Router().route(
+        "Unify these observations into an organizing idea and central pattern, while noting minor uncertainty."
+    )
+    assert decision.primary_regime == Stage.SYNTHESIS
+
+
+def test_boundary_adversarial_with_revisions_stays_adversarial():
+    decision = Router().route(
+        "Stress test the proposal, identify attack points and failure modes, then propose revisions."
+    )
+    assert decision.primary_regime == Stage.ADVERSARIAL
+
+
 def test_mixed_with_immediate_decision_still_routes_operator():
     decision = Router().route(
         "Map the possibility space quickly, then choose one path now with a clear tradeoff and fallback trigger."
