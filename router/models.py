@@ -188,6 +188,16 @@ class RegimeExecutionResult:
     ollama_meta: Dict[str, object] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class MisroutingDetectionResult:
+    current_regime: Stage
+    dominant_failure_mode: str
+    misrouting_detected: bool
+    justification: str
+    recommended_next_regime: Optional[Stage] = None
+    switch_message: Optional[str] = None
+
+
 LIBRARY: Dict[str, LinePrimitive] = {
     # Exploration
     "EXP-D1": LinePrimitive(
