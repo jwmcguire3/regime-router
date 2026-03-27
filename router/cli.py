@@ -169,7 +169,18 @@ def cmd_run(args: argparse.Namespace) -> int:
     print_validation(result.validation, fmt)
     print_handoff(handoff, fmt)
 
-    record = make_record(args.task, risk_profile, settings.model, decision, regime, result, handoff, runtime.router_state)
+    record = make_record(
+        args.task,
+        risk_profile,
+        settings.model,
+        decision,
+        regime,
+        result,
+        handoff,
+        runtime.router_state,
+        bounded_orchestration=settings.bounded_orchestration,
+        max_switches=settings.max_switches,
+    )
     path = store.save(record, filename=args.save_as)
     print(f"Saved run to: {path}")
     return 0

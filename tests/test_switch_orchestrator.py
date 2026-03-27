@@ -272,3 +272,99 @@ def test_runtime_bounded_mode_updates_prior_regimes_without_infinite_loop(monkey
     assert runtime.router_state is not None
     assert call_count["n"] == 3
     assert len(runtime.router_state.prior_regimes) == 3
+    assert runtime.router_state.switches_executed == 2
+    assert runtime.router_state.orchestration_enabled is True
+    assert runtime.router_state.orchestration_stop_reason == "switch_limit_reached"
+
+
+def test_runtime_single_step_mode_preserves_old_behavior(monkeypatch):
+    runtime = CognitiveRuntime()
+    scripted = [
+        RegimeExecutionResult(
+            task="task",
+            model="fake",
+            regime_name="Exploration Core",
+            stage=Stage.EXPLORATION,
+            system_prompt="",
+            user_prompt="",
+            raw_response="{}",
+            artifact_text="{}",
+            validation={"is_valid": True, "semantic_failures": [], "parsed": {"artifact": {}}},
+        )
+    ]
+    call_count = {"n": 0}
+
+    def fake_execute_once(self, **kwargs):
+        call_count["n"] += 1
+        return scripted[0]
+
+    monkeypatch.setattr(CognitiveRuntime, "_execute_regime_once", fake_execute_once)
+    runtime.execute(task="Simple task", model="fake", bounded_orchestration=False)
+
+    assert call_count["n"] == 1
+    assert runtime.router_state is not None
+    assert len(runtime.router_state.prior_regimes) == 1
+    assert runtime.router_state.switches_attempted == 0
+    assert runtime.router_state.switches_executed == 0
+    assert runtime.router_state.orchestration_stop_reason == "single_step_mode"
+
+
+def test_runtime_prevents_stage_loops_in_bounded_mode(monkeypatch):
+    runtime = CognitiveRuntime()
+    scripted = [
+        RegimeExecutionResult(
+            task="task",
+            model="fake",
+            regime_name="Exploration Core",
+            stage=Stage.EXPLORATION,
+            system_prompt="",
+            user_prompt="",
+            raw_response="{}",
+            artifact_text="{}",
+            validation={
+                "is_valid": True,
+                "semantic_failures": [],
+                "parsed": {
+                    "completion_signal": "exploration_ready_for_selection",
+                    "failure_signal": "",
+                    "recommended_next_regime": "synthesis",
+                    "artifact": {"candidate_frames": ["a b", "c d", "e f"], "selection_criteria": "criterion"},
+                },
+            },
+        ),
+        RegimeExecutionResult(
+            task="task",
+            model="fake",
+            regime_name="Synthesis Core",
+            stage=Stage.SYNTHESIS,
+            system_prompt="",
+            user_prompt="",
+            raw_response="{}",
+            artifact_text="{}",
+            validation={
+                "is_valid": True,
+                "semantic_failures": [],
+                "parsed": {
+                    "completion_signal": "",
+                    "failure_signal": "assumption collapse",
+                    "recommended_next_regime": "exploration",
+                    "artifact": {"central_claim": "claim", "organizing_idea": "idea", "supporting_structure": ""},
+                },
+            },
+        ),
+    ]
+    call_count = {"n": 0}
+
+    def fake_execute_once(self, **kwargs):
+        idx = call_count["n"]
+        call_count["n"] += 1
+        return scripted[idx]
+
+    monkeypatch.setattr(CognitiveRuntime, "_execute_regime_once", fake_execute_once)
+    runtime.execute(task="Brainstorm options.", model="fake", bounded_orchestration=True, max_switches=3)
+
+    assert runtime.router_state is not None
+    assert call_count["n"] == 2
+    assert runtime.router_state.switches_executed == 1
+    assert runtime.router_state.orchestration_stop_reason == "loop_prevented_prior_stage"
+    assert runtime.router_state.switch_history[-1].switch_executed is False

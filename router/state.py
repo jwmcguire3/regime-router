@@ -20,6 +20,17 @@ class RegimeStep:
 
 
 @dataclass
+class SwitchDecisionRecord:
+    switch_index: int
+    from_stage: Stage
+    to_stage: Optional[Stage]
+    switch_recommended: bool
+    switch_executed: bool
+    reason: str
+    switch_trigger: Optional[str]
+
+
+@dataclass
 class RouterState:
     task_id: str
     task_summary: str
@@ -40,6 +51,13 @@ class RouterState:
     evidence_quality: float
     recurrence_potential: float
     prior_regimes: List[RegimeStep] = field(default_factory=list)
+    orchestration_enabled: bool = False
+    max_switches: int = 0
+    switches_attempted: int = 0
+    switches_executed: int = 0
+    orchestration_stop_reason: Optional[str] = None
+    executed_regime_stages: List[Stage] = field(default_factory=list)
+    switch_history: List[SwitchDecisionRecord] = field(default_factory=list)
 
     def record_regime_step(
         self,
@@ -57,6 +75,30 @@ class RouterState:
                 completion_signal_seen=completion_signal_seen,
                 failure_signal_seen=failure_signal_seen,
                 outcome_summary=outcome_summary,
+            )
+        )
+        self.executed_regime_stages.append(regime.stage)
+
+    def record_switch_decision(
+        self,
+        *,
+        switch_index: int,
+        from_stage: Stage,
+        to_stage: Optional[Stage],
+        switch_recommended: bool,
+        switch_executed: bool,
+        reason: str,
+        switch_trigger: Optional[str],
+    ) -> None:
+        self.switch_history.append(
+            SwitchDecisionRecord(
+                switch_index=switch_index,
+                from_stage=from_stage,
+                to_stage=to_stage,
+                switch_recommended=switch_recommended,
+                switch_executed=switch_executed,
+                reason=reason,
+                switch_trigger=switch_trigger,
             )
         )
 
@@ -102,6 +144,7 @@ class SessionRecord:
     regime: Dict[str, object]
     result: Dict[str, object]
     handoff: Dict[str, object]
+    orchestration: Dict[str, object]
     router_state: Optional[Dict[str, object]] = None
 
 
@@ -126,7 +169,32 @@ def make_record(
     result: RegimeExecutionResult,
     handoff: Handoff,
     router_state: Optional[RouterState] = None,
+    bounded_orchestration: bool = False,
+    max_switches: int = 2,
 ) -> SessionRecord:
+    orchestration: Dict[str, object] = {
+        "bounded_orchestration": bounded_orchestration,
+        "max_switches": max_switches,
+        "switches_attempted": 0,
+        "switches_executed": 0,
+        "switch_history": [],
+        "final_current_regime": to_jsonable(regime.stage),
+        "execution_stages": [to_jsonable(regime.stage)],
+        "stop_reason": "single_step_mode" if not bounded_orchestration else "unknown",
+    }
+    if router_state is not None:
+        orchestration.update(
+            {
+                "bounded_orchestration": router_state.orchestration_enabled,
+                "max_switches": router_state.max_switches,
+                "switches_attempted": router_state.switches_attempted,
+                "switches_executed": router_state.switches_executed,
+                "switch_history": to_jsonable(router_state.switch_history),
+                "final_current_regime": to_jsonable(router_state.current_regime.stage),
+                "execution_stages": to_jsonable(router_state.executed_regime_stages),
+                "stop_reason": router_state.orchestration_stop_reason,
+            }
+        )
     return SessionRecord(
         timestamp_utc=datetime.now(timezone.utc).isoformat(),
         task=task,
@@ -136,6 +204,7 @@ def make_record(
         regime=to_jsonable(regime),
         result=to_jsonable(result),
         handoff=to_jsonable(handoff),
+        orchestration=orchestration,
         router_state=to_jsonable(router_state) if router_state else None,
     )
 
@@ -276,6 +345,32 @@ def router_state_from_jsonable(payload: object, resolve_stage: Callable[[Stage],
             )
         )
 
+    executed_regime_stages = [
+        stage
+        for stage in (_stage_from_value(item) for item in payload.get("executed_regime_stages", []))
+        if stage is not None
+    ]
+
+    switch_history: List[SwitchDecisionRecord] = []
+    for item in payload.get("switch_history", []):
+        if not isinstance(item, Mapping):
+            continue
+        from_stage = _stage_from_value(item.get("from_stage"))
+        if from_stage is None:
+            continue
+        to_stage = _stage_from_value(item.get("to_stage"))
+        switch_history.append(
+            SwitchDecisionRecord(
+                switch_index=int(item.get("switch_index", 0)),
+                from_stage=from_stage,
+                to_stage=to_stage,
+                switch_recommended=bool(item.get("switch_recommended", False)),
+                switch_executed=bool(item.get("switch_executed", False)),
+                reason=str(item.get("reason", "")),
+                switch_trigger=str(item.get("switch_trigger")) if item.get("switch_trigger") is not None else None,
+            )
+        )
+
     return RouterState(
         task_id=str(payload.get("task_id", "")),
         task_summary=str(payload.get("task_summary", "")),
@@ -296,4 +391,13 @@ def router_state_from_jsonable(payload: object, resolve_stage: Callable[[Stage],
         evidence_quality=float(payload.get("evidence_quality", 0.0)),
         recurrence_potential=float(payload.get("recurrence_potential", 0.0)),
         prior_regimes=prior_regimes,
+        orchestration_enabled=bool(payload.get("orchestration_enabled", False)),
+        max_switches=int(payload.get("max_switches", 0)),
+        switches_attempted=int(payload.get("switches_attempted", 0)),
+        switches_executed=int(payload.get("switches_executed", 0)),
+        orchestration_stop_reason=(
+            str(payload.get("orchestration_stop_reason")) if payload.get("orchestration_stop_reason") is not None else None
+        ),
+        executed_regime_stages=executed_regime_stages,
+        switch_history=switch_history,
     )

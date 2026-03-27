@@ -169,12 +169,33 @@ class CognitiveRouterRuntime:
             task_signals=task_signals,
             risk_profile=inferred_risks,
         )
+        if self.router_state is not None:
+            self.router_state.orchestration_enabled = bounded_orchestration
+            self.router_state.max_switches = max_switches
+            self.router_state.switches_attempted = 0
+            self.router_state.switches_executed = 0
+            self.router_state.orchestration_stop_reason = None
+            self.router_state.executed_regime_stages = []
+            self.router_state.switch_history = []
         self._update_router_state_from_execution(self.router_state, result, reason_entered=decision.why_primary_wins_now)
 
         if bounded_orchestration and self.router_state is not None:
             current_result = result
-            switches_taken = 0
-            while switches_taken < max_switches:
+            while True:
+                self.router_state.switches_attempted += 1
+                switch_index = self.router_state.switches_attempted
+                if self.router_state.switches_executed >= max_switches:
+                    self.router_state.record_switch_decision(
+                        switch_index=switch_index,
+                        from_stage=self.router_state.current_regime.stage,
+                        to_stage=None,
+                        switch_recommended=False,
+                        switch_executed=False,
+                        reason=f"Switch limit reached; max_switches={max_switches}.",
+                        switch_trigger=self.router_state.switch_trigger,
+                    )
+                    self.router_state.orchestration_stop_reason = "switch_limit_reached"
+                    break
                 output_contract = RegimeOutputContract(
                     stage=current_result.stage,
                     raw_response=current_result.raw_response,
@@ -185,15 +206,56 @@ class CognitiveRouterRuntime:
                     self.router_state,
                     output_contract,
                     detection,
-                    switches_used=switches_taken,
+                    switches_used=self.router_state.switches_executed,
                     max_switches=max_switches,
                 )
                 self.router_state = orchestrated.updated_state
                 if not orchestrated.switch_recommended_now or orchestrated.next_regime is None:
+                    self.router_state.record_switch_decision(
+                        switch_index=switch_index,
+                        from_stage=self.router_state.current_regime.stage,
+                        to_stage=None,
+                        switch_recommended=False,
+                        switch_executed=False,
+                        reason=orchestrated.reason_for_switch,
+                        switch_trigger=self.router_state.switch_trigger,
+                    )
+                    self.router_state.orchestration_stop_reason = "switch_not_recommended"
                     break
                 if orchestrated.next_regime.stage == self.router_state.current_regime.stage:
+                    self.router_state.record_switch_decision(
+                        switch_index=switch_index,
+                        from_stage=self.router_state.current_regime.stage,
+                        to_stage=orchestrated.next_regime.stage,
+                        switch_recommended=True,
+                        switch_executed=False,
+                        reason="Switch denied to avoid same-stage loop.",
+                        switch_trigger=self.router_state.switch_trigger,
+                    )
+                    self.router_state.orchestration_stop_reason = "loop_prevented_same_stage"
                     break
-                switches_taken += 1
+                if orchestrated.next_regime.stage in self.router_state.executed_regime_stages:
+                    self.router_state.record_switch_decision(
+                        switch_index=switch_index,
+                        from_stage=self.router_state.current_regime.stage,
+                        to_stage=orchestrated.next_regime.stage,
+                        switch_recommended=True,
+                        switch_executed=False,
+                        reason="Switch denied to avoid re-entering a previously executed stage.",
+                        switch_trigger=self.router_state.switch_trigger,
+                    )
+                    self.router_state.orchestration_stop_reason = "loop_prevented_prior_stage"
+                    break
+                self.router_state.record_switch_decision(
+                    switch_index=switch_index,
+                    from_stage=self.router_state.current_regime.stage,
+                    to_stage=orchestrated.next_regime.stage,
+                    switch_recommended=True,
+                    switch_executed=True,
+                    reason=orchestrated.reason_for_switch,
+                    switch_trigger=self.router_state.switch_trigger,
+                )
+                self.router_state.switches_executed += 1
                 self.router_state.current_regime = orchestrated.next_regime
                 current_result = self._execute_regime_once(
                     task=task,
@@ -208,6 +270,8 @@ class CognitiveRouterRuntime:
                     reason_entered=orchestrated.reason_for_switch,
                 )
             result = current_result
+        elif self.router_state is not None:
+            self.router_state.orchestration_stop_reason = "single_step_mode"
 
         handoff = self._handoff_from_state(self.router_state) if self.router_state else handoff
         return decision, regime, result, handoff
