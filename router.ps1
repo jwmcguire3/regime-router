@@ -616,6 +616,7 @@ function Show-Menu {
             "7" {
                 Invoke-SettingsReset
                 Pause
+            }
             "8" {
                 Invoke-SettingsModelShow
                 Pause
@@ -732,6 +733,7 @@ try {
         }
         default {
             throw "Unknown command: $Command"
+        }
         "settings-model-show" {
             Invoke-SettingsModelShow
         }
