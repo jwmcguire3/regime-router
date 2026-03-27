@@ -988,7 +988,7 @@ def test_execute_populates_router_state_and_prior_regimes(synthesis_ok_json):
 
     assert runtime.router_state is not None
     assert runtime.router_state.current_regime.name == regime.name
-    assert runtime.router_state.prior_regimes[-1].regime == decision.primary_regime
+    assert runtime.router_state.prior_regimes[-1].regime.stage == decision.primary_regime
     assert runtime.router_state.prior_regimes[-1].completion_signal_seen is True
     assert "Execution yielded a valid artifact." in runtime.router_state.prior_regimes[-1].outcome_summary
     assert handoff.dominant_frame == (runtime.router_state.dominant_frame or "")
@@ -1009,7 +1009,7 @@ def test_router_state_serializes_in_saved_runs(tmp_path, synthesis_ok_json):
     assert loaded["router_state"]["current_regime"]["stage"] == decision.primary_regime.value
     assert loaded["router_state"]["runner_up_regime"]["stage"] == decision.runner_up_regime.value
     assert loaded["router_state"]["recommended_next_regime"]["stage"] == decision.runner_up_regime.value
-    assert loaded["router_state"]["prior_regimes"][0]["regime"] == decision.primary_regime.value
+    assert loaded["router_state"]["prior_regimes"][0]["regime"]["stage"] == decision.primary_regime.value
 
 
 def test_router_state_prior_regimes_helper_updates_correctly():
@@ -1018,14 +1018,14 @@ def test_router_state_prior_regimes_helper_updates_correctly():
     assert runtime.router_state is not None
 
     runtime.router_state.record_regime_step(
-        regime=Stage.OPERATOR,
+        regime=runtime.composer.compose(Stage.OPERATOR),
         reason_entered="Operator pressure remains dominant.",
         completion_signal_seen=False,
         failure_signal_seen=True,
         outcome_summary="Escalated due to blocked decision criteria.",
     )
     step = runtime.router_state.prior_regimes[-1]
-    assert step.regime == Stage.OPERATOR
+    assert step.regime.stage == Stage.OPERATOR
     assert step.failure_signal_seen is True
     assert step.completion_signal_seen is False
 

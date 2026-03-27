@@ -295,7 +295,7 @@ class CognitiveRouterRuntime:
                 assumptions=state.assumptions + ["Validation semantic failures were observed and should shape next regime."],
             )
         state.record_regime_step(
-            regime=decision.primary_regime,
+            regime=state.current_regime,
             reason_entered=decision.why_primary_wins_now,
             completion_signal_seen=bool(result.validation.get("is_valid", False)),
             failure_signal_seen=not bool(result.validation.get("is_valid", False)),

@@ -72,7 +72,7 @@ def test_exploration_positive_detects_branch_sprawl_without_selection_criteria()
     )
 
     assert result.misrouting_detected is True
-    assert result.recommended_next_regime == Stage.SYNTHESIS
+    assert result.recommended_next_regime.stage == Stage.SYNTHESIS
 
 
 def test_exploration_negative_does_not_trigger_with_two_or_three_frames_and_criteria():
@@ -111,7 +111,7 @@ def test_synthesis_positive_detects_unsupported_unification_and_flattened_contra
     )
 
     assert result.misrouting_detected is True
-    assert result.recommended_next_regime == Stage.EPISTEMIC
+    assert result.recommended_next_regime.stage == Stage.EPISTEMIC
 
 
 def test_epistemic_positive_detects_support_map_without_decision_useful_conclusion():
@@ -132,7 +132,7 @@ def test_epistemic_positive_detects_support_map_without_decision_useful_conclusi
     )
 
     assert result.misrouting_detected is True
-    assert result.recommended_next_regime == Stage.OPERATOR
+    assert result.recommended_next_regime.stage == Stage.OPERATOR
 
 
 def test_adversarial_positive_detects_repetitive_objections_and_defaults_to_operator():
@@ -154,7 +154,7 @@ def test_adversarial_positive_detects_repetitive_objections_and_defaults_to_oper
     )
 
     assert result.misrouting_detected is True
-    assert result.recommended_next_regime == Stage.OPERATOR
+    assert result.recommended_next_regime.stage == Stage.OPERATOR
 
 
 def test_operator_positive_detects_forced_closure_and_routes_to_epistemic_when_support_is_missing():
@@ -176,7 +176,7 @@ def test_operator_positive_detects_forced_closure_and_routes_to_epistemic_when_s
     )
 
     assert result.misrouting_detected is True
-    assert result.recommended_next_regime == Stage.EPISTEMIC
+    assert result.recommended_next_regime.stage == Stage.EPISTEMIC
 
 
 def test_builder_positive_detects_premature_architecture_with_weak_recurrence():
@@ -199,7 +199,7 @@ def test_builder_positive_detects_premature_architecture_with_weak_recurrence():
     )
 
     assert result.misrouting_detected is True
-    assert result.recommended_next_regime == Stage.OPERATOR
+    assert result.recommended_next_regime.stage == Stage.OPERATOR
 
 
 def test_detector_does_not_trigger_constantly_across_balanced_cases():
@@ -296,7 +296,7 @@ def test_any_regime_can_fallback_to_exploration_on_assumption_collapse():
 
         result = detector.detect(state, _output_for(stage, stage_artifact))
         assert result.misrouting_detected is True
-        assert result.recommended_next_regime == Stage.EXPLORATION
+        assert result.recommended_next_regime.stage == Stage.EXPLORATION
 
 
 def test_deterministic_transition_defaults_are_spec_aligned():
@@ -307,20 +307,20 @@ def test_deterministic_transition_defaults_are_spec_aligned():
         _state_for(Stage.EXPLORATION),
         _output_for(Stage.EXPLORATION, {"candidate_frames": ["a", "b", "c", "d"], "selection_criteria": "", "unresolved_axes": ["u"]}),
     )
-    assert exploration.recommended_next_regime == Stage.SYNTHESIS
+    assert exploration.recommended_next_regime.stage == Stage.SYNTHESIS
 
     # Synthesis failure can branch to epistemic (default) or adversarial (explicit pressure points).
     synthesis_default = detector.detect(
         _state_for(Stage.SYNTHESIS),
         _output_for(Stage.SYNTHESIS, {"central_claim": "c", "organizing_idea": "o", "supporting_structure": "", "pressure_points": ""}),
     )
-    assert synthesis_default.recommended_next_regime == Stage.EPISTEMIC
+    assert synthesis_default.recommended_next_regime.stage == Stage.EPISTEMIC
 
     synthesis_stress = detector.detect(
         _state_for(Stage.SYNTHESIS),
         _output_for(Stage.SYNTHESIS, {"central_claim": "c", "organizing_idea": "o", "supporting_structure": "", "pressure_points": ["stress this"]}),
     )
-    assert synthesis_stress.recommended_next_regime == Stage.ADVERSARIAL
+    assert synthesis_stress.recommended_next_regime.stage == Stage.ADVERSARIAL
 
     epistemic = detector.detect(
         _state_for(Stage.EPISTEMIC),
@@ -335,7 +335,7 @@ def test_deterministic_transition_defaults_are_spec_aligned():
             },
         ),
     )
-    assert epistemic.recommended_next_regime == Stage.OPERATOR
+    assert epistemic.recommended_next_regime.stage == Stage.OPERATOR
 
     adversarial = detector.detect(
         _state_for(Stage.ADVERSARIAL),
@@ -350,7 +350,7 @@ def test_deterministic_transition_defaults_are_spec_aligned():
             },
         ),
     )
-    assert adversarial.recommended_next_regime == Stage.OPERATOR
+    assert adversarial.recommended_next_regime.stage == Stage.OPERATOR
 
     operator_builder = detector.detect(
         _state_for(Stage.OPERATOR, assumptions=["A1"], recurrence_potential=2.5),
@@ -366,7 +366,7 @@ def test_deterministic_transition_defaults_are_spec_aligned():
             },
         ),
     )
-    assert operator_builder.recommended_next_regime == Stage.BUILDER
+    assert operator_builder.recommended_next_regime.stage == Stage.BUILDER
 
 
 def test_orchestration_path_is_bounded_and_preserves_state_fields_without_loops():
@@ -416,7 +416,7 @@ def test_orchestration_path_is_bounded_and_preserves_state_fields_without_loops(
         visited.append(stage)
         result = detector.detect(state, _output_for(stage, artifacts[stage]))
         state.record_regime_step(
-            regime=stage,
+            regime=state.current_regime,
             reason_entered="test transition",
             completion_signal_seen=not result.misrouting_detected,
             failure_signal_seen=result.misrouting_detected,
@@ -426,13 +426,13 @@ def test_orchestration_path_is_bounded_and_preserves_state_fields_without_loops(
         if result.recommended_next_regime is None:
             break
 
-        state.current_regime = RegimeComposer().compose(result.recommended_next_regime)
+        state.current_regime = result.recommended_next_regime
 
     assert len(visited) <= max_steps
     assert len(state.prior_regimes) == len(visited)
     assert state.knowns == ["known fact"]
     assert state.uncertainties == ["uncertain fact"]
     assert state.risks == ["baseline risk"]
-    assert all(step.regime == stage for step, stage in zip(state.prior_regimes, visited))
+    assert all(step.regime.stage == stage for step, stage in zip(state.prior_regimes, visited))
     # bounded-step guard; if a loop appeared, we would hit max_steps with no break
     assert len(visited) < max_steps

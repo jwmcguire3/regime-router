@@ -12,7 +12,7 @@ RegimeConfidence = RegimeConfidenceResult
 
 @dataclass
 class RegimeStep:
-    regime: Stage
+    regime: Regime
     reason_entered: str
     completion_signal_seen: bool
     failure_signal_seen: bool
@@ -44,7 +44,7 @@ class RouterState:
     def record_regime_step(
         self,
         *,
-        regime: Stage,
+        regime: Regime,
         reason_entered: str,
         completion_signal_seen: bool,
         failure_signal_seen: bool,
