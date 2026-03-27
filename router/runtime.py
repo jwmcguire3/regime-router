@@ -240,12 +240,17 @@ class CognitiveRouterRuntime:
     ) -> RouterState:
         task_hash = hashlib.sha1(bottleneck.encode("utf-8")).hexdigest()[:12]
         stage_goal = regime.tail_line.text if regime.tail_line else "Produce the minimum useful typed artifact for this regime."
+        runner_up_regime = (
+            self.composer.compose(decision.runner_up_regime, risk_profile=risks)
+            if decision.runner_up_regime
+            else None
+        )
         return RouterState(
             task_id=f"task-{task_hash}",
             task_summary=bottleneck[:180],
             current_bottleneck=bottleneck,
             current_regime=regime,
-            runner_up_regime=decision.runner_up_regime,
+            runner_up_regime=runner_up_regime,
             regime_confidence=decision.confidence,
             dominant_frame=f"Primary regime is {decision.primary_regime.value}; optimize for its core motion.",
             knowns=[
@@ -261,7 +266,7 @@ class CognitiveRouterRuntime:
             risks=sorted(risks) + [CANONICAL_FAILURE_IF_OVERUSED[decision.primary_regime]],
             stage_goal=stage_goal,
             switch_trigger=decision.switch_trigger,
-            recommended_next_regime=decision.runner_up_regime,
+            recommended_next_regime=runner_up_regime,
             decision_pressure=float(getattr(features, "decision_pressure", 0)),
             evidence_quality=float(getattr(features, "evidence_demand", 0)),
             recurrence_potential=float(getattr(features, "recurrence_potential", 0)),
@@ -318,7 +323,7 @@ class CognitiveRouterRuntime:
             active_contradictions=state.contradictions,
             assumptions_in_play=state.assumptions,
             main_risk_if_continue=state.risks[-1] if state.risks else "",
-            recommended_next_regime=state.recommended_next_regime,
+            recommended_next_regime=state.recommended_next_regime.stage if state.recommended_next_regime else None,
             minimum_useful_artifact=state.stage_goal,
         )
 

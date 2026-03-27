@@ -25,7 +25,7 @@ class RouterState:
     task_summary: str
     current_bottleneck: str
     current_regime: Regime
-    runner_up_regime: Optional[Stage]
+    runner_up_regime: Optional[Regime]
     regime_confidence: RegimeConfidence
     dominant_frame: Optional[str]
     knowns: List[str]
@@ -35,7 +35,7 @@ class RouterState:
     risks: List[str]
     stage_goal: str
     switch_trigger: Optional[str]
-    recommended_next_regime: Optional[Stage]
+    recommended_next_regime: Optional[Regime]
     decision_pressure: float
     evidence_quality: float
     recurrence_potential: float
