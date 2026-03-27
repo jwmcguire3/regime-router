@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set
 
-from .models import Regime, RegimeConfidenceResult, RegimeExecutionResult, RoutingDecision, Stage
+from .models import FunctionType, LinePrimitive, Regime, RegimeConfidenceResult, RegimeExecutionResult, RoutingDecision, Stage
 
 RegimeConfidence = RegimeConfidenceResult
 
@@ -137,4 +137,163 @@ def make_record(
         result=to_jsonable(result),
         handoff=to_jsonable(handoff),
         router_state=to_jsonable(router_state) if router_state else None,
+    )
+
+
+def _stage_from_value(value: object) -> Optional[Stage]:
+    if isinstance(value, Stage):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in Stage._value2member_map_:
+            return Stage(normalized)
+    return None
+
+
+def _line_from_payload(payload: object) -> Optional[LinePrimitive]:
+    if isinstance(payload, LinePrimitive):
+        return payload
+    if not isinstance(payload, Mapping):
+        return None
+    stage = _stage_from_value(payload.get("stage"))
+    function_raw = payload.get("function")
+    function = (
+        function_raw
+        if isinstance(function_raw, FunctionType)
+        else FunctionType(str(function_raw).strip().lower())
+        if isinstance(function_raw, str) and str(function_raw).strip().lower() in FunctionType._value2member_map_
+        else None
+    )
+    line_id = payload.get("id")
+    text = payload.get("text")
+    attractor = payload.get("attractor")
+    if not stage or not function or not isinstance(line_id, str) or not isinstance(text, str) or not isinstance(attractor, str):
+        return None
+    return LinePrimitive(
+        id=line_id,
+        text=text,
+        stage=stage,
+        function=function,
+        attractor=attractor,
+        suppresses=tuple(str(v) for v in payload.get("suppresses", []) if isinstance(v, str)),
+        tension=str(payload.get("tension", "")),
+        risks=tuple(str(v) for v in payload.get("risks", []) if isinstance(v, str)),
+        compatible_with=tuple(str(v) for v in payload.get("compatible_with", []) if isinstance(v, str)),
+        incompatible_with=tuple(str(v) for v in payload.get("incompatible_with", []) if isinstance(v, str)),
+    )
+
+
+def _regime_from_payload(payload: object, resolve_stage: Callable[[Stage], Regime]) -> Optional[Regime]:
+    if isinstance(payload, Regime):
+        return payload
+    if isinstance(payload, str):
+        stage = _stage_from_value(payload)
+        return resolve_stage(stage) if stage else None
+    if not isinstance(payload, Mapping):
+        return None
+
+    stage = _stage_from_value(payload.get("stage"))
+    if not stage:
+        return None
+
+    dominant_line = _line_from_payload(payload.get("dominant_line"))
+    if dominant_line is None:
+        # Backward-compatibility adapter: some old records only persisted stage/name.
+        return resolve_stage(stage)
+
+    suppression_lines = [
+        parsed
+        for parsed in (_line_from_payload(item) for item in payload.get("suppression_lines", []))
+        if parsed is not None
+    ]
+    shape_lines = [
+        parsed
+        for parsed in (_line_from_payload(item) for item in payload.get("shape_lines", []))
+        if parsed is not None
+    ]
+    tail_line = _line_from_payload(payload.get("tail_line"))
+
+    name = payload.get("name")
+    return Regime(
+        name=name if isinstance(name, str) and name.strip() else resolve_stage(stage).name,
+        stage=stage,
+        dominant_line=dominant_line,
+        suppression_lines=suppression_lines,
+        shape_lines=shape_lines,
+        tail_line=tail_line,
+        rejected_lines=[str(v) for v in payload.get("rejected_lines", []) if isinstance(v, str)],
+        rejection_reasons=[str(v) for v in payload.get("rejection_reasons", []) if isinstance(v, str)],
+        likely_failure_if_overused=str(payload.get("likely_failure_if_overused", "")),
+    )
+
+
+def _regime_confidence_from_payload(payload: object) -> RegimeConfidenceResult:
+    if isinstance(payload, RegimeConfidenceResult):
+        return payload
+    base = RegimeConfidenceResult.low_default()
+    if not isinstance(payload, Mapping):
+        return base
+    return RegimeConfidenceResult(
+        level=str(payload.get("level", base.level)),
+        rationale=str(payload.get("rationale", base.rationale)),
+        top_stage_score=int(payload.get("top_stage_score", base.top_stage_score)),
+        runner_up_score=int(payload.get("runner_up_score", base.runner_up_score)),
+        score_gap=int(payload.get("score_gap", base.score_gap)),
+        nontrivial_stage_count=int(payload.get("nontrivial_stage_count", base.nontrivial_stage_count)),
+        weak_lexical_dependence=bool(payload.get("weak_lexical_dependence", base.weak_lexical_dependence)),
+        structural_feature_state=str(payload.get("structural_feature_state", base.structural_feature_state)),
+    )
+
+
+def router_state_from_jsonable(payload: object, resolve_stage: Callable[[Stage], Regime]) -> Optional[RouterState]:
+    if payload is None:
+        return None
+    if isinstance(payload, RouterState):
+        return payload
+    if not isinstance(payload, Mapping):
+        return None
+
+    current_regime = _regime_from_payload(payload.get("current_regime"), resolve_stage)
+    if current_regime is None:
+        return None
+    runner_up_regime = _regime_from_payload(payload.get("runner_up_regime"), resolve_stage)
+    recommended_next_regime = _regime_from_payload(payload.get("recommended_next_regime"), resolve_stage)
+
+    prior_regimes: List[RegimeStep] = []
+    for item in payload.get("prior_regimes", []):
+        if not isinstance(item, Mapping):
+            continue
+        prior_regime = _regime_from_payload(item.get("regime"), resolve_stage)
+        if prior_regime is None:
+            continue
+        prior_regimes.append(
+            RegimeStep(
+                regime=prior_regime,
+                reason_entered=str(item.get("reason_entered", "")),
+                completion_signal_seen=bool(item.get("completion_signal_seen", False)),
+                failure_signal_seen=bool(item.get("failure_signal_seen", False)),
+                outcome_summary=str(item.get("outcome_summary", "")),
+            )
+        )
+
+    return RouterState(
+        task_id=str(payload.get("task_id", "")),
+        task_summary=str(payload.get("task_summary", "")),
+        current_bottleneck=str(payload.get("current_bottleneck", "")),
+        current_regime=current_regime,
+        runner_up_regime=runner_up_regime,
+        regime_confidence=_regime_confidence_from_payload(payload.get("regime_confidence")),
+        dominant_frame=str(payload.get("dominant_frame")) if payload.get("dominant_frame") is not None else None,
+        knowns=[str(v) for v in payload.get("knowns", []) if isinstance(v, str)],
+        uncertainties=[str(v) for v in payload.get("uncertainties", []) if isinstance(v, str)],
+        contradictions=[str(v) for v in payload.get("contradictions", []) if isinstance(v, str)],
+        assumptions=[str(v) for v in payload.get("assumptions", []) if isinstance(v, str)],
+        risks=[str(v) for v in payload.get("risks", []) if isinstance(v, str)],
+        stage_goal=str(payload.get("stage_goal", "")),
+        switch_trigger=str(payload.get("switch_trigger")) if payload.get("switch_trigger") is not None else None,
+        recommended_next_regime=recommended_next_regime,
+        decision_pressure=float(payload.get("decision_pressure", 0.0)),
+        evidence_quality=float(payload.get("evidence_quality", 0.0)),
+        recurrence_potential=float(payload.get("recurrence_potential", 0.0)),
+        prior_regimes=prior_regimes,
     )

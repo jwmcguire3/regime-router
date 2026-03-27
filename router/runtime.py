@@ -11,7 +11,7 @@ from .control import EvolutionEngine
 from .models import CANONICAL_FAILURE_IF_OVERUSED, Regime, RegimeExecutionResult, RoutingDecision, Stage, TaskAnalyzerOutput
 from .prompts import PromptBuilder
 from .routing import RegimeComposer, Router, extract_routing_features, extract_structural_signals, infer_risk_profile
-from .state import Handoff, RouterState
+from .state import Handoff, RouterState, router_state_from_jsonable
 from .validation import OutputValidator
 
 class OllamaClient:
@@ -354,6 +354,10 @@ class CognitiveRouterRuntime:
         if state.recommended_next_regime and state.recommended_next_regime.stage == stage:
             return state.recommended_next_regime
         return self.composer.compose(stage)
+
+    def restore_router_state(self, payload: object) -> Optional[RouterState]:
+        self.router_state = router_state_from_jsonable(payload, self.composer.compose)
+        return self.router_state
 
 # ============================================================
 # JSON persistence

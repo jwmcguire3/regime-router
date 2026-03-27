@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
-from .state import SessionRecord, to_jsonable
+from .models import Regime, Stage
+from .state import RouterState, SessionRecord, router_state_from_jsonable, to_jsonable
 
 
 class SessionStore:
@@ -30,6 +31,12 @@ class SessionStore:
         if isinstance(data, dict) and "router_state" not in data:
             data["router_state"] = None
         return data
+
+    def load_router_state(self, filename: str, resolve_stage: Callable[[Stage], Regime]) -> Optional[RouterState]:
+        data = self.load(filename)
+        if not isinstance(data, dict):
+            return None
+        return router_state_from_jsonable(data.get("router_state"), resolve_stage)
 
     def list_runs(self) -> List[str]:
         return sorted(p.name for p in self.root.glob("*.json"))
