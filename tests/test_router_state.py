@@ -1,0 +1,108 @@
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from router.models import Regime, Stage
+from router.runtime import CognitiveRuntime
+
+
+STRUCTURAL_TASK = (
+    "Find the strongest interpretation of what this actually is. "
+    "When we define the effort it expands instead of narrowing. "
+    "Concrete versions feel too small. "
+    "The fragments are understood, but the spine is still missing."
+)
+
+
+class FakeOllama:
+    def __init__(self, responses):
+        self._responses = list(responses)
+
+    def generate(self, *, model, system, prompt, stream=False, temperature=0.2, num_predict=1200):
+        if not self._responses:
+            raise AssertionError("No fake response left for generate().")
+        return {"response": self._responses.pop(0)}
+
+
+@pytest.fixture
+def synthesis_ok_json() -> str:
+    return json.dumps(
+        {
+            "regime": "Synthesis Core",
+            "stage": "synthesis",
+            "artifact_type": "dominant_frame",
+            "artifact": {
+                "central_claim": "The frame expands under definition because concrete cuts hide structure.",
+                "organizing_idea": "Fragments need a shared spine-level structure.",
+                "key_tensions": ["Concrete detail vs structural coherence."],
+                "supporting_structure": ["Fragments are legible but the backbone is not."],
+                "pressure_points": ["If the spine does not improve explanatory power, this frame is weaker."],
+            },
+        }
+    )
+
+
+def test_plan_populates_router_state_core_fields():
+    runtime = CognitiveRuntime()
+    decision, _, _ = runtime.plan(STRUCTURAL_TASK)
+
+    assert runtime.router_state is not None
+    state = runtime.router_state
+    assert state.task_id.startswith("task-")
+    assert state.task_summary
+    assert state.current_bottleneck == STRUCTURAL_TASK
+    assert isinstance(state.current_regime, Regime)
+    assert state.current_regime.stage == decision.primary_regime
+    assert state.runner_up_regime is not None
+    assert isinstance(state.runner_up_regime, Regime)
+    assert state.regime_confidence.level in {"low", "medium", "high"}
+    assert state.stage_goal
+    assert state.knowns
+    assert state.uncertainties
+    assert state.contradictions
+    assert state.assumptions
+    assert state.risks
+    assert isinstance(state.decision_pressure, float)
+    assert isinstance(state.evidence_quality, float)
+    assert isinstance(state.recurrence_potential, float)
+    assert state.prior_regimes == []
+
+
+def test_execute_populates_router_state_and_mutation_helpers(synthesis_ok_json):
+    runtime = CognitiveRuntime()
+    runtime.ollama = FakeOllama([synthesis_ok_json])
+
+    decision, _, _, _ = runtime.execute(task=STRUCTURAL_TASK, model="fake")
+
+    assert runtime.router_state is not None
+    state = runtime.router_state
+    assert state.current_regime.stage == decision.primary_regime
+    assert state.recommended_next_regime is not None
+    assert state.recommended_next_regime.stage == decision.runner_up_regime
+    assert state.prior_regimes
+    assert state.prior_regimes[-1].regime == decision.primary_regime
+
+    before_len = len(state.prior_regimes)
+    state.record_regime_step(
+        regime=Stage.OPERATOR,
+        reason_entered="Need convergence.",
+        completion_signal_seen=False,
+        failure_signal_seen=True,
+        outcome_summary="Escalated due to decision pressure.",
+    )
+    assert len(state.prior_regimes) == before_len + 1
+    assert state.prior_regimes[-1].regime == Stage.OPERATOR
+
+    state.apply_dominant_frame("Updated frame")
+    assert state.dominant_frame == "Updated frame"
+
+    state.update_inference_state(
+        contradictions=state.contradictions + ["New contradiction"],
+        assumptions=state.assumptions + ["New assumption"],
+    )
+    assert "New contradiction" in state.contradictions
+    assert "New assumption" in state.assumptions
