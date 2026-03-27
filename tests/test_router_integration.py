@@ -219,6 +219,36 @@ def test_mixed_prompt_debug_contributions_show_operator_precedence_reason():
     assert any("mixed_prompt:explicit_decision_now_precedence" in line for line in operator_contributions)
 
 
+def test_open_space_multi_frame_prompt_routes_exploration():
+    decision = Router().route(
+        "Map the space before narrowing. Give multiple possible frames, perspectives, or interpretations "
+        "of the situation. Keep it open rather than converging on one answer."
+    )
+    assert decision.primary_regime == Stage.EXPLORATION
+
+
+def test_immediate_decision_prompt_routes_operator():
+    decision = Router().route(
+        "Choose one course of action now. Make a decision, explain the tradeoff, and give a fallback trigger."
+    )
+    assert decision.primary_regime == Stage.OPERATOR
+
+
+def test_mixed_with_immediate_decision_still_routes_operator():
+    decision = Router().route(
+        "Map the possibility space quickly, then choose one path now with a clear tradeoff and fallback trigger."
+    )
+    assert decision.primary_regime == Stage.OPERATOR
+
+
+def test_mixed_with_explicit_keep_open_routes_exploration():
+    decision = Router().route(
+        "Give multiple frames and interpretations, and keep it open rather than converging, "
+        "even if a decision could be made now."
+    )
+    assert decision.primary_regime == Stage.EXPLORATION
+
+
 def test_routing_vague_pattern_with_uncertainty_does_not_trigger_builder():
     decision = Router().route("There’s a pattern here but I can’t tell what kind.")
     assert decision.primary_regime in {Stage.EPISTEMIC, Stage.EXPLORATION}
