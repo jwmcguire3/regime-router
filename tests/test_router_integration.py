@@ -565,7 +565,7 @@ def test_repair_dispatch_selects_expected_mode(first_response, expected_mode, sy
     ],
 )
 def test_smoke_main_plan_entrypoint_runs_without_crashing(task, capsys):
-    rc = main(["plan", "--task", task])
+    rc = main(["plan", "--task", task, "--no-use-task-analyzer"])
     out = capsys.readouterr().out
 
     assert rc == 0
@@ -1024,7 +1024,7 @@ def test_exploration_fallback_only_when_no_nontrivial_scores():
 
 
 def test_plan_debug_routing_flag_prints_observability_details(capsys):
-    rc = main(["plan", "--task", "Can you help?", "--debug-routing"])
+    rc = main(["plan", "--task", "Can you help?", "--debug-routing", "--no-use-task-analyzer"])
     out = capsys.readouterr().out
     assert rc == 0
     assert "ROUTING DEBUG" in out
