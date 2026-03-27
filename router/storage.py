@@ -26,7 +26,10 @@ class SessionStore:
     def load(self, filename: str) -> Dict[str, object]:
         path = self.root / filename
         with path.open("r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        if isinstance(data, dict) and "router_state" not in data:
+            data["router_state"] = None
+        return data
 
     def list_runs(self) -> List[str]:
         return sorted(p.name for p in self.root.glob("*.json"))

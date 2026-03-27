@@ -1,11 +1,81 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional, Set
 
-from .models import Regime, RegimeExecutionResult, RoutingDecision, Stage
+from .models import Regime, RegimeConfidenceResult, RegimeExecutionResult, RoutingDecision, Stage
+
+RegimeConfidence = RegimeConfidenceResult
+
+
+@dataclass
+class RegimeStep:
+    regime: Stage
+    reason_entered: str
+    completion_signal_seen: bool
+    failure_signal_seen: bool
+    outcome_summary: str
+
+
+@dataclass
+class RouterState:
+    task_id: str
+    task_summary: str
+    current_bottleneck: str
+    current_regime: Regime
+    runner_up_regime: Optional[Regime]
+    regime_confidence: RegimeConfidence
+    dominant_frame: Optional[str]
+    knowns: List[str]
+    uncertainties: List[str]
+    contradictions: List[str]
+    assumptions: List[str]
+    risks: List[str]
+    stage_goal: str
+    switch_trigger: Optional[str]
+    recommended_next_regime: Optional[Regime]
+    decision_pressure: float
+    evidence_quality: float
+    recurrence_potential: float
+    prior_regimes: List[RegimeStep] = field(default_factory=list)
+
+    def record_regime_step(
+        self,
+        *,
+        regime: Stage,
+        reason_entered: str,
+        completion_signal_seen: bool,
+        failure_signal_seen: bool,
+        outcome_summary: str,
+    ) -> None:
+        self.prior_regimes.append(
+            RegimeStep(
+                regime=regime,
+                reason_entered=reason_entered,
+                completion_signal_seen=completion_signal_seen,
+                failure_signal_seen=failure_signal_seen,
+                outcome_summary=outcome_summary,
+            )
+        )
+
+    def apply_dominant_frame(self, dominant_frame: Optional[str]) -> None:
+        self.dominant_frame = dominant_frame
+
+    def update_inference_state(
+        self,
+        *,
+        contradictions: Optional[List[str]] = None,
+        assumptions: Optional[List[str]] = None,
+        uncertainties: Optional[List[str]] = None,
+    ) -> None:
+        if contradictions is not None:
+            self.contradictions = contradictions
+        if assumptions is not None:
+            self.assumptions = assumptions
+        if uncertainties is not None:
+            self.uncertainties = uncertainties
 
 
 @dataclass
@@ -31,6 +101,7 @@ class SessionRecord:
     regime: Dict[str, object]
     result: Dict[str, object]
     handoff: Dict[str, object]
+    router_state: Optional[Dict[str, object]] = None
 
 
 def to_jsonable(obj: object) -> object:
@@ -53,6 +124,7 @@ def make_record(
     regime: Regime,
     result: RegimeExecutionResult,
     handoff: Handoff,
+    router_state: Optional[RouterState] = None,
 ) -> SessionRecord:
     return SessionRecord(
         timestamp_utc=datetime.now(timezone.utc).isoformat(),
@@ -63,4 +135,5 @@ def make_record(
         regime=to_jsonable(regime),
         result=to_jsonable(result),
         handoff=to_jsonable(handoff),
+        router_state=to_jsonable(router_state) if router_state else None,
     )

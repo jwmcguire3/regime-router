@@ -118,7 +118,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     print_validation(result.validation)
     print_handoff(handoff)
 
-    record = make_record(args.task, risk_profile, args.model, decision, regime, result, handoff)
+    record = make_record(args.task, risk_profile, args.model, decision, regime, result, handoff, runtime.router_state)
     path = store.save(record, filename=args.save_as)
     print(f"Saved run to: {path}")
     return 0
