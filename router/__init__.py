@@ -1,5 +1,12 @@
 from .analyzer import TaskAnalyzer
-from .control import EvolutionEngine, MisroutingDetectionResult, MisroutingDetector, RegimeOutputContract
+from .control import (
+    EvolutionEngine,
+    MisroutingDetectionResult,
+    MisroutingDetector,
+    RegimeOutputContract,
+    SwitchOrchestrationResult,
+    SwitchOrchestrator,
+)
 from .models import *
 from .prompts import PromptBuilder
 from .routing import *

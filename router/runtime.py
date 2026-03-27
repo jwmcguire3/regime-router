@@ -7,7 +7,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .analyzer import TaskAnalyzer
-from .control import EvolutionEngine
+from .control import EvolutionEngine, MisroutingDetector, RegimeOutputContract, SwitchOrchestrator
 from .models import CANONICAL_FAILURE_IF_OVERUSED, Regime, RegimeExecutionResult, RoutingDecision, Stage, TaskAnalyzerOutput
 from .prompts import PromptBuilder
 from .routing import RegimeComposer, Router, extract_routing_features, extract_structural_signals, infer_risk_profile
@@ -74,6 +74,8 @@ class CognitiveRouterRuntime:
         self.validator = OutputValidator()
         self.prompt_builder = PromptBuilder()
         self.evolver = EvolutionEngine()
+        self.misrouting_detector = MisroutingDetector()
+        self.switch_orchestrator = SwitchOrchestrator()
         self.ollama = OllamaClient(base_url=ollama_base_url)
         self.use_task_analyzer = use_task_analyzer
         self.task_analyzer = TaskAnalyzer(self.ollama, model=task_analyzer_model) if use_task_analyzer else None
@@ -142,7 +144,15 @@ class CognitiveRouterRuntime:
         handoff = self._handoff_from_state(self.router_state)
         return decision, regime, handoff
 
-    def execute(self, task: str, model: str, risk_profile: Optional[Set[str]] = None, handoff_expected: bool = True) -> Tuple[RoutingDecision, Regime, RegimeExecutionResult, Handoff]:
+    def execute(
+        self,
+        task: str,
+        model: str,
+        risk_profile: Optional[Set[str]] = None,
+        handoff_expected: bool = True,
+        bounded_orchestration: bool = False,
+        max_switches: int = 2,
+    ) -> Tuple[RoutingDecision, Regime, RegimeExecutionResult, Handoff]:
         task_signals = extract_structural_signals(task)
         inferred_risks = infer_risk_profile(task, risk_profile)
         decision, regime, handoff = self.plan(
@@ -152,8 +162,67 @@ class CognitiveRouterRuntime:
             task_signals=task_signals,
             risks_inferred=True,
         )
-        system_prompt = self.prompt_builder.build_system_prompt(regime, task_signals=task_signals, risk_profile=inferred_risks)
-        user_prompt = self.prompt_builder.build_user_prompt(task, regime, task_signals=task_signals, risk_profile=inferred_risks)
+        result = self._execute_regime_once(
+            task=task,
+            model=model,
+            regime=regime,
+            task_signals=task_signals,
+            risk_profile=inferred_risks,
+        )
+        self._update_router_state_from_execution(self.router_state, result, reason_entered=decision.why_primary_wins_now)
+
+        if bounded_orchestration and self.router_state is not None:
+            current_result = result
+            switches_taken = 0
+            while switches_taken < max_switches:
+                output_contract = RegimeOutputContract(
+                    stage=current_result.stage,
+                    raw_response=current_result.raw_response,
+                    validation=current_result.validation,
+                )
+                detection = self.misrouting_detector.detect(self.router_state, output_contract)
+                orchestrated = self.switch_orchestrator.orchestrate(
+                    self.router_state,
+                    output_contract,
+                    detection,
+                    switches_used=switches_taken,
+                    max_switches=max_switches,
+                )
+                self.router_state = orchestrated.updated_state
+                if not orchestrated.switch_recommended_now or orchestrated.next_regime is None:
+                    break
+                if orchestrated.next_regime.stage == self.router_state.current_regime.stage:
+                    break
+                switches_taken += 1
+                self.router_state.current_regime = orchestrated.next_regime
+                current_result = self._execute_regime_once(
+                    task=task,
+                    model=model,
+                    regime=orchestrated.next_regime,
+                    task_signals=task_signals,
+                    risk_profile=inferred_risks,
+                )
+                self._update_router_state_from_execution(
+                    self.router_state,
+                    current_result,
+                    reason_entered=orchestrated.reason_for_switch,
+                )
+            result = current_result
+
+        handoff = self._handoff_from_state(self.router_state) if self.router_state else handoff
+        return decision, regime, result, handoff
+
+    def _execute_regime_once(
+        self,
+        *,
+        task: str,
+        model: str,
+        regime: Regime,
+        task_signals: List[str],
+        risk_profile: Set[str],
+    ) -> RegimeExecutionResult:
+        system_prompt = self.prompt_builder.build_system_prompt(regime, task_signals=task_signals, risk_profile=risk_profile)
+        user_prompt = self.prompt_builder.build_user_prompt(task, regime, task_signals=task_signals, risk_profile=risk_profile)
 
         response = self.ollama.generate(model=model, system=system_prompt, prompt=user_prompt, stream=False)
         raw_text = str(response.get("response", "")).strip()
@@ -162,7 +231,7 @@ class CognitiveRouterRuntime:
             raw_text,
             task=task,
             task_signals=task_signals,
-            risk_profile=inferred_risks,
+            risk_profile=risk_profile,
         )
 
         repaired = False
@@ -184,7 +253,7 @@ class CognitiveRouterRuntime:
                 repaired_text,
                 task=task,
                 task_signals=task_signals,
-                risk_profile=inferred_risks,
+                risk_profile=risk_profile,
             )
 
             if repaired_validation.get("is_valid", False):
@@ -193,7 +262,7 @@ class CognitiveRouterRuntime:
                 response = repair_response
                 repaired = True
 
-        result = RegimeExecutionResult(
+        return RegimeExecutionResult(
             task=task,
             model=model,
             regime_name=regime.name,
@@ -210,9 +279,6 @@ class CognitiveRouterRuntime:
             },
             ollama_meta={k: v for k, v in response.items() if k != "response"},
         )
-        self._update_router_state_from_execution(self.router_state, decision, result)
-        handoff = self._handoff_from_state(self.router_state) if self.router_state else handoff
-        return decision, regime, result, handoff
 
     def _select_repair_mode(self, validation: Dict[str, object]) -> str:
         if not validation.get("valid_json", False):
@@ -275,8 +341,9 @@ class CognitiveRouterRuntime:
     def _update_router_state_from_execution(
         self,
         state: Optional[RouterState],
-        decision: RoutingDecision,
         result: RegimeExecutionResult,
+        *,
+        reason_entered: str,
     ) -> None:
         if state is None:
             return
@@ -313,7 +380,7 @@ class CognitiveRouterRuntime:
             summary_chunks.append(f"failure_signal={failure_signal}")
         state.record_regime_step(
             regime=state.current_regime,
-            reason_entered=decision.why_primary_wins_now,
+            reason_entered=reason_entered,
             completion_signal_seen=is_valid,
             failure_signal_seen=not is_valid,
             outcome_summary=" ".join(summary_chunks),
