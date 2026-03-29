@@ -7,6 +7,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .analyzer import TaskAnalyzer
+from .classifier import TaskClassification, TaskClassifier
 from .control import EscalationPolicy, EvolutionEngine, MisroutingDetector, RegimeOutputContract, SwitchOrchestrator
 from .models import CANONICAL_FAILURE_IF_OVERUSED, Regime, RegimeExecutionResult, RoutingDecision, Stage, TaskAnalyzerOutput
 from .prompts import PromptBuilder
@@ -80,6 +81,7 @@ class CognitiveRouterRuntime:
         self.ollama = OllamaClient(base_url=ollama_base_url)
         self.use_task_analyzer = use_task_analyzer
         self.task_analyzer = TaskAnalyzer(self.ollama, model=task_analyzer_model) if use_task_analyzer else None
+        self.task_classifier = TaskClassifier()
         self.router_state: Optional[RouterState] = None
 
     def plan(
@@ -90,6 +92,10 @@ class CognitiveRouterRuntime:
         task_signals: Optional[List[str]] = None,
         risks_inferred: bool = False,
     ) -> Tuple[RoutingDecision, Regime, Handoff]:
+        classification = self.task_classifier.classify(bottleneck)
+        if classification.route_type == "direct":
+            return self._plan_direct(bottleneck, handoff_expected=handoff_expected, classification=classification)
+
         features = extract_routing_features(bottleneck)
         escalation = self.escalation_policy.evaluate(
             state=self.router_state,
@@ -160,6 +166,11 @@ class CognitiveRouterRuntime:
                 "switch_pressure_adjustment": escalation.switch_pressure_adjustment,
                 "signals": escalation.debug_signals,
             }
+            self.router_state.task_classification = {
+                "route_type": classification.route_type,
+                "confidence": classification.confidence,
+                "reason": classification.reason,
+            }
         handoff = self._handoff_from_state(self.router_state)
         return decision, regime, handoff
 
@@ -172,6 +183,14 @@ class CognitiveRouterRuntime:
         bounded_orchestration: bool = False,
         max_switches: int = 2,
     ) -> Tuple[RoutingDecision, Regime, RegimeExecutionResult, Handoff]:
+        classification = self.task_classifier.classify(task)
+        if classification.route_type == "direct":
+            decision, regime, handoff = self._plan_direct(task, handoff_expected=handoff_expected, classification=classification)
+            result = self._execute_direct_task(task=task, model=model, regime=regime)
+            self._update_router_state_from_execution(self.router_state, result, reason_entered=decision.why_primary_wins_now)
+            handoff = self._handoff_from_state(self.router_state) if self.router_state else handoff
+            return decision, regime, result, handoff
+
         task_signals = extract_structural_signals(task)
         routing_features = extract_routing_features(task)
         inferred_risks = infer_risk_profile(task, risk_profile)
@@ -312,6 +331,57 @@ class CognitiveRouterRuntime:
         handoff = self._handoff_from_state(self.router_state) if self.router_state else handoff
         return decision, regime, result, handoff
 
+    def _plan_direct(
+        self,
+        task: str,
+        *,
+        handoff_expected: bool,
+        classification: TaskClassification,
+    ) -> Tuple[RoutingDecision, Regime, Handoff]:
+        decision = RoutingDecision(
+            bottleneck=task,
+            primary_regime=None,
+            runner_up_regime=None,
+            why_primary_wins_now="Direct execution — no reasoning bottleneck detected.",
+            switch_trigger="Execute immediately; no regime switching needed.",
+        )
+        regime = self.composer.compose(Stage.OPERATOR, risk_profile=set(), handoff_expected=handoff_expected)
+        regime.name = "Direct Passthrough"
+        regime.likely_failure_if_overused = "May skip deeper reasoning when hidden ambiguity exists."
+        self.router_state = self._build_router_state(
+            bottleneck=task,
+            decision=decision,
+            regime=regime,
+            signals=[],
+            risks=set(),
+            features=extract_routing_features(task),
+        )
+        if self.router_state is not None:
+            self.router_state.task_classification = {
+                "route_type": classification.route_type,
+                "confidence": classification.confidence,
+                "reason": classification.reason,
+            }
+        handoff = self._handoff_from_state(self.router_state)
+        return decision, regime, handoff
+
+    def _execute_direct_task(self, *, task: str, model: str, regime: Regime) -> RegimeExecutionResult:
+        system_prompt = "Complete this task directly."
+        response = self.ollama.generate(model=model, system=system_prompt, prompt=task, stream=False)
+        raw_text = str(response.get("response", "")).strip()
+        return RegimeExecutionResult(
+            task=task,
+            model=model,
+            regime_name=regime.name,
+            stage=regime.stage,
+            system_prompt=system_prompt,
+            user_prompt=task,
+            raw_response=raw_text,
+            artifact_text=raw_text,
+            validation={"is_valid": True, "direct_execution": True},
+            ollama_meta={k: v for k, v in response.items() if k != "response"},
+        )
+
     def _execute_regime_once(
         self,
         *,
@@ -411,6 +481,12 @@ class CognitiveRouterRuntime:
             if decision.runner_up_regime
             else None
         )
+        primary_name = decision.primary_regime.value if decision.primary_regime else "direct"
+        primary_failure = (
+            CANONICAL_FAILURE_IF_OVERUSED[decision.primary_regime]
+            if decision.primary_regime
+            else "Bypassing routing can miss hidden reasoning bottlenecks."
+        )
         return RouterState(
             task_id=f"task-{task_hash}",
             task_summary=bottleneck[:180],
@@ -418,9 +494,13 @@ class CognitiveRouterRuntime:
             current_regime=regime,
             runner_up_regime=runner_up_regime,
             regime_confidence=decision.confidence,
-            dominant_frame=f"Primary regime is {decision.primary_regime.value}; optimize for its core motion.",
+            dominant_frame=(
+                f"Primary regime is {decision.primary_regime.value}; optimize for its core motion."
+                if decision.primary_regime
+                else "Direct execution path selected."
+            ),
             knowns=[
-                f"Bottleneck classified as: {decision.primary_regime.value}",
+                f"Bottleneck classified as: {primary_name}",
                 f"Runner-up regime: {decision.runner_up_regime.value if decision.runner_up_regime else 'none'}",
             ],
             uncertainties=["Whether the first regime will hit its dominant failure mode quickly."],
@@ -429,7 +509,7 @@ class CognitiveRouterRuntime:
                 "The bottleneck has been classified correctly.",
                 f"Structural signals observed: {', '.join(signals) if signals else 'none'}",
             ],
-            risks=sorted(risks) + [CANONICAL_FAILURE_IF_OVERUSED[decision.primary_regime]],
+            risks=sorted(risks) + [primary_failure],
             stage_goal=stage_goal,
             switch_trigger=decision.switch_trigger,
             recommended_next_regime=runner_up_regime,

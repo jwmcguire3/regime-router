@@ -36,7 +36,7 @@ class CliOutputFormatter:
 def print_routing(decision: RoutingDecision, fmt: CliOutputFormatter) -> None:
     fmt.print_section("Routing summary")
     fmt.print_kv("Current bottleneck", decision.bottleneck)
-    fmt.print_kv("Primary regime", decision.primary_regime.value)
+    fmt.print_kv("Primary regime", decision.primary_regime.value if decision.primary_regime else "direct")
     fmt.print_kv("Runner-up regime", decision.runner_up_regime.value if decision.runner_up_regime else "none")
     fmt.print_kv("Confidence level", decision.confidence.level)
     if not fmt.compact:
@@ -255,7 +255,13 @@ def cmd_models(args: argparse.Namespace) -> int:
 def cmd_settings_show(args: argparse.Namespace) -> int:
     store = CliSettingsStore(path=args.settings_file)
     settings = store.load()
-    payload = {"settings_file": str(store.path), "settings": settings.to_dict()}
+    payload = {
+        "settings_file": str(store.path),
+        "settings": {
+            **settings.to_dict().get("user", {}),
+            "model_controls": settings.to_dict().get("model_controls", {}),
+        },
+    }
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 0
 
@@ -282,7 +288,13 @@ def cmd_settings_set(args: argparse.Namespace) -> int:
         raise ValueError("--model-profile must be one of: strict, balanced, lenient, off")
 
     path = store.save(updated)
-    payload = {"settings_file": str(path), "settings": updated.to_dict()}
+    payload = {
+        "settings_file": str(path),
+        "settings": {
+            **updated.to_dict().get("user", {}),
+            "model_controls": updated.to_dict().get("model_controls", {}),
+        },
+    }
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 0
 
@@ -290,7 +302,13 @@ def cmd_settings_set(args: argparse.Namespace) -> int:
 def cmd_settings_reset(args: argparse.Namespace) -> int:
     store = CliSettingsStore(path=args.settings_file)
     settings = store.reset_all()
-    payload = {"settings_file": str(store.path), "settings": settings.to_dict()}
+    payload = {
+        "settings_file": str(store.path),
+        "settings": {
+            **settings.to_dict().get("user", {}),
+            "model_controls": settings.to_dict().get("model_controls", {}),
+        },
+    }
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 0
 
@@ -314,7 +332,13 @@ def cmd_settings_model_set(args: argparse.Namespace) -> int:
         raise ValueError("--model-profile must be one of: strict, balanced, lenient, off")
     current.model_controls.model_profile = profile
     path = store.save(current)
-    payload = {"settings_file": str(path), "settings": current.to_dict()}
+    payload = {
+        "settings_file": str(path),
+        "settings": {
+            **current.to_dict().get("user", {}),
+            "model_controls": current.to_dict().get("model_controls", {}),
+        },
+    }
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 0
 

@@ -96,7 +96,7 @@ class Regime:
 @dataclass
 class RoutingDecision:
     bottleneck: str
-    primary_regime: Stage
+    primary_regime: Optional[Stage]
     runner_up_regime: Optional[Stage]
     why_primary_wins_now: str
     switch_trigger: str
