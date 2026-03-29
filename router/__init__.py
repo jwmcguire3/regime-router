@@ -1,4 +1,5 @@
 from .analyzer import TaskAnalyzer
+from .classifier import TaskClassification, TaskClassifier
 from .control import (
     EvolutionEngine,
     MisroutingDetectionResult,

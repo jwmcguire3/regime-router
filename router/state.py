@@ -59,6 +59,7 @@ class RouterState:
     executed_regime_stages: List[Stage] = field(default_factory=list)
     switch_history: List[SwitchDecisionRecord] = field(default_factory=list)
     escalation_debug: Dict[str, object] = field(default_factory=dict)
+    task_classification: Optional[Dict[str, object]] = None
 
     def record_regime_step(
         self,
@@ -401,4 +402,7 @@ def router_state_from_jsonable(payload: object, resolve_stage: Callable[[Stage],
         ),
         executed_regime_stages=executed_regime_stages,
         switch_history=switch_history,
+        task_classification=(
+            payload.get("task_classification") if isinstance(payload.get("task_classification"), Mapping) else None
+        ),
     )
