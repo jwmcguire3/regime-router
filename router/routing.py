@@ -439,8 +439,9 @@ class RegimeConfidenceCalculator:
 
 
 class Router:
-    def __init__(self) -> None:
+    def __init__(self, embedding_router: Optional[object] = None) -> None:
         self.confidence_calculator = RegimeConfidenceCalculator()
+        self.embedding_router = embedding_router
         self.precedence_order = [
             Stage.OPERATOR,
             Stage.EXPLORATION,
@@ -998,6 +999,22 @@ class Router:
             for stage, bias in escalation_policy_result.preferred_regime_biases.items():
                 if bias > 0:
                     add_score(stage, bias, "structural", f"escalation_policy:{escalation_policy_result.escalation_direction}")
+
+        if self.embedding_router is not None:
+            embedding_score = self.embedding_router.score(bottleneck)
+            if not embedding_score.below_threshold:
+                ranked_embedding = sorted(
+                    embedding_score.stage_scores.items(),
+                    key=lambda x: (-x[1], self.precedence_order.index(x[0])),
+                )
+                if ranked_embedding:
+                    best_stage, best_value = ranked_embedding[0]
+                    if best_value > 0.35:
+                        add_score(best_stage, 3, "embedding", f"best_similarity={best_value:.3f}")
+                if len(ranked_embedding) > 1:
+                    second_stage, second_value = ranked_embedding[1]
+                    if second_value > 0.35:
+                        add_score(second_stage, 1, "embedding", f"second_similarity={second_value:.3f}")
 
         if deterministic_stage_scores:
             for stage in Stage:
