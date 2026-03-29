@@ -149,6 +149,14 @@ class TaskAnalyzerOutput:
     rationale: str
 
 
+@dataclass(frozen=True)
+class EmbeddingScore:
+    stage_scores: Dict[Stage, float]
+    best_stage: Stage
+    best_score: float
+    below_threshold: bool
+
+
 @dataclass
 class FailureLog:
     regime_name: str
