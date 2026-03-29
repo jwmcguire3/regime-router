@@ -111,6 +111,13 @@ class OutputValidator:
         if not result["required_keys_present"]:
             return result
 
+        control_failures: List[str] = []
+        regime_raw = str(parsed.get("regime", "")).strip().lower()
+        if stage.value not in regime_raw:
+            control_failures.append(
+                f"regime field mismatch: output claims '{parsed.get('regime')}' but active regime is {stage.value}"
+            )
+
         artifact = parsed.get("artifact", {})
         if not isinstance(artifact, dict):
             result["error"] = "artifact must be a JSON object"
@@ -122,7 +129,7 @@ class OutputValidator:
         result["missing_artifact_fields"] = missing_artifact_fields
         result["artifact_fields_present"] = len(missing_artifact_fields) == 0
         result["artifact_type_matches"] = parsed.get("artifact_type") == ARTIFACT_HINTS[stage]
-        control_failures = self._validate_control_fields(stage, parsed)
+        control_failures.extend(self._validate_control_fields(stage, parsed))
         result["control_failures"] = control_failures
         result["contract_controls_valid"] = len(control_failures) == 0
 
