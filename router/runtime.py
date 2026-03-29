@@ -7,7 +7,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .analyzer import TaskAnalyzer
-from .control import EvolutionEngine, MisroutingDetector, RegimeOutputContract, SwitchOrchestrator
+from .control import EscalationPolicy, EvolutionEngine, MisroutingDetector, RegimeOutputContract, SwitchOrchestrator
 from .models import CANONICAL_FAILURE_IF_OVERUSED, Regime, RegimeExecutionResult, RoutingDecision, Stage, TaskAnalyzerOutput
 from .prompts import PromptBuilder
 from .routing import RegimeComposer, Router, extract_routing_features, extract_structural_signals, infer_risk_profile
@@ -75,6 +75,7 @@ class CognitiveRouterRuntime:
         self.prompt_builder = PromptBuilder()
         self.evolver = EvolutionEngine()
         self.misrouting_detector = MisroutingDetector()
+        self.escalation_policy = EscalationPolicy()
         self.switch_orchestrator = SwitchOrchestrator()
         self.ollama = OllamaClient(base_url=ollama_base_url)
         self.use_task_analyzer = use_task_analyzer
@@ -90,6 +91,14 @@ class CognitiveRouterRuntime:
         risks_inferred: bool = False,
     ) -> Tuple[RoutingDecision, Regime, Handoff]:
         features = extract_routing_features(bottleneck)
+        escalation = self.escalation_policy.evaluate(
+            state=self.router_state,
+            routing_features=features,
+            task_text=bottleneck,
+            current_regime=self.router_state.current_regime if self.router_state else None,
+            regime_confidence=self.router_state.regime_confidence if self.router_state else None,
+            misrouting_result=None,
+        )
         signals = task_signals if task_signals is not None else features.structural_signals
         risks = set(risk_profile or set()) if risks_inferred else infer_risk_profile(bottleneck, risk_profile)
         deterministic_decision = self.router.route(
@@ -97,6 +106,7 @@ class CognitiveRouterRuntime:
             task_signals=signals,
             risk_profile=risks,
             routing_features=features,
+            escalation_policy_result=escalation,
         )
         analysis: Optional[TaskAnalyzerOutput] = None
         analyzer_attempted = False
@@ -118,6 +128,7 @@ class CognitiveRouterRuntime:
             task_signals=signals,
             risk_profile=risks,
             routing_features=features,
+            escalation_policy_result=escalation,
             deterministic_stage_scores=deterministic_decision.deterministic_stage_scores,
             deterministic_confidence=deterministic_decision.confidence,
             analyzer_enabled=self.use_task_analyzer,
@@ -141,6 +152,14 @@ class CognitiveRouterRuntime:
             risks=risks,
             features=features,
         )
+        if self.router_state is not None:
+            self.router_state.escalation_debug = {
+                "direction": escalation.escalation_direction,
+                "justification": escalation.justification,
+                "biases": {stage.value: v for stage, v in escalation.preferred_regime_biases.items()},
+                "switch_pressure_adjustment": escalation.switch_pressure_adjustment,
+                "signals": escalation.debug_signals,
+            }
         handoff = self._handoff_from_state(self.router_state)
         return decision, regime, handoff
 
@@ -154,6 +173,7 @@ class CognitiveRouterRuntime:
         max_switches: int = 2,
     ) -> Tuple[RoutingDecision, Regime, RegimeExecutionResult, Handoff]:
         task_signals = extract_structural_signals(task)
+        routing_features = extract_routing_features(task)
         inferred_risks = infer_risk_profile(task, risk_profile)
         decision, regime, handoff = self.plan(
             task,
@@ -202,12 +222,28 @@ class CognitiveRouterRuntime:
                     validation=current_result.validation,
                 )
                 detection = self.misrouting_detector.detect(self.router_state, output_contract)
+                escalation = self.escalation_policy.evaluate(
+                    state=self.router_state,
+                    routing_features=routing_features,
+                    task_text=task,
+                    current_regime=self.router_state.current_regime,
+                    regime_confidence=self.router_state.regime_confidence,
+                    misrouting_result=detection,
+                )
+                self.router_state.escalation_debug = {
+                    "direction": escalation.escalation_direction,
+                    "justification": escalation.justification,
+                    "biases": {stage.value: v for stage, v in escalation.preferred_regime_biases.items()},
+                    "switch_pressure_adjustment": escalation.switch_pressure_adjustment,
+                    "signals": escalation.debug_signals,
+                }
                 orchestrated = self.switch_orchestrator.orchestrate(
                     self.router_state,
                     output_contract,
                     detection,
                     switches_used=self.router_state.switches_executed,
                     max_switches=max_switches,
+                    escalation=escalation,
                 )
                 self.router_state = orchestrated.updated_state
                 if not orchestrated.switch_recommended_now or orchestrated.next_regime is None:

@@ -58,6 +58,7 @@ class RouterState:
     orchestration_stop_reason: Optional[str] = None
     executed_regime_stages: List[Stage] = field(default_factory=list)
     switch_history: List[SwitchDecisionRecord] = field(default_factory=list)
+    escalation_debug: Dict[str, object] = field(default_factory=dict)
 
     def record_regime_step(
         self,

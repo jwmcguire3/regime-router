@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 from .models import (
     CANONICAL_DOMINANTS,
@@ -20,6 +20,9 @@ from .models import (
     STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED,
     STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED,
 )
+
+if TYPE_CHECKING:
+    from .control import EscalationPolicyResult
 
 def _contains_any(text: str, phrases: Tuple[str, ...]) -> List[str]:
     return [phrase for phrase in phrases if phrase in text]
@@ -577,6 +580,7 @@ class Router:
         task_signals: Optional[List[str]] = None,
         risk_profile: Optional[Set[str]] = None,
         routing_features: Optional[RoutingFeatures] = None,
+        escalation_policy_result: Optional["EscalationPolicyResult"] = None,
         deterministic_stage_scores: Optional[Dict[Stage, int]] = None,
         deterministic_confidence: Optional[RegimeConfidenceResult] = None,
         analyzer_result: Optional[TaskAnalyzerOutput] = None,
@@ -587,6 +591,17 @@ class Router:
         features = routing_features or extract_routing_features(bottleneck)
         signals = set(task_signals or features.structural_signals)
         risks = set(risk_profile or set())
+        if escalation_policy_result is None:
+            from .control import EscalationPolicy
+
+            escalation_policy_result = EscalationPolicy().evaluate(
+                state=None,
+                routing_features=features,
+                task_text=bottleneck,
+                current_regime=None,
+                regime_confidence=deterministic_confidence,
+                misrouting_result=None,
+            )
 
         interpretation_shortcut_markers = ["strongest interpretation", "strongest frame", "what this actually is"]
         epistemic_markers = ["evidence", "support", "verify", "unknown", "unclear", "unresolved"]
@@ -867,6 +882,7 @@ class Router:
                 add_score(Stage.EXPLORATION, 1, "structural", "feature_support:uncertainty_can_require_exploration")
             if "uncertainty_characterization" in features.detected_markers:
                 add_score(Stage.EPISTEMIC, 2, "structural", "feature:uncertainty_characterization")
+                add_score(Stage.SYNTHESIS, 1, "structural", "feature_support:pattern_needs_structural_frame")
         if features.decision_pressure > 0:
             decision_markers = set(features.detected_markers.get("decision_tradeoff_commitment", []))
             has_explicit_decision_marker = bool(decision_markers & RegimeConfidenceCalculator.EXPLICIT_DECISION_MARKERS)
@@ -966,6 +982,11 @@ class Router:
                     "structural",
                     "mixed_prompt:hard_closure_overrides_open_space_bonus",
                 )
+
+        if escalation_policy_result and escalation_policy_result.escalation_direction != "none":
+            for stage, bias in escalation_policy_result.preferred_regime_biases.items():
+                if bias > 0:
+                    add_score(stage, bias, "structural", f"escalation_policy:{escalation_policy_result.escalation_direction}")
 
         if deterministic_stage_scores:
             for stage in Stage:

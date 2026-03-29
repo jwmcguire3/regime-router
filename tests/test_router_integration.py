@@ -295,6 +295,61 @@ def test_routing_vague_pattern_with_uncertainty_does_not_trigger_builder():
     assert decision.primary_regime != Stage.BUILDER
 
 
+def test_escalation_trust_deployment_prompt_biases_stricter():
+    decision = Router().route("We are near deployment and need high trust in production.")
+    assert decision.primary_regime in {Stage.EPISTEMIC, Stage.ADVERSARIAL}
+    assert any(
+        "escalation_policy:stricter" in item
+        for items in decision.deterministic_score_contributions.values()
+        for item in items
+    )
+
+
+def test_escalation_contradiction_heavy_prompt_biases_stricter():
+    decision = Router().route("Contradictions are accumulating; we need confidence and proof before deciding.")
+    assert decision.primary_regime == Stage.EPISTEMIC
+    assert any(
+        "escalation_policy:stricter" in item
+        for items in decision.deterministic_score_contributions.values()
+        for item in items
+    )
+
+
+def test_escalation_certainty_seeking_prompt_biases_stricter():
+    decision = Router().route("I need a certainty-level answer with explicit proof and confidence bounds.")
+    assert decision.primary_regime == Stage.EPISTEMIC
+    assert any(
+        "escalation_policy:stricter" in item
+        for items in decision.deterministic_score_contributions.values()
+        for item in items
+    )
+
+
+def test_escalation_underformed_brainstorm_prompt_biases_looser():
+    decision = Router().route("This space is underformed. Brainstorm and map the space before we commit.")
+    assert decision.primary_regime == Stage.EXPLORATION
+    assert any(
+        "escalation_policy:looser" in item
+        for items in decision.deterministic_score_contributions.values()
+        for item in items
+    )
+
+
+def test_escalation_premature_narrowing_prompt_biases_looser():
+    decision = Router().route("Narrowing happened too early; keep it open and explore before narrowing.")
+    assert decision.primary_regime == Stage.EXPLORATION
+    assert any(
+        "escalation_policy:looser" in item
+        for items in decision.deterministic_score_contributions.values()
+        for item in items
+    )
+
+
+def test_escalation_does_not_override_hard_deterministic_signal():
+    decision = Router().route("Stress test this frame for launch certainty before deployment.")
+    assert decision.primary_regime == Stage.ADVERSARIAL
+
+
 def test_routing_reusable_pattern_with_template_triggers_builder():
     decision = Router().route("There is a reusable pattern here we should turn into a template.")
     assert decision.primary_regime == Stage.BUILDER
