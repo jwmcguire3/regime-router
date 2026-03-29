@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import re
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 from .models import (
@@ -25,7 +26,17 @@ if TYPE_CHECKING:
     from .control import EscalationPolicyResult
 
 def _contains_any(text: str, phrases: Tuple[str, ...]) -> List[str]:
-    return [phrase for phrase in phrases if phrase in text]
+    matches: List[str] = []
+    for phrase in phrases:
+        if " " in phrase:
+            if phrase in text:
+                matches.append(phrase)
+            continue
+
+        if re.search(rf"\b{re.escape(phrase)}\b", text):
+            matches.append(phrase)
+
+    return matches
 
 
 def _score_from_matches(*matches: List[str]) -> int:
