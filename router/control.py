@@ -130,78 +130,98 @@ class MisroutingDetector:
         return artifact if isinstance(artifact, dict) else {}
 
     def _failure_signal_active(self, stage: Stage, state: RouterState, artifact: Dict[str, object]) -> bool:
-        if stage == Stage.EXPLORATION:
-            candidate_frames = self._item_count(artifact.get("candidate_frames"))
-            has_differentiation = self._exploration_has_differentiation(artifact)
-            return candidate_frames >= 5 and not has_differentiation
-
-        if stage == Stage.SYNTHESIS:
-            has_central_claim = self._present(artifact.get("central_claim"))
-            has_organizing_idea = self._present(artifact.get("organizing_idea"))
-            has_support = self._present(artifact.get("supporting_structure"))
-            contradictions_live = len(state.contradictions) > 0
-            has_pressure_points = self._present(artifact.get("pressure_points"))
-            unsupported_unification = has_central_claim and has_organizing_idea and not has_support and not has_pressure_points
-            stress_without_structure = has_central_claim and has_organizing_idea and has_pressure_points and not has_support
-            contradictions_flattened = contradictions_live and not has_pressure_points and not has_support
-            return unsupported_unification or stress_without_structure or contradictions_flattened
-
-        if stage == Stage.EPISTEMIC:
-            has_support_separation = self._epistemic_has_support_separation(artifact)
-            has_uncertainty_handling = self._epistemic_has_uncertainty_handling(state, artifact)
-            return not has_support_separation and not has_uncertainty_handling
-
-        if stage == Stage.ADVERSARIAL:
-            destabilizers = artifact.get("top_destabilizers")
-            residual_risks = artifact.get("residual_risks")
-            same_objections = self._normalized(destabilizers) == self._normalized(residual_risks) and self._present(destabilizers)
-            no_revision_movement = not self._present(artifact.get("survivable_revisions"))
-            return same_objections or (self._present(destabilizers) and no_revision_movement)
-
-        if stage == Stage.OPERATOR:
-            has_decision = self._present(artifact.get("decision"))
-            missing_decision = not has_decision
-            missing_tradeoff = not self._present(artifact.get("tradeoff_accepted"))
-            missing_rationale = not self._present(artifact.get("rationale"))
-            missing_next_actions = not self._present(artifact.get("next_actions"))
-            missing_fallback = not self._present(artifact.get("fallback_trigger"))
-            missing_review_point = not self._present(artifact.get("review_point"))
-            assumptions_hidden = self._has_live_assumptions(state) and missing_rationale and missing_fallback
-            return (
-                missing_decision
-                or missing_tradeoff
-                or missing_rationale
-                or missing_next_actions
-                or missing_fallback
-                or missing_review_point
-                or assumptions_hidden
-            )
-
-        if stage == Stage.BUILDER:
-            has_modules_or_interfaces = self._present(artifact.get("modules")) or self._present(artifact.get("interfaces"))
-            return has_modules_or_interfaces and not self._recurrence_established(state)
-
-        return False
+        dispatch = {
+            Stage.EXPLORATION: self._failure_signal_exploration,
+            Stage.SYNTHESIS: self._failure_signal_synthesis,
+            Stage.EPISTEMIC: self._failure_signal_epistemic,
+            Stage.ADVERSARIAL: self._failure_signal_adversarial,
+            Stage.OPERATOR: self._failure_signal_operator,
+            Stage.BUILDER: self._failure_signal_builder,
+        }
+        handler = dispatch.get(stage)
+        return handler(state, artifact) if handler else False
 
     def _completion_signal_active(self, stage: Stage, state: RouterState, artifact: Dict[str, object]) -> bool:
-        if stage == Stage.EXPLORATION:
-            candidate_frames = self._item_count(artifact.get("candidate_frames"))
-            has_differentiation = self._exploration_has_differentiation(artifact)
-            return candidate_frames >= 3 and has_differentiation
-
-        if stage == Stage.SYNTHESIS:
-            has_central_pattern = self._present(artifact.get("central_claim")) or self._present(artifact.get("organizing_idea"))
-            has_connective_structure = self._present(artifact.get("supporting_structure")) or self._present(artifact.get("pressure_points"))
-            if len(state.contradictions) > 0:
-                has_connective_structure = has_connective_structure or self._present(artifact.get("contradictions"))
-            return has_central_pattern and has_connective_structure
-
-        if stage == Stage.EPISTEMIC:
-            has_support_separation = self._epistemic_has_support_separation(artifact)
-            has_uncertainty_handling = self._epistemic_has_uncertainty_handling(state, artifact)
-            return has_support_separation and has_uncertainty_handling
-
+        dispatch = {
+            Stage.EXPLORATION: self._completion_signal_exploration,
+            Stage.SYNTHESIS: self._completion_signal_synthesis,
+            Stage.EPISTEMIC: self._completion_signal_epistemic,
+        }
+        handler = dispatch.get(stage)
+        if handler:
+            return handler(state, artifact)
         return not self._failure_signal_active(stage, state, artifact)
+
+    def _failure_signal_exploration(self, state: RouterState, artifact: Dict[str, object]) -> bool:
+        del state
+        candidate_frames = self._item_count(artifact.get("candidate_frames"))
+        has_differentiation = self._exploration_has_differentiation(artifact)
+        return candidate_frames >= 5 and not has_differentiation
+
+    def _failure_signal_synthesis(self, state: RouterState, artifact: Dict[str, object]) -> bool:
+        has_central_claim = self._present(artifact.get("central_claim"))
+        has_organizing_idea = self._present(artifact.get("organizing_idea"))
+        has_support = self._present(artifact.get("supporting_structure"))
+        contradictions_live = len(state.contradictions) > 0
+        has_pressure_points = self._present(artifact.get("pressure_points"))
+        unsupported_unification = has_central_claim and has_organizing_idea and not has_support and not has_pressure_points
+        stress_without_structure = has_central_claim and has_organizing_idea and has_pressure_points and not has_support
+        contradictions_flattened = contradictions_live and not has_pressure_points and not has_support
+        return unsupported_unification or stress_without_structure or contradictions_flattened
+
+    def _failure_signal_epistemic(self, state: RouterState, artifact: Dict[str, object]) -> bool:
+        has_support_separation = self._epistemic_has_support_separation(artifact)
+        has_uncertainty_handling = self._epistemic_has_uncertainty_handling(state, artifact)
+        return not has_support_separation and not has_uncertainty_handling
+
+    def _failure_signal_adversarial(self, state: RouterState, artifact: Dict[str, object]) -> bool:
+        del state
+        destabilizers = artifact.get("top_destabilizers")
+        residual_risks = artifact.get("residual_risks")
+        same_objections = self._normalized(destabilizers) == self._normalized(residual_risks) and self._present(destabilizers)
+        no_revision_movement = not self._present(artifact.get("survivable_revisions"))
+        return same_objections or (self._present(destabilizers) and no_revision_movement)
+
+    def _failure_signal_operator(self, state: RouterState, artifact: Dict[str, object]) -> bool:
+        has_decision = self._present(artifact.get("decision"))
+        missing_decision = not has_decision
+        missing_tradeoff = not self._present(artifact.get("tradeoff_accepted"))
+        missing_rationale = not self._present(artifact.get("rationale"))
+        missing_next_actions = not self._present(artifact.get("next_actions"))
+        missing_fallback = not self._present(artifact.get("fallback_trigger"))
+        missing_review_point = not self._present(artifact.get("review_point"))
+        assumptions_hidden = self._has_live_assumptions(state) and missing_rationale and missing_fallback
+        return (
+            missing_decision
+            or missing_tradeoff
+            or missing_rationale
+            or missing_next_actions
+            or missing_fallback
+            or missing_review_point
+            or assumptions_hidden
+        )
+
+    def _failure_signal_builder(self, state: RouterState, artifact: Dict[str, object]) -> bool:
+        has_modules_or_interfaces = self._present(artifact.get("modules")) or self._present(artifact.get("interfaces"))
+        return has_modules_or_interfaces and not self._recurrence_established(state)
+
+    def _completion_signal_exploration(self, state: RouterState, artifact: Dict[str, object]) -> bool:
+        del state
+        candidate_frames = self._item_count(artifact.get("candidate_frames"))
+        has_differentiation = self._exploration_has_differentiation(artifact)
+        return candidate_frames >= 3 and has_differentiation
+
+    def _completion_signal_synthesis(self, state: RouterState, artifact: Dict[str, object]) -> bool:
+        has_central_pattern = self._present(artifact.get("central_claim")) or self._present(artifact.get("organizing_idea"))
+        has_connective_structure = self._present(artifact.get("supporting_structure")) or self._present(artifact.get("pressure_points"))
+        if len(state.contradictions) > 0:
+            has_connective_structure = has_connective_structure or self._present(artifact.get("contradictions"))
+        return has_central_pattern and has_connective_structure
+
+    def _completion_signal_epistemic(self, state: RouterState, artifact: Dict[str, object]) -> bool:
+        has_support_separation = self._epistemic_has_support_separation(artifact)
+        has_uncertainty_handling = self._epistemic_has_uncertainty_handling(state, artifact)
+        return has_support_separation and has_uncertainty_handling
 
     def _exploration_has_differentiation(self, artifact: Dict[str, object]) -> bool:
         has_selection_criteria = self._present(artifact.get("selection_criteria"))
