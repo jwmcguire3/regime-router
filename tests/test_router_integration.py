@@ -413,6 +413,12 @@ def test_confidence_is_high_for_mixed_prompt_with_clear_score_gap():
     assert "clear margin" in decision.confidence.rationale
 
 
+def test_extract_routing_features_treats_plural_unknowns_as_epistemic_evidence_signal():
+    features = extract_routing_features("Before deciding, verify unknowns.")
+    assert features.evidence_demand >= 1
+    assert "unknowns" in features.detected_markers.get("uncertainty_evidence_demand", [])
+
+
 def test_confidence_brainstorm_prompt_calibrates_to_high_for_clean_single_regime_signal():
     decision = Router().route("Brainstorm several distinct ways to think about this.")
     assert decision.primary_regime == Stage.EXPLORATION

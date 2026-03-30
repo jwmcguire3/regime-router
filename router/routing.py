@@ -62,7 +62,17 @@ def extract_routing_features(task: str) -> RoutingFeatures:
     missing_words = ("missed", "missing", "lost", "not seen", "not grasped", "not holding")
     understood_words = ("understood", "clear", "comprehensible", "makes sense", "legible")
 
-    evidence_words = ("evidence", "support", "verify", "unknown", "unclear", "unresolved", "proof", "confidence")
+    evidence_words = (
+        "evidence",
+        "support",
+        "verify",
+        "unknown",
+        "unknowns",
+        "unclear",
+        "unresolved",
+        "proof",
+        "confidence",
+    )
     uncertainty_words = ("uncertain", "ambigu", "not sure", "missing information", "what is missing")
     uncertainty_characterization_words = (
         "can't tell",
@@ -622,7 +632,7 @@ class Router:
             )
 
         interpretation_shortcut_markers = ["strongest interpretation", "strongest frame", "what this actually is"]
-        epistemic_markers = ["evidence", "support", "verify", "unknown", "unclear", "unresolved"]
+        epistemic_markers = ["evidence", "support", "verify", "unknown", "unknowns", "unclear", "unresolved"]
 
         if any(_has_phrase(b, k) for k in interpretation_shortcut_markers) and not any(
             _has_phrase(b, k) for k in epistemic_markers
@@ -790,6 +800,7 @@ class Router:
             Stage.EPISTEMIC,
             {
                 "unknown": 4,
+                "unknowns": 4,
                 "unclear": 4,
                 "unresolved": 4,
                 "what is missing": 5,
