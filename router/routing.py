@@ -818,6 +818,8 @@ class Router:
                 "evidence": 4,
                 "verify": 4,
                 "rigor": 3,
+                "proof": 3,
+                "confidence": 2,
                 "are you sure": 4,
                 "can't tell": 4,
                 "can't tell what kind": 5,
@@ -828,6 +830,17 @@ class Router:
                 "can't name it yet": 4,
             },
         )
+        before_deciding_epistemic_phrases = (
+            "before deciding",
+            "before we decide",
+            "before deciding now",
+        )
+        if any(_has_phrase(b, phrase) for phrase in before_deciding_epistemic_phrases) and (
+            features.evidence_demand > 0 or any(_has_phrase(b, marker) for marker in ("evidence", "proof", "verify", "confidence"))
+        ):
+            add_score(Stage.EPISTEMIC, 2, "structural", "before_deciding:verification_precedence")
+            suppress_score(Stage.OPERATOR, 2, "structural", "before_deciding:suppress_premature_closure")
+
         if "pattern" in b:
             add_score(Stage.SYNTHESIS, 1, "lexical", "generic_pattern_signal")
         add_phrase_weights(
