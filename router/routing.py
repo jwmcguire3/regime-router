@@ -39,6 +39,12 @@ def _contains_any(text: str, phrases: Tuple[str, ...]) -> List[str]:
     return matches
 
 
+def _has_phrase(text: str, phrase: str) -> bool:
+    if " " in phrase:
+        return phrase in text
+    return bool(re.search(rf"\b{re.escape(phrase)}\b", text))
+
+
 def _score_from_matches(*matches: List[str]) -> int:
     return min(10, sum(len(group) for group in matches))
 
@@ -618,7 +624,9 @@ class Router:
         interpretation_shortcut_markers = ["strongest interpretation", "strongest frame", "what this actually is"]
         epistemic_markers = ["evidence", "support", "verify", "unknown", "unclear", "unresolved"]
 
-        if any(k in b for k in interpretation_shortcut_markers) and not any(k in b for k in epistemic_markers):
+        if any(_has_phrase(b, k) for k in interpretation_shortcut_markers) and not any(
+            _has_phrase(b, k) for k in epistemic_markers
+        ):
             return RoutingDecision(
                 bottleneck=bottleneck,
                 primary_regime=Stage.SYNTHESIS,
@@ -654,7 +662,7 @@ class Router:
             "what would break this frame",
         ]
 
-        if any(k in b for k in adversarial_shortcut_markers):
+        if any(_has_phrase(b, k) for k in adversarial_shortcut_markers):
             return RoutingDecision(
                 bottleneck=bottleneck,
                 primary_regime=Stage.ADVERSARIAL,
@@ -671,7 +679,7 @@ class Router:
             )
 
         if any(
-            k in b
+            _has_phrase(b, k)
             for k in [
                 "repeatable",
                 "reusable",
@@ -727,7 +735,7 @@ class Router:
 
         def add_phrase_weights(stage: Stage, weighted_terms: Dict[str, int]) -> None:
             for phrase, weight in weighted_terms.items():
-                if phrase in b:
+                if _has_phrase(b, phrase):
                     add_score(stage, weight, "lexical", f"phrase='{phrase}'")
 
         add_phrase_weights(
@@ -764,7 +772,7 @@ class Router:
             "do not make a call": 5,
             "not ready to decide": 4,
         }
-        negated_hits = [phrase for phrase in negated_closure_weights if phrase in b]
+        negated_hits = [phrase for phrase in negated_closure_weights if _has_phrase(b, phrase)]
         for phrase in negated_hits:
             suppress_score(
                 Stage.OPERATOR,
@@ -817,6 +825,9 @@ class Router:
                 "spine is still missing": 6,
                 "hidden spine": 4,
                 "what this really is": 4,
+                "unify": 4,
+                "coherent picture": 5,
+                "coherent": 2,
             },
         )
         add_phrase_weights(
@@ -836,9 +847,9 @@ class Router:
                 "what would break it": 5,
             },
         )
-        if any(k in b for k in interpretation_shortcut_markers):
+        if any(_has_phrase(b, k) for k in interpretation_shortcut_markers):
             add_score(Stage.SYNTHESIS, 4, "lexical", "interpretation_shortcut_marker")
-            if any(k in b for k in epistemic_markers):
+            if any(_has_phrase(b, k) for k in epistemic_markers):
                 add_score(Stage.EPISTEMIC, 2, "lexical", "epistemic_marker_with_interpretation_shortcut")
 
         add_phrase_weights(
@@ -872,6 +883,7 @@ class Router:
 
         if STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED in signals:
             add_score(Stage.SYNTHESIS, 5, "structural", STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED)
+            add_score(Stage.EPISTEMIC, 1, "structural", "fragments_spine_gap:verification_followup")
         if STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL in signals:
             add_score(Stage.SYNTHESIS, 2, "structural", STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL)
         if STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED in signals:
@@ -894,7 +906,7 @@ class Router:
                 add_score(Stage.EXPLORATION, 1, "structural", "feature_support:uncertainty_can_require_exploration")
             if "uncertainty_characterization" in features.detected_markers:
                 add_score(Stage.EPISTEMIC, 2, "structural", "feature:uncertainty_characterization")
-                add_score(Stage.SYNTHESIS, 1, "structural", "feature_support:pattern_needs_structural_frame")
+                add_score(Stage.SYNTHESIS, 2, "structural", "feature_support:pattern_needs_structural_frame")
         if features.decision_pressure > 0:
             decision_markers = set(features.detected_markers.get("decision_tradeoff_commitment", []))
             has_explicit_decision_marker = bool(decision_markers & RegimeConfidenceCalculator.EXPLICIT_DECISION_MARKERS)
@@ -960,6 +972,16 @@ class Router:
                 2,
                 "structural",
                 "explicit_open_space_request:frames_perspectives_keep_open",
+            )
+        if (
+            "negated_closure_preference" in features.detected_markers
+            and not (explicit_open_space_markers & open_space_advantage_markers)
+        ):
+            add_score(
+                Stage.OPERATOR,
+                1,
+                "structural",
+                "negated_closure:operator_retained_as_secondary_context",
             )
         if features.decision_pressure > 0 and features.possibility_space_need > 0:
             explicit_closure_markers = (
