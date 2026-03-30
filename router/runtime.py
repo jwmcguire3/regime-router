@@ -646,13 +646,7 @@ class CognitiveRouterRuntime:
         )
 
     def _resolve_next_regime(self, state: RouterState, stage: Stage) -> Regime:
-        if state.current_regime.stage == stage:
-            return state.current_regime
-        if state.runner_up_regime and state.runner_up_regime.stage == stage:
-            return state.runner_up_regime
-        if state.recommended_next_regime and state.recommended_next_regime.stage == stage:
-            return state.recommended_next_regime
-        return self.composer.compose(stage)
+        return state.resolve_regime(stage, self.composer.compose)
 
     def restore_router_state(self, payload: object) -> Optional[RouterState]:
         self.router_state = router_state_from_jsonable(payload, self.composer.compose)
