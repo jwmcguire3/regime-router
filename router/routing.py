@@ -86,8 +86,10 @@ def extract_routing_features(task: str) -> RoutingFeatures:
 
     decision_words = (
         "decide",
+        "deciding",
         "decision",
         "choose",
+        "choosing",
         "commit",
         "recommend",
         "recommendation",
@@ -101,6 +103,7 @@ def extract_routing_features(task: str) -> RoutingFeatures:
         "this week",
         "immediate",
         "select",
+        "selecting",
     )
     tradeoff_words = ("tradeoff", "trade-off", "between options", "opportunity cost")
 
@@ -298,8 +301,10 @@ class RegimeConfidenceCalculator:
     EXPLICIT_DECISION_MARKERS = frozenset(
         {
             "decide",
+            "deciding",
             "decision",
             "choose",
+            "choosing",
             "choose now",
             "recommend",
             "recommendation",
@@ -312,6 +317,7 @@ class RegimeConfidenceCalculator:
             "next move",
             "best option now",
             "select",
+            "selecting",
             "select now",
             "select one",
             "tradeoff",
@@ -752,8 +758,10 @@ class Router:
             Stage.OPERATOR,
             {
                 "decide": 4,
+                "deciding": 4,
                 "decision": 4,
                 "choose": 4,
+                "choosing": 4,
                 "recommend": 4,
                 "recommendation": 4,
                 "make a call": 5,
@@ -766,6 +774,7 @@ class Router:
                 "tradeoff": 4,
                 "best option now": 6,
                 "select": 4,
+                "selecting": 4,
                 "select between options": 5,
                 "choose between": 5,
                 "time pressure": 3,
