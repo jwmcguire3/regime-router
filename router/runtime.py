@@ -91,7 +91,7 @@ class CognitiveRouterRuntime:
         self.ollama = OllamaClient(base_url=ollama_base_url)
         self.use_task_analyzer = use_task_analyzer
         self.task_analyzer = TaskAnalyzer(self.ollama, model=task_analyzer_model) if use_task_analyzer else None
-        self.task_classifier = TaskClassifier()
+        self.task_classifier = TaskClassifier(embedding_router=embedding_router)
         self.router_state: Optional[RouterState] = None
 
     def plan(
