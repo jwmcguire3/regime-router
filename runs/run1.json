@@ -1,157 +1,156 @@
 {
-  "timestamp_utc": "2026-03-30T17:57:10.248635+00:00",
-  "task": "I have a rough idea for a local service business offer, but it still feels underformed and possibly wrong. First map the distinct ways this could be framed and what each frame assumes. Then identify the strongest interpretation of what the offer actually is and what central tension it is trying to resolve. After that, stress test the strongest framing against contradictions, weak assumptions, and what evidence would need to be true for it to hold up. End by telling me what decision should be made next and what would falsify it.",
+  "timestamp_utc": "2026-03-30T18:19:40.711633+00:00",
+  "task": "I have a business idea, but I do not trust either my framing or my current confidence in it. First surface the distinct ways this idea could be framed and what each framing assumes. Then identify the strongest interpretation of what the idea actually is and what tension it is trying to resolve. Then separate what is actually supported from what is only plausible, preserving contradictions instead of smoothing them over. After that, identify the strongest failure case that would most change the decision if true. Only then make a concrete recommendation for what I should do next, what tradeoff I am accepting, and what evidence would cause me to reverse course.",
   "risk_profile": [],
   "model": "dolphin29:latest",
   "routing": {
-    "bottleneck": "I have a rough idea for a local service business offer, but it still feels underformed and possibly wrong. First map the distinct ways this could be framed and what each frame assumes. Then identify the strongest interpretation of what the offer actually is and what central tension it is trying to resolve. After that, stress test the strongest framing against contradictions, weak assumptions, and what evidence would need to be true for it to hold up. End by telling me what decision should be made next and what would falsify it.",
-    "primary_regime": "adversarial",
+    "bottleneck": "I have a business idea, but I do not trust either my framing or my current confidence in it. First surface the distinct ways this idea could be framed and what each framing assumes. Then identify the strongest interpretation of what the idea actually is and what tension it is trying to resolve. Then separate what is actually supported from what is only plausible, preserving contradictions instead of smoothing them over. After that, identify the strongest failure case that would most change the decision if true. Only then make a concrete recommendation for what I should do next, what tradeoff I am accepting, and what evidence would cause me to reverse course.",
+    "primary_regime": "operator",
     "runner_up_regime": "epistemic",
-    "why_primary_wins_now": "The bottleneck is hidden fragility, not idea generation.",
-    "switch_trigger": "Switch when the top destabilizer is identified and revisions are clear.",
+    "why_primary_wins_now": "Decision-intent language dominates; the immediate need is commitment and explicit tradeoffs.",
+    "switch_trigger": "Switch when the decision, tradeoff, and fallback trigger are explicit.",
     "confidence": {
-      "level": "high",
-      "rationale": "Explicit stress-test/failure language makes the adversarial bottleneck clear.",
-      "top_stage_score": 10,
-      "runner_up_score": 3,
-      "score_gap": 7,
-      "nontrivial_stage_count": 2,
+      "level": "medium",
+      "rationale": "Two plausible regimes are relatively close; sequencing is likely.",
+      "top_stage_score": 15,
+      "runner_up_score": 14,
+      "score_gap": 1,
+      "nontrivial_stage_count": 5,
       "weak_lexical_dependence": false,
-      "structural_feature_state": "coherent"
+      "structural_feature_state": "sparse"
     },
     "deterministic_stage_scores": {
-      "Stage.ADVERSARIAL": 10,
-      "Stage.EPISTEMIC": 3
+      "Stage.EXPLORATION": 2,
+      "Stage.SYNTHESIS": 10,
+      "Stage.EPISTEMIC": 14,
+      "Stage.ADVERSARIAL": 5,
+      "Stage.OPERATOR": 15,
+      "Stage.BUILDER": 0
     },
-    "deterministic_score_summary": "shortcut: stress-test precedence",
+    "deterministic_score_summary": "exploration:2, synthesis:10, epistemic:14, adversarial:5, operator:15, builder:0",
     "deterministic_score_contributions": {
-      "Stage.ADVERSARIAL": [
-        "shortcut:stress_test_precedence"
+      "Stage.EXPLORATION": [
+        "+1 structural:feature_support:uncertainty_can_require_exploration",
+        "+1 embedding:second_similarity=0.434"
+      ],
+      "Stage.SYNTHESIS": [
+        "+10 lexical:phrase='strongest interpretation'"
       ],
       "Stage.EPISTEMIC": [
-        "shortcut:evidence_followup"
-      ]
+        "+4 lexical:phrase='evidence'",
+        "+2 lexical:phrase='confidence'",
+        "+2 lexical:epistemic_marker_with_interpretation_shortcut",
+        "+3 structural:feature:evidence_demand=2",
+        "+3 structural:escalation_policy:stricter"
+      ],
+      "Stage.ADVERSARIAL": [
+        "+1 structural:feature:fragility_pressure=1",
+        "+1 structural:escalation_policy:stricter",
+        "+3 embedding:best_similarity=0.497"
+      ],
+      "Stage.OPERATOR": [
+        "+4 lexical:phrase='decision'",
+        "+4 lexical:phrase='recommendation'",
+        "+4 lexical:phrase='tradeoff'",
+        "+3 structural:feature:decision_pressure=3"
+      ],
+      "Stage.BUILDER": []
     },
     "analyzer_enabled": true,
-    "analyzer_used": false,
+    "analyzer_used": true,
     "analyzer_changed_primary": false,
     "analyzer_changed_runner_up": false,
-    "analyzer_summary": null
+    "analyzer_summary": "Analyzer output ignored due to low analyzer confidence (0.50)."
   },
   "regime": {
-    "name": "Adversarial Core",
-    "stage": "adversarial",
+    "name": "Operator Core",
+    "stage": "operator",
     "dominant_line": {
-      "id": "ADV-D1",
-      "text": "Find the objection or failure case that most changes the decision if true.",
-      "stage": "adversarial",
+      "id": "OPR-D1",
+      "text": "If a decision is required, produce one.",
+      "stage": "operator",
       "function": "dominance",
-      "attractor": "decision_relevant_destabilization",
+      "attractor": "closure_under_constraint",
       "suppresses": [
-        "diffuse_critique"
+        "analysis_paralysis"
       ],
-      "tension": "highest_impact_critique_over_broad_critique",
+      "tension": "action_over_delay",
       "risks": [
-        "tunnel_vision"
+        "forced_closure"
       ],
       "compatible_with": [
-        "ADV-P1",
-        "ADV-P2",
-        "ADV-S1",
-        "ADV-S2",
-        "ADV-T1",
-        "EPI-P2"
+        "OPR-P1",
+        "OPR-S1",
+        "OPR-S2",
+        "OPR-G1"
       ],
-      "incompatible_with": []
+      "incompatible_with": [
+        "EXP-D1"
+      ]
     },
     "suppression_lines": [
       {
-        "id": "ADV-P1",
-        "text": "Attack the strongest version of the frame, not a weaker substitute.",
-        "stage": "adversarial",
+        "id": "OPR-P1",
+        "text": "Do not continue analysis unless it would change the decision.",
+        "stage": "operator",
         "function": "suppression",
-        "attractor": "anti_strawman",
+        "attractor": "anti_delay",
         "suppresses": [
-          "cheap_critique"
+          "recursive_analysis"
         ],
-        "tension": "fair_target_over_easy_target",
+        "tension": "sufficiency_over_more_thinking",
         "risks": [
-          "over_time_strengthening_target"
+          "truncates_needed_validation"
         ],
         "compatible_with": [
-          "ADV-D1",
-          "ADV-P2",
-          "ADV-S1",
-          "ADV-S2",
-          "ADV-T1"
-        ],
-        "incompatible_with": []
-      },
-      {
-        "id": "ADV-P2",
-        "text": "Do not generate weak objections for completeness.",
-        "stage": "adversarial",
-        "function": "suppression",
-        "attractor": "anti_critique_sludge",
-        "suppresses": [
-          "low_value_skepticism"
-        ],
-        "tension": "relevance_over_coverage",
-        "risks": [
-          "over_pruning"
-        ],
-        "compatible_with": [
-          "ADV-D1",
-          "ADV-P1",
-          "ADV-S1",
-          "ADV-S2",
-          "ADV-T1"
+          "OPR-D1",
+          "OPR-S1",
+          "OPR-S2",
+          "OPR-G1"
         ],
         "incompatible_with": []
       }
     ],
     "shape_lines": [
       {
-        "id": "ADV-S2",
-        "text": "Prefer concrete break conditions over abstract doubt.",
-        "stage": "adversarial",
+        "id": "OPR-S1",
+        "text": "Select the highest expected value option under current constraints.",
+        "stage": "operator",
         "function": "shape",
-        "attractor": "operational_critique",
+        "attractor": "constrained_optimization",
         "suppresses": [
-          "vague_skepticism"
+          "indecision_by_perfectionism"
         ],
-        "tension": "concrete_failure_over_generalized_doubt",
+        "tension": "expected_value_over_ideal_completeness",
         "risks": [
-          "misses_conceptual_fragility"
+          "underweights_tail_risk"
         ],
         "compatible_with": [
-          "ADV-D1",
-          "ADV-P1",
-          "ADV-P2",
-          "ADV-S1",
-          "ADV-T1"
+          "OPR-D1",
+          "OPR-P1",
+          "OPR-S2",
+          "OPR-G1"
         ],
         "incompatible_with": []
       },
       {
-        "id": "ADV-S1",
-        "text": "Prefer strong destabilizers over broad coverage.",
-        "stage": "adversarial",
+        "id": "OPR-S2",
+        "text": "Name the tradeoff being accepted.",
+        "stage": "operator",
         "function": "shape",
-        "attractor": "concentrated_pressure",
+        "attractor": "explicit_sacrifice",
         "suppresses": [
-          "objection_spam"
+          "hidden_cost_decisions"
         ],
-        "tension": "force_over_completeness",
+        "tension": "conscious_loss_over_implicit_loss",
         "risks": [
-          "misses_secondary_interacting_risks"
+          "verbose_decision_ritual"
         ],
         "compatible_with": [
-          "ADV-D1",
-          "ADV-P1",
-          "ADV-P2",
-          "ADV-S2",
-          "ADV-T1"
+          "OPR-D1",
+          "OPR-P1",
+          "OPR-S1",
+          "OPR-G1"
         ],
         "incompatible_with": []
       }
@@ -159,17 +158,17 @@
     "tail_line": null,
     "rejected_lines": [],
     "rejection_reasons": [],
-    "likely_failure_if_overused": "nihilistic or repetitive critique"
+    "likely_failure_if_overused": "forced closure"
   },
   "result": {
-    "task": "I have a rough idea for a local service business offer, but it still feels underformed and possibly wrong. First map the distinct ways this could be framed and what each frame assumes. Then identify the strongest interpretation of what the offer actually is and what central tension it is trying to resolve. After that, stress test the strongest framing against contradictions, weak assumptions, and what evidence would need to be true for it to hold up. End by telling me what decision should be made next and what would falsify it.",
+    "task": "I have a business idea, but I do not trust either my framing or my current confidence in it. First surface the distinct ways this idea could be framed and what each framing assumes. Then identify the strongest interpretation of what the idea actually is and what tension it is trying to resolve. Then separate what is actually supported from what is only plausible, preserving contradictions instead of smoothing them over. After that, identify the strongest failure case that would most change the decision if true. Only then make a concrete recommendation for what I should do next, what tradeoff I am accepting, and what evidence would cause me to reverse course.",
     "model": "dolphin29:latest",
     "regime_name": "Operator Core",
     "stage": "operator",
-    "system_prompt": "You are executing exactly one reasoning regime.\n\n            Active regime: Operator Core\n            Stage: operator\n\n            Follow these instructions exactly:\n            - If a decision is required, produce one.\n- Do not continue analysis unless it would change the decision.\n- Select the highest expected value option under current constraints.\n- Name the tradeoff being accepted.\n\n            Output requirements:\n            - Stay inside the active regime.\n            - Do not switch regimes on your own.\n            - Return only valid JSON.\n            - Do not wrap the JSON in markdown fences.\n            - Keep prose concise, concrete, and specific to the input.\n            - Do not restate the task label in multiple fields.\n            - Each artifact field must contribute non-overlapping information.\n            - If the input is too thin to support a strong artifact, say so concretely inside the relevant fields rather than padding with abstractions.\n\n            Top-level JSON keys must be:\n            - regime\n            - purpose\n            - artifact_type\n            - artifact\n            - completion_signal\n            - failure_signal\n            - recommended_next_regime\n\n            artifact_type must be exactly: decision_packet\n            purpose should align with: Commit to a concrete decision with executable next moves.\n            completion_signal should use this control language: decision_committed_with_actions\n            failure_signal should use this control language: decision_not_actionable_under_constraints\n            recommended_next_regime must be a valid regime stage value\n            (exploration|synthesis|epistemic|adversarial|operator|builder)\n\n            artifact must include these keys:\n            - decision\n- rationale\n- tradeoff_accepted\n- next_actions\n- fallback_trigger\n- review_point\n\n            Field rules for this stage:\n            - decision: one clear choice\n- rationale: why this choice wins now under current constraints\n- tradeoff_accepted: what is being knowingly sacrificed\n- next_actions: immediate executable steps\n- fallback_trigger: what condition should cause reconsideration\n- review_point: when or under what condition to review the decision\n\n            Do not introduce external domains, industries, or generic project types.\n\n            All frames must be constructed directly from the structural signals in the input:\n            - no explicit structural signals detected\n\n            If a frame could apply to any generic project, it is invalid.\n\n            Frames must reinterpret these signals, not replace them.\n            Frames must describe what the project *is structurally*, not what it *does*.\n\n            Active risk profile: none\n\n            Avoid phrases like:\n            - \"technology\"\n            - \"solution\"\n            - \"effort\"\n            - \"project to build\"\n\n            Prefer:\n            - \"the project is a system for...\"\n            - \"the project behaves like...\"\n            - \"the project is an attempt to resolve...\"",
-    "user_prompt": "Task:\n  I have a rough idea for a local service business offer, but it still feels underformed and possibly wrong. First map the distinct ways this could be framed and what each frame assumes. Then identify the strongest interpretation of what the offer actually is and what central tension it is trying to resolve. After that, stress test the strongest framing against contradictions, weak assumptions, and what evidence would need to be true for it to hold up. End by telling me what decision should be made next and what would falsify it.\n\n  Structural signals:\n  none\n\n  Risk profile:\n  none\n\nReturn one JSON object with exactly these top-level keys:\nregime, purpose, artifact_type, artifact, completion_signal, failure_signal, recommended_next_regime\n\n  Use only the information in the task.\n  Do not invent missing specifics.\n  If the task is abstract or underspecified, reflect that explicitly instead of using generic filler.",
-    "raw_response": "{\n  \"regime\": \"exploration\",\n  \"purpose\": \"Explore potential business offer frames and identify strongest interpretation.\",\n  \"artifact_type\": \"decision_packet\",\n  \"artifact\": {\n    \"frames\": [\n      {\n        \"frame\": \"Frame A: Local Service Business as Personal Assistant\",\n        \"assumptions\": [\"Individuals need help managing their personal tasks and appointments\", \"Local service businesses can provide personalized assistance\"],\n        \"central_tension\": \"Providing tailored support for individuals' personal tasks and appointment management\"\n      },\n      {\n        \"frame\": \"Frame B: Local Service Business as Community Connector\",\n        \"assumptions\": [\"Individuals want to connect with others in their community\", \"Local service businesses can facilitate these connections\"],\n        \"central_tension\": \"Bringing together members of the local community for networking and collaboration\"\n      }\n    ],\n    \"strongest_frame\": {\n      \"frame\": \"Frame A: Local Service Business as Personal Assistant\",\n      \"rationale\": \"This frame assumes a specific need for personal task management and appointment scheduling assistance, which can be fulfilled by a local service business.\",\n      \"tradeoff_accepted\": \"The tradeoff is that the business may not focus on community connections, limiting its scope to personal assistance.\",\n      \"next_actions\": [\n        \"Conduct market research to validate the demand for personalized assistance services\",\n        \"Develop a detailed business plan outlining the service offering and target audience\"\n      ],\n      \"fallback_trigger\": \"If market research shows low demand or competition is too high, reconsider the business offer.\",\n      \"review_point\": \"Review the decision after initial market research and again after developing the business plan.\"\n    }\n  },\n  \"completion_signal\": \"decision_committed_with_actions\",\n  \"failure_signal\": \"decision_not_actionable_under_constraints\",\n  \"recommended_next_regime\": \"synthesis\"\n}",
-    "artifact_text": "{\n  \"regime\": \"exploration\",\n  \"purpose\": \"Explore potential business offer frames and identify strongest interpretation.\",\n  \"artifact_type\": \"decision_packet\",\n  \"artifact\": {\n    \"frames\": [\n      {\n        \"frame\": \"Frame A: Local Service Business as Personal Assistant\",\n        \"assumptions\": [\"Individuals need help managing their personal tasks and appointments\", \"Local service businesses can provide personalized assistance\"],\n        \"central_tension\": \"Providing tailored support for individuals' personal tasks and appointment management\"\n      },\n      {\n        \"frame\": \"Frame B: Local Service Business as Community Connector\",\n        \"assumptions\": [\"Individuals want to connect with others in their community\", \"Local service businesses can facilitate these connections\"],\n        \"central_tension\": \"Bringing together members of the local community for networking and collaboration\"\n      }\n    ],\n    \"strongest_frame\": {\n      \"frame\": \"Frame A: Local Service Business as Personal Assistant\",\n      \"rationale\": \"This frame assumes a specific need for personal task management and appointment scheduling assistance, which can be fulfilled by a local service business.\",\n      \"tradeoff_accepted\": \"The tradeoff is that the business may not focus on community connections, limiting its scope to personal assistance.\",\n      \"next_actions\": [\n        \"Conduct market research to validate the demand for personalized assistance services\",\n        \"Develop a detailed business plan outlining the service offering and target audience\"\n      ],\n      \"fallback_trigger\": \"If market research shows low demand or competition is too high, reconsider the business offer.\",\n      \"review_point\": \"Review the decision after initial market research and again after developing the business plan.\"\n    }\n  },\n  \"completion_signal\": \"decision_committed_with_actions\",\n  \"failure_signal\": \"decision_not_actionable_under_constraints\",\n  \"recommended_next_regime\": \"synthesis\"\n}",
+    "system_prompt": "You are executing exactly one reasoning regime.\n\n            Active regime: Operator Core\n            Stage: operator\n\n            Follow these instructions exactly:\n            - If a decision is required, produce one.\n- Do not continue analysis unless it would change the decision.\n- Select the highest expected value option under current constraints.\n- Name the tradeoff being accepted.\n\n            Output requirements:\n            - Stay inside the active regime.\n            - Do not switch regimes on your own.\n            - Return only valid JSON.\n            - Do not wrap the JSON in markdown fences.\n            - Keep prose concise, concrete, and specific to the input.\n            - Do not restate the task label in multiple fields.\n            - Each artifact field must contribute non-overlapping information.\n            - If the input is too thin to support a strong artifact, say so concretely inside the relevant fields rather than padding with abstractions.\n\n            Top-level JSON keys must be:\n            - regime\n            - purpose\n            - artifact_type\n            - artifact\n            - completion_signal\n            - failure_signal\n            - recommended_next_regime\n\n            artifact_type must be exactly: decision_packet\n            purpose should align with: Commit to a concrete decision with executable next moves.\n            completion_signal should use this control language: decision_committed_with_actions\n            failure_signal should use this control language: decision_not_actionable_under_constraints\n            recommended_next_regime must be a valid regime stage value\n            (exploration|synthesis|epistemic|adversarial|operator|builder)\n\n            artifact must include these keys:\n            - decision\n- rationale\n- tradeoff_accepted\n- next_actions\n- fallback_trigger\n- review_point\n\n            Field rules for this stage:\n            - decision: one clear choice\n- rationale: why this choice wins now under current constraints\n- tradeoff_accepted: what is being knowingly sacrificed\n- next_actions: immediate executable steps\n- fallback_trigger: what condition should cause reconsideration\n- review_point: when or under what condition to review the decision\n\n            Do not introduce external domains, industries, or generic project types.\n\n            All frames must be constructed directly from the structural signals in the input:\n            - no explicit structural signals detected\n\n            If a frame could apply to any generic project, it is invalid.\n\n            Frames must reinterpret these signals, not replace them.\n            Frames must describe what the project *is structurally*, not what it *does*.\n\n            Active risk profile: decision_urgency, evidence_gap\n\n            Avoid phrases like:\n            - \"technology\"\n            - \"solution\"\n            - \"effort\"\n            - \"project to build\"\n\n            Prefer:\n            - \"the project is a system for...\"\n            - \"the project behaves like...\"\n            - \"the project is an attempt to resolve...\"",
+    "user_prompt": "Task:\n  I have a business idea, but I do not trust either my framing or my current confidence in it. First surface the distinct ways this idea could be framed and what each framing assumes. Then identify the strongest interpretation of what the idea actually is and what tension it is trying to resolve. Then separate what is actually supported from what is only plausible, preserving contradictions instead of smoothing them over. After that, identify the strongest failure case that would most change the decision if true. Only then make a concrete recommendation for what I should do next, what tradeoff I am accepting, and what evidence would cause me to reverse course.\n\n  Structural signals:\n  none\n\n  Risk profile:\n  decision_urgency, evidence_gap\n\nReturn one JSON object with exactly these top-level keys:\nregime, purpose, artifact_type, artifact, completion_signal, failure_signal, recommended_next_regime\n\n  Use only the information in the task.\n  Do not invent missing specifics.\n  If the task is abstract or underspecified, reflect that explicitly instead of using generic filler.",
+    "raw_response": "{\n  \"regime\": \"exploration\",\n  \"purpose\": \"Explore potential framings and interpretations of a business idea.\",\n  \"artifact_type\": \"decision_packet\",\n  \"artifact\": {\n    \"framings\": [\n      {\n        \"name\": \"Framing 1\",\n        \"description\": \"Assumes the idea is revolutionary and disruptive.\"\n      },\n      {\n        \"name\": \"Framing 2\",\n        \"description\": \"Assumes the idea is an incremental improvement to existing practices.\"\n      }\n    ],\n    \"strongest_interpretation\": {\n      \"name\": \"Strongest Interpretation\",\n      \"description\": \"The idea is a hybrid of revolutionary and incremental, aiming to disrupt while still providing value in the present.\"\n    },\n    \"tension\": {\n      \"name\": \"Tension\",\n      \"description\": \"Resolving the conflict between disrupting the status quo and meeting current needs.\"\n    },\n    \"supported_vs_plausible\": {\n      \"supported\": [\n        \"The idea has a clear target market and potential for high demand.\",\n        \"There are existing resources that can be leveraged to implement the idea.\"\n      ],\n      \"plausible\": [\n        \"The idea could potentially revolutionize the industry, but it's unclear how to achieve that.\",\n        \"The current market conditions might not favor this type of innovation.\"\n      ]\n    },\n    \"strongest_failure_case\": {\n      \"name\": \"Strongest Failure Case\",\n      \"description\": \"Market demand is lower than anticipated and resources are insufficient to implement the idea.\"\n    },\n    \"recommendation\": {\n      \"next_steps\": [\n        \"Conduct market research to validate assumptions.\",\n        \"Identify potential partners or investors who share the vision.\"\n      ],\n      \"tradeoff_accepted\": \"Balancing the need for disruption with meeting current needs.\",\n      \"evidence_to_reverse_course\": \"Significant lack of interest from target market or inability to secure necessary resources.\"\n    }\n  },\n  \"completion_signal\": \"decision_committed_with_actions\",\n  \"failure_signal\": \"decision_not_actionable_under_constraints\",\n  \"recommended_next_regime\": \"synthesis\"\n}",
+    "artifact_text": "{\n  \"regime\": \"exploration\",\n  \"purpose\": \"Explore potential framings and interpretations of a business idea.\",\n  \"artifact_type\": \"decision_packet\",\n  \"artifact\": {\n    \"framings\": [\n      {\n        \"name\": \"Framing 1\",\n        \"description\": \"Assumes the idea is revolutionary and disruptive.\"\n      },\n      {\n        \"name\": \"Framing 2\",\n        \"description\": \"Assumes the idea is an incremental improvement to existing practices.\"\n      }\n    ],\n    \"strongest_interpretation\": {\n      \"name\": \"Strongest Interpretation\",\n      \"description\": \"The idea is a hybrid of revolutionary and incremental, aiming to disrupt while still providing value in the present.\"\n    },\n    \"tension\": {\n      \"name\": \"Tension\",\n      \"description\": \"Resolving the conflict between disrupting the status quo and meeting current needs.\"\n    },\n    \"supported_vs_plausible\": {\n      \"supported\": [\n        \"The idea has a clear target market and potential for high demand.\",\n        \"There are existing resources that can be leveraged to implement the idea.\"\n      ],\n      \"plausible\": [\n        \"The idea could potentially revolutionize the industry, but it's unclear how to achieve that.\",\n        \"The current market conditions might not favor this type of innovation.\"\n      ]\n    },\n    \"strongest_failure_case\": {\n      \"name\": \"Strongest Failure Case\",\n      \"description\": \"Market demand is lower than anticipated and resources are insufficient to implement the idea.\"\n    },\n    \"recommendation\": {\n      \"next_steps\": [\n        \"Conduct market research to validate assumptions.\",\n        \"Identify potential partners or investors who share the vision.\"\n      ],\n      \"tradeoff_accepted\": \"Balancing the need for disruption with meeting current needs.\",\n      \"evidence_to_reverse_course\": \"Significant lack of interest from target market or inability to secure necessary resources.\"\n    }\n  },\n  \"completion_signal\": \"decision_committed_with_actions\",\n  \"failure_signal\": \"decision_not_actionable_under_constraints\",\n  \"recommended_next_regime\": \"synthesis\"\n}",
     "validation": {
       "model_profile": "strict",
       "valid_json": true,
@@ -191,37 +190,48 @@
       "semantic_failures": [],
       "parsed": {
         "regime": "exploration",
-        "purpose": "Explore potential business offer frames and identify strongest interpretation.",
+        "purpose": "Explore potential framings and interpretations of a business idea.",
         "artifact_type": "decision_packet",
         "artifact": {
-          "frames": [
+          "framings": [
             {
-              "frame": "Frame A: Local Service Business as Personal Assistant",
-              "assumptions": [
-                "Individuals need help managing their personal tasks and appointments",
-                "Local service businesses can provide personalized assistance"
-              ],
-              "central_tension": "Providing tailored support for individuals' personal tasks and appointment management"
+              "name": "Framing 1",
+              "description": "Assumes the idea is revolutionary and disruptive."
             },
             {
-              "frame": "Frame B: Local Service Business as Community Connector",
-              "assumptions": [
-                "Individuals want to connect with others in their community",
-                "Local service businesses can facilitate these connections"
-              ],
-              "central_tension": "Bringing together members of the local community for networking and collaboration"
+              "name": "Framing 2",
+              "description": "Assumes the idea is an incremental improvement to existing practices."
             }
           ],
-          "strongest_frame": {
-            "frame": "Frame A: Local Service Business as Personal Assistant",
-            "rationale": "This frame assumes a specific need for personal task management and appointment scheduling assistance, which can be fulfilled by a local service business.",
-            "tradeoff_accepted": "The tradeoff is that the business may not focus on community connections, limiting its scope to personal assistance.",
-            "next_actions": [
-              "Conduct market research to validate the demand for personalized assistance services",
-              "Develop a detailed business plan outlining the service offering and target audience"
+          "strongest_interpretation": {
+            "name": "Strongest Interpretation",
+            "description": "The idea is a hybrid of revolutionary and incremental, aiming to disrupt while still providing value in the present."
+          },
+          "tension": {
+            "name": "Tension",
+            "description": "Resolving the conflict between disrupting the status quo and meeting current needs."
+          },
+          "supported_vs_plausible": {
+            "supported": [
+              "The idea has a clear target market and potential for high demand.",
+              "There are existing resources that can be leveraged to implement the idea."
             ],
-            "fallback_trigger": "If market research shows low demand or competition is too high, reconsider the business offer.",
-            "review_point": "Review the decision after initial market research and again after developing the business plan."
+            "plausible": [
+              "The idea could potentially revolutionize the industry, but it's unclear how to achieve that.",
+              "The current market conditions might not favor this type of innovation."
+            ]
+          },
+          "strongest_failure_case": {
+            "name": "Strongest Failure Case",
+            "description": "Market demand is lower than anticipated and resources are insufficient to implement the idea."
+          },
+          "recommendation": {
+            "next_steps": [
+              "Conduct market research to validate assumptions.",
+              "Identify potential partners or investors who share the vision."
+            ],
+            "tradeoff_accepted": "Balancing the need for disruption with meeting current needs.",
+            "evidence_to_reverse_course": "Significant lack of interest from target market or inability to secure necessary resources."
           }
         },
         "completion_signal": "decision_committed_with_actions",
@@ -233,11 +243,11 @@
       ],
       "repair_attempted": true,
       "repair_succeeded": false,
-      "repair_mode": "semantic_repair"
+      "repair_mode": "schema_repair"
     },
     "ollama_meta": {
       "model": "dolphin29:latest",
-      "created_at": "2026-03-30T17:57:04.4007821Z",
+      "created_at": "2026-03-30T18:19:35.8729024Z",
       "done": true,
       "done_reason": "stop",
       "context": [
@@ -742,7 +752,13 @@
         5326,
         5643,
         25,
-        7000,
+        5597,
+        62,
+        5673,
+        2301,
+        11,
+        6029,
+        52890,
         271,
         310,
         35106,
@@ -815,38 +831,38 @@
         358,
         617,
         264,
-        11413,
-        4623,
-        369,
-        264,
-        2254,
-        2532,
         2626,
-        3085,
+        4623,
         11,
         719,
+        358,
+        656,
+        539,
+        7095,
+        3060,
+        856,
+        59049,
+        477,
+        856,
+        1510,
+        12410,
+        304,
         433,
-        2103,
-        11321,
-        1234,
-        10365,
-        323,
-        11000,
-        5076,
         13,
         5629,
-        2472,
+        7479,
         279,
         12742,
         5627,
         420,
+        4623,
         1436,
         387,
         47093,
         323,
         1148,
         1855,
-        4124,
+        59049,
         22204,
         13,
         5112,
@@ -857,12 +873,11 @@
         315,
         1148,
         279,
-        3085,
+        4623,
         3604,
         374,
         323,
         1148,
-        8792,
         24408,
         433,
         374,
@@ -870,50 +885,72 @@
         311,
         9006,
         13,
+        5112,
+        8821,
+        1148,
+        374,
+        3604,
+        7396,
+        505,
+        1148,
+        374,
+        1193,
+        50434,
+        11,
+        47995,
+        81523,
+        4619,
+        315,
+        63061,
+        1124,
+        927,
+        13,
         4740,
         430,
         11,
-        8631,
-        1296,
+        10765,
         279,
         31005,
-        59049,
-        2403,
-        81523,
+        8060,
+        1162,
+        430,
+        1053,
+        1455,
+        2349,
+        279,
+        5597,
+        422,
+        837,
+        13,
+        8442,
+        1243,
+        1304,
+        264,
+        14509,
+        28782,
+        369,
+        1148,
+        358,
+        1288,
+        656,
+        1828,
         11,
-        7621,
-        32946,
+        1148,
+        6696,
+        1885,
+        358,
+        1097,
+        25694,
         11,
         323,
         1148,
         6029,
         1053,
-        1205,
-        311,
-        387,
-        837,
-        369,
-        433,
-        311,
-        3412,
-        709,
-        13,
-        4060,
-        555,
-        11890,
+        5353,
         757,
-        1148,
-        5597,
-        1288,
-        387,
-        1903,
-        1828,
-        323,
-        1148,
-        1053,
-        33032,
-        1463,
-        433,
+        311,
+        10134,
+        3388,
         382,
         220,
         73800,
@@ -927,7 +964,13 @@
         5643,
         512,
         220,
-        7000,
+        5597,
+        62,
+        5673,
+        2301,
+        11,
+        6029,
+        52890,
         271,
         5715,
         832,
@@ -1018,13 +1061,14 @@
         330,
         52361,
         4754,
-        2626,
-        3085,
-        14418,
+        60743,
+        826,
         323,
-        10765,
-        31005,
-        23692,
+        58689,
+        315,
+        264,
+        2626,
+        4623,
         10560,
         220,
         330,
@@ -1042,139 +1086,69 @@
         341,
         262,
         330,
-        24651,
+        92604,
+        826,
         794,
         2330,
         415,
         341,
         286,
         330,
-        6906,
+        609,
         794,
         330,
-        4467,
-        362,
-        25,
-        8949,
-        5475,
-        8184,
-        439,
-        19758,
-        22103,
+        37,
+        2453,
+        287,
+        220,
+        16,
         761,
         286,
         330,
-        395,
-        372,
-        1324,
-        794,
-        4482,
-        44259,
-        82,
-        1205,
-        1520,
-        18646,
-        872,
-        4443,
-        9256,
-        323,
-        37256,
-        498,
-        330,
-        7469,
-        2532,
-        9873,
-        649,
-        3493,
-        35649,
-        13291,
-        8257,
-        286,
-        330,
-        52911,
-        530,
-        2711,
+        4789,
         794,
         330,
-        36919,
-        287,
-        41891,
-        1862,
-        369,
-        7931,
-        6,
-        4443,
-        9256,
+        5733,
+        19131,
+        279,
+        4623,
+        374,
+        30191,
         323,
-        18101,
-        6373,
-        702,
+        62642,
+        10246,
         415,
         1173,
         415,
         341,
         286,
         330,
-        6906,
+        609,
         794,
         330,
-        4467,
-        426,
-        25,
-        8949,
-        5475,
-        8184,
-        439,
-        12332,
-        55914,
+        37,
+        2453,
+        287,
+        220,
+        17,
         761,
         286,
         330,
-        395,
-        372,
-        1324,
-        794,
-        4482,
-        44259,
-        82,
-        1390,
-        311,
-        4667,
-        449,
-        3885,
-        304,
-        872,
-        4029,
-        498,
-        330,
-        7469,
-        2532,
-        9873,
-        649,
-        28696,
-        1521,
-        13537,
-        8257,
-        286,
-        330,
-        52911,
-        530,
-        2711,
+        4789,
         794,
         330,
-        6971,
-        24992,
-        3871,
-        3697,
-        315,
+        5733,
+        19131,
         279,
-        2254,
-        4029,
-        369,
-        29130,
-        323,
-        20632,
-        702,
+        4623,
+        374,
+        459,
+        53399,
+        16048,
+        311,
+        6484,
+        12659,
+        10246,
         415,
         457,
         262,
@@ -1183,87 +1157,224 @@
         330,
         4620,
         478,
-        9106,
+        15678,
+        8203,
+        367,
         794,
         341,
         415,
         330,
-        6906,
+        609,
         794,
         330,
-        4467,
-        362,
-        25,
-        8949,
-        5475,
-        8184,
-        439,
-        19758,
-        22103,
+        48686,
+        478,
+        73177,
+        367,
         761,
         415,
         330,
-        2214,
-        1604,
-        794,
-        330,
-        2028,
-        4124,
-        22204,
-        264,
-        3230,
-        1205,
-        369,
-        4443,
-        3465,
-        6373,
-        323,
-        18101,
-        38952,
-        13291,
-        11,
-        902,
-        649,
-        387,
-        41834,
-        555,
-        264,
-        2254,
-        2532,
-        2626,
-        10560,
-        415,
-        330,
-        37171,
-        1885,
-        91454,
+        4789,
         794,
         330,
         791,
-        6696,
-        1885,
+        4623,
         374,
-        430,
-        279,
-        2626,
-        1253,
-        539,
-        5357,
-        389,
-        4029,
-        13537,
+        264,
+        26038,
+        315,
+        30191,
+        323,
+        53399,
         11,
-        33994,
-        1202,
-        7036,
+        38178,
         311,
-        4443,
-        13291,
+        24927,
+        1418,
+        2103,
+        8405,
+        907,
+        304,
+        279,
+        3118,
+        10246,
+        262,
+        1173,
+        262,
+        330,
+        83,
+        2711,
+        794,
+        341,
+        415,
+        330,
+        609,
+        794,
+        330,
+        51,
+        2711,
+        761,
+        415,
+        330,
+        4789,
+        794,
+        330,
+        1079,
+        20222,
+        279,
+        12324,
+        1990,
+        87843,
+        279,
+        2704,
+        41608,
+        323,
+        6574,
+        1510,
+        3966,
+        10246,
+        262,
+        1173,
+        262,
+        330,
+        18717,
+        43534,
+        6451,
+        43736,
+        794,
+        341,
+        415,
+        330,
+        18717,
+        794,
+        2330,
+        286,
+        330,
+        791,
+        4623,
+        706,
+        264,
+        2867,
+        2218,
+        3157,
+        323,
+        4754,
+        369,
+        1579,
+        7631,
         10560,
+        286,
+        330,
+        3947,
+        527,
+        6484,
+        5070,
+        430,
+        649,
+        387,
+        28605,
+        3359,
+        311,
+        4305,
+        279,
+        4623,
+        10246,
+        415,
+        3291,
+        415,
+        330,
+        501,
+        43736,
+        794,
+        2330,
+        286,
+        330,
+        791,
+        4623,
+        1436,
+        13893,
+        14110,
+        553,
+        279,
+        5064,
+        11,
+        719,
+        433,
+        596,
+        25420,
+        1268,
+        311,
+        11322,
+        430,
+        10560,
+        286,
+        330,
+        791,
+        1510,
+        3157,
+        4787,
+        2643,
+        539,
+        4799,
+        420,
+        955,
+        315,
+        19297,
+        10246,
+        415,
+        5243,
+        262,
+        1173,
+        262,
+        330,
+        4620,
+        478,
+        44718,
+        19640,
+        794,
+        341,
+        415,
+        330,
+        609,
+        794,
+        330,
+        48686,
+        478,
+        33360,
+        11799,
+        761,
+        415,
+        330,
+        4789,
+        794,
+        330,
+        39922,
+        7631,
+        374,
+        4827,
+        1109,
+        30199,
+        323,
+        5070,
+        527,
+        39413,
+        311,
+        4305,
+        279,
+        4623,
+        10246,
+        262,
+        1173,
+        262,
+        330,
+        67689,
+        367,
+        794,
+        341,
         415,
         330,
         3684,
-        26440,
+        23566,
         794,
         2330,
         286,
@@ -1274,73 +1385,64 @@
         3495,
         311,
         9788,
-        279,
-        7631,
-        369,
-        35649,
-        13291,
-        3600,
-        761,
+        32946,
+        10560,
         286,
         330,
-        21076,
-        264,
-        11944,
-        2626,
-        3197,
-        79774,
+        29401,
+        1463,
+        4754,
+        8717,
+        477,
+        15167,
+        889,
+        4430,
         279,
-        2532,
-        10209,
-        323,
-        2218,
-        10877,
-        702,
+        11376,
+        10246,
         415,
         3291,
         415,
         330,
-        74411,
-        34025,
+        37171,
+        1885,
+        91454,
         794,
         330,
-        2746,
-        3157,
-        3495,
-        5039,
-        3428,
-        7631,
-        477,
-        10937,
-        374,
-        2288,
-        1579,
-        11,
-        40175,
+        38989,
+        9151,
         279,
-        2626,
-        3085,
+        1205,
+        369,
+        44219,
+        449,
+        6574,
+        1510,
+        3966,
         10560,
         415,
         330,
-        19981,
-        6213,
+        68,
+        28580,
+        2401,
+        44377,
+        32826,
         794,
         330,
-        19997,
-        279,
-        5597,
-        1306,
-        2926,
+        7412,
+        34828,
+        6996,
+        315,
+        2802,
+        505,
+        2218,
         3157,
-        3495,
-        323,
-        1578,
-        1306,
-        11469,
-        279,
-        2626,
-        3197,
+        477,
+        38550,
+        311,
+        9966,
+        5995,
+        5070,
         10246,
         262,
         457,
@@ -1384,19 +1486,19 @@
         702,
         92
       ],
-      "total_duration": 3766556400,
-      "load_duration": 151747900,
-      "prompt_eval_count": 760,
-      "prompt_eval_duration": 308380100,
-      "eval_count": 383,
-      "eval_duration": 3105434300
+      "total_duration": 4062230900,
+      "load_duration": 139049500,
+      "prompt_eval_count": 793,
+      "prompt_eval_duration": 109080100,
+      "eval_count": 443,
+      "eval_duration": 3586148700
     }
   },
   "handoff": {
-    "current_bottleneck": "I have a rough idea for a local service business offer, but it still feels underformed and possibly wrong. First map the distinct ways this could be framed and what each frame assumes. Then identify the strongest interpretation of what the offer actually is and what central tension it is trying to resolve. After that, stress test the strongest framing against contradictions, weak assumptions, and what evidence would need to be true for it to hold up. End by telling me what decision should be made next and what would falsify it.",
-    "dominant_frame": "Primary regime is adversarial; optimize for its core motion.",
+    "current_bottleneck": "I have a business idea, but I do not trust either my framing or my current confidence in it. First surface the distinct ways this idea could be framed and what each framing assumes. Then identify the strongest interpretation of what the idea actually is and what tension it is trying to resolve. Then separate what is actually supported from what is only plausible, preserving contradictions instead of smoothing them over. After that, identify the strongest failure case that would most change the decision if true. Only then make a concrete recommendation for what I should do next, what tradeoff I am accepting, and what evidence would cause me to reverse course.",
+    "dominant_frame": "Primary regime is operator; optimize for its core motion.",
     "what_is_known": [
-      "Bottleneck classified as: adversarial",
+      "Bottleneck classified as: operator",
       "Runner-up regime: epistemic"
     ],
     "what_remains_uncertain": [
@@ -1409,126 +1511,137 @@
       "The bottleneck has been classified correctly.",
       "Structural signals observed: none"
     ],
-    "main_risk_if_continue": "nihilistic or repetitive critique",
-    "recommended_next_regime": "synthesis",
+    "main_risk_if_continue": "forced closure",
+    "recommended_next_regime": "epistemic",
     "minimum_useful_artifact": "Produce the minimum useful typed artifact for this regime.",
     "recommended_next_regime_full": {
-      "name": "Synthesis Core",
-      "stage": "synthesis",
+      "name": "Epistemic Core",
+      "stage": "epistemic",
       "dominant_line": {
-        "id": "SYN-D1",
-        "text": "Follow the strongest live possibility before justifying it.",
-        "stage": "synthesis",
+        "id": "EPI-D1",
+        "text": "Do not let fluency outrun evidence.",
+        "stage": "epistemic",
         "function": "dominance",
-        "attractor": "early_frame_selection",
+        "attractor": "evidence_discipline",
         "suppresses": [
-          "over_hesitation"
+          "polished_overreach"
         ],
-        "tension": "commitment_over_delay",
+        "tension": "support_over_flow",
         "risks": [
-          "premature_lock"
+          "flat_output"
         ],
         "compatible_with": [
-          "SYN-D2",
-          "SYN-S1",
-          "SYN-P1",
-          "SYN-P2"
+          "EPI-D2",
+          "EPI-P1",
+          "EPI-P2",
+          "EPI-S1",
+          "EPI-G1"
         ],
-        "incompatible_with": [
-          "EXP-D1",
-          "EPI-D2"
-        ]
+        "incompatible_with": []
       },
       "suppression_lines": [
         {
-          "id": "SYN-P1",
-          "text": "Do not flatten decisive counterevidence just to preserve coherence.",
-          "stage": "synthesis",
+          "id": "EPI-P1",
+          "text": "Match claim strength to evidence strength.",
+          "stage": "epistemic",
           "function": "suppression",
-          "attractor": "anti_self_sealing",
+          "attractor": "claim_size_control",
           "suppresses": [
-            "coherence_over_truth"
+            "plausibility_inflation"
           ],
-          "tension": "disconfirmation_over_elegance",
+          "tension": "proportionality_over_assertion",
           "risks": [
-            "fragmented_reporting"
+            "excessive_caution"
           ],
           "compatible_with": [
-            "SYN-D1",
-            "SYN-D2",
-            "SYN-S1",
-            "SYN-P2"
+            "EPI-D1",
+            "EPI-D2",
+            "EPI-P2",
+            "EPI-S1",
+            "EPI-G1"
+          ],
+          "incompatible_with": []
+        },
+        {
+          "id": "EPI-P2",
+          "text": "Preserve contradictions unless stronger evidence resolves them.",
+          "stage": "epistemic",
+          "function": "suppression",
+          "attractor": "contradiction_preservation",
+          "suppresses": [
+            "forced_coherence"
+          ],
+          "tension": "tension_over_cleanup",
+          "risks": [
+            "decision_drag"
+          ],
+          "compatible_with": [
+            "EPI-D1",
+            "EPI-D2",
+            "EPI-P1",
+            "EPI-S1",
+            "EPI-G1",
+            "ADV-D1"
           ],
           "incompatible_with": []
         }
       ],
       "shape_lines": [
         {
-          "id": "SYN-S1",
-          "text": "Prefer generative connections over cautious completeness.",
-          "stage": "synthesis",
+          "id": "EPI-S1",
+          "text": "When multiple valid observations exist, prioritize the one that most changes the user's next decision.",
+          "stage": "epistemic",
           "function": "shape",
-          "attractor": "connection_making",
+          "attractor": "decision_relevant_rigor",
           "suppresses": [
-            "inventory_style_output"
+            "sterile_report_completeness"
           ],
-          "tension": "synthesis_over_completeness",
+          "tension": "action_relevance_over_neutral_reporting",
           "risks": [
-            "weakly_supported_linkage"
+            "under_reporting_context"
           ],
           "compatible_with": [
-            "SYN-D1",
-            "SYN-D2",
-            "SYN-P1",
-            "SYN-P2"
+            "EPI-D1",
+            "EPI-D2",
+            "EPI-P1",
+            "EPI-P2",
+            "EPI-G1"
           ],
-          "incompatible_with": [
-            "EPI-D2"
-          ]
+          "incompatible_with": []
         }
       ],
       "tail_line": null,
       "rejected_lines": [],
       "rejection_reasons": [],
-      "likely_failure_if_overused": "false unification"
+      "likely_failure_if_overused": "under-synthesis / decision drag"
     }
   },
   "orchestration": {
     "bounded_orchestration": true,
     "max_switches": 2,
-    "switches_attempted": 2,
-    "switches_executed": 1,
+    "switches_attempted": 1,
+    "switches_executed": 0,
     "switch_history": [
       {
         "switch_index": 1,
-        "from_stage": "adversarial",
-        "to_stage": "operator",
-        "switch_recommended": true,
-        "switch_executed": true,
-        "reason": "Switching from adversarial to operator.",
-        "switch_trigger": "destabilizers_unresolved_or_redundant"
-      },
-      {
-        "switch_index": 2,
         "from_stage": "operator",
         "to_stage": null,
         "switch_recommended": false,
         "switch_executed": false,
         "reason": "Current regime should continue; no allowed transition selected.",
-        "switch_trigger": "destabilizers_unresolved_or_redundant"
+        "switch_trigger": "Switch when the decision, tradeoff, and fallback trigger are explicit."
       }
     ],
     "final_current_regime": "operator",
     "execution_stages": [
-      "adversarial",
       "operator"
     ],
     "stop_reason": "switch_not_recommended"
   },
   "router_state": {
-    "task_id": "task-21a0a33db5e6",
-    "task_summary": "I have a rough idea for a local service business offer, but it still feels underformed and possibly wrong. First map the distinct ways this could be framed and what each frame assu",
-    "current_bottleneck": "I have a rough idea for a local service business offer, but it still feels underformed and possibly wrong. First map the distinct ways this could be framed and what each frame assumes. Then identify the strongest interpretation of what the offer actually is and what central tension it is trying to resolve. After that, stress test the strongest framing against contradictions, weak assumptions, and what evidence would need to be true for it to hold up. End by telling me what decision should be made next and what would falsify it.",
+    "task_id": "task-64a5b11ff2db",
+    "task_summary": "I have a business idea, but I do not trust either my framing or my current confidence in it. First surface the distinct ways this idea could be framed and what each framing assumes",
+    "current_bottleneck": "I have a business idea, but I do not trust either my framing or my current confidence in it. First surface the distinct ways this idea could be framed and what each framing assumes. Then identify the strongest interpretation of what the idea actually is and what tension it is trying to resolve. Then separate what is actually supported from what is only plausible, preserving contradictions instead of smoothing them over. After that, identify the strongest failure case that would most change the decision if true. Only then make a concrete recommendation for what I should do next, what tradeoff I am accepting, and what evidence would cause me to reverse course.",
     "current_regime": {
       "name": "Operator Core",
       "stage": "operator",
@@ -1729,18 +1842,18 @@
       "likely_failure_if_overused": "under-synthesis / decision drag"
     },
     "regime_confidence": {
-      "level": "high",
-      "rationale": "Explicit stress-test/failure language makes the adversarial bottleneck clear.",
-      "top_stage_score": 10,
-      "runner_up_score": 3,
-      "score_gap": 7,
-      "nontrivial_stage_count": 2,
+      "level": "medium",
+      "rationale": "Two plausible regimes are relatively close; sequencing is likely.",
+      "top_stage_score": 15,
+      "runner_up_score": 14,
+      "score_gap": 1,
+      "nontrivial_stage_count": 5,
       "weak_lexical_dependence": false,
-      "structural_feature_state": "coherent"
+      "structural_feature_state": "sparse"
     },
-    "dominant_frame": "Primary regime is adversarial; optimize for its core motion.",
+    "dominant_frame": "Primary regime is operator; optimize for its core motion.",
     "knowns": [
-      "Bottleneck classified as: adversarial",
+      "Bottleneck classified as: operator",
       "Runner-up regime: epistemic"
     ],
     "uncertainties": [
@@ -1754,223 +1867,117 @@
       "Structural signals observed: none"
     ],
     "risks": [
-      "nihilistic or repetitive critique"
+      "decision_urgency",
+      "evidence_gap",
+      "forced closure"
     ],
     "stage_goal": "Produce the minimum useful typed artifact for this regime.",
-    "switch_trigger": "destabilizers_unresolved_or_redundant",
+    "switch_trigger": "Switch when the decision, tradeoff, and fallback trigger are explicit.",
     "recommended_next_regime": {
-      "name": "Synthesis Core",
-      "stage": "synthesis",
+      "name": "Epistemic Core",
+      "stage": "epistemic",
       "dominant_line": {
-        "id": "SYN-D1",
-        "text": "Follow the strongest live possibility before justifying it.",
-        "stage": "synthesis",
+        "id": "EPI-D1",
+        "text": "Do not let fluency outrun evidence.",
+        "stage": "epistemic",
         "function": "dominance",
-        "attractor": "early_frame_selection",
+        "attractor": "evidence_discipline",
         "suppresses": [
-          "over_hesitation"
+          "polished_overreach"
         ],
-        "tension": "commitment_over_delay",
+        "tension": "support_over_flow",
         "risks": [
-          "premature_lock"
+          "flat_output"
         ],
         "compatible_with": [
-          "SYN-D2",
-          "SYN-S1",
-          "SYN-P1",
-          "SYN-P2"
+          "EPI-D2",
+          "EPI-P1",
+          "EPI-P2",
+          "EPI-S1",
+          "EPI-G1"
         ],
-        "incompatible_with": [
-          "EXP-D1",
-          "EPI-D2"
-        ]
+        "incompatible_with": []
       },
       "suppression_lines": [
         {
-          "id": "SYN-P1",
-          "text": "Do not flatten decisive counterevidence just to preserve coherence.",
-          "stage": "synthesis",
+          "id": "EPI-P1",
+          "text": "Match claim strength to evidence strength.",
+          "stage": "epistemic",
           "function": "suppression",
-          "attractor": "anti_self_sealing",
+          "attractor": "claim_size_control",
           "suppresses": [
-            "coherence_over_truth"
+            "plausibility_inflation"
           ],
-          "tension": "disconfirmation_over_elegance",
+          "tension": "proportionality_over_assertion",
           "risks": [
-            "fragmented_reporting"
+            "excessive_caution"
           ],
           "compatible_with": [
-            "SYN-D1",
-            "SYN-D2",
-            "SYN-S1",
-            "SYN-P2"
+            "EPI-D1",
+            "EPI-D2",
+            "EPI-P2",
+            "EPI-S1",
+            "EPI-G1"
+          ],
+          "incompatible_with": []
+        },
+        {
+          "id": "EPI-P2",
+          "text": "Preserve contradictions unless stronger evidence resolves them.",
+          "stage": "epistemic",
+          "function": "suppression",
+          "attractor": "contradiction_preservation",
+          "suppresses": [
+            "forced_coherence"
+          ],
+          "tension": "tension_over_cleanup",
+          "risks": [
+            "decision_drag"
+          ],
+          "compatible_with": [
+            "EPI-D1",
+            "EPI-D2",
+            "EPI-P1",
+            "EPI-S1",
+            "EPI-G1",
+            "ADV-D1"
           ],
           "incompatible_with": []
         }
       ],
       "shape_lines": [
         {
-          "id": "SYN-S1",
-          "text": "Prefer generative connections over cautious completeness.",
-          "stage": "synthesis",
+          "id": "EPI-S1",
+          "text": "When multiple valid observations exist, prioritize the one that most changes the user's next decision.",
+          "stage": "epistemic",
           "function": "shape",
-          "attractor": "connection_making",
+          "attractor": "decision_relevant_rigor",
           "suppresses": [
-            "inventory_style_output"
+            "sterile_report_completeness"
           ],
-          "tension": "synthesis_over_completeness",
+          "tension": "action_relevance_over_neutral_reporting",
           "risks": [
-            "weakly_supported_linkage"
+            "under_reporting_context"
           ],
           "compatible_with": [
-            "SYN-D1",
-            "SYN-D2",
-            "SYN-P1",
-            "SYN-P2"
+            "EPI-D1",
+            "EPI-D2",
+            "EPI-P1",
+            "EPI-P2",
+            "EPI-G1"
           ],
-          "incompatible_with": [
-            "EPI-D2"
-          ]
+          "incompatible_with": []
         }
       ],
       "tail_line": null,
       "rejected_lines": [],
       "rejection_reasons": [],
-      "likely_failure_if_overused": "false unification"
+      "likely_failure_if_overused": "under-synthesis / decision drag"
     },
-    "decision_pressure": 1.0,
-    "evidence_quality": 1.0,
+    "decision_pressure": 3.0,
+    "evidence_quality": 2.0,
     "recurrence_potential": 0.0,
     "prior_regimes": [
-      {
-        "regime": {
-          "name": "Adversarial Core",
-          "stage": "adversarial",
-          "dominant_line": {
-            "id": "ADV-D1",
-            "text": "Find the objection or failure case that most changes the decision if true.",
-            "stage": "adversarial",
-            "function": "dominance",
-            "attractor": "decision_relevant_destabilization",
-            "suppresses": [
-              "diffuse_critique"
-            ],
-            "tension": "highest_impact_critique_over_broad_critique",
-            "risks": [
-              "tunnel_vision"
-            ],
-            "compatible_with": [
-              "ADV-P1",
-              "ADV-P2",
-              "ADV-S1",
-              "ADV-S2",
-              "ADV-T1",
-              "EPI-P2"
-            ],
-            "incompatible_with": []
-          },
-          "suppression_lines": [
-            {
-              "id": "ADV-P1",
-              "text": "Attack the strongest version of the frame, not a weaker substitute.",
-              "stage": "adversarial",
-              "function": "suppression",
-              "attractor": "anti_strawman",
-              "suppresses": [
-                "cheap_critique"
-              ],
-              "tension": "fair_target_over_easy_target",
-              "risks": [
-                "over_time_strengthening_target"
-              ],
-              "compatible_with": [
-                "ADV-D1",
-                "ADV-P2",
-                "ADV-S1",
-                "ADV-S2",
-                "ADV-T1"
-              ],
-              "incompatible_with": []
-            },
-            {
-              "id": "ADV-P2",
-              "text": "Do not generate weak objections for completeness.",
-              "stage": "adversarial",
-              "function": "suppression",
-              "attractor": "anti_critique_sludge",
-              "suppresses": [
-                "low_value_skepticism"
-              ],
-              "tension": "relevance_over_coverage",
-              "risks": [
-                "over_pruning"
-              ],
-              "compatible_with": [
-                "ADV-D1",
-                "ADV-P1",
-                "ADV-S1",
-                "ADV-S2",
-                "ADV-T1"
-              ],
-              "incompatible_with": []
-            }
-          ],
-          "shape_lines": [
-            {
-              "id": "ADV-S2",
-              "text": "Prefer concrete break conditions over abstract doubt.",
-              "stage": "adversarial",
-              "function": "shape",
-              "attractor": "operational_critique",
-              "suppresses": [
-                "vague_skepticism"
-              ],
-              "tension": "concrete_failure_over_generalized_doubt",
-              "risks": [
-                "misses_conceptual_fragility"
-              ],
-              "compatible_with": [
-                "ADV-D1",
-                "ADV-P1",
-                "ADV-P2",
-                "ADV-S1",
-                "ADV-T1"
-              ],
-              "incompatible_with": []
-            },
-            {
-              "id": "ADV-S1",
-              "text": "Prefer strong destabilizers over broad coverage.",
-              "stage": "adversarial",
-              "function": "shape",
-              "attractor": "concentrated_pressure",
-              "suppresses": [
-                "objection_spam"
-              ],
-              "tension": "force_over_completeness",
-              "risks": [
-                "misses_secondary_interacting_risks"
-              ],
-              "compatible_with": [
-                "ADV-D1",
-                "ADV-P1",
-                "ADV-P2",
-                "ADV-S2",
-                "ADV-T1"
-              ],
-              "incompatible_with": []
-            }
-          ],
-          "tail_line": null,
-          "rejected_lines": [],
-          "rejection_reasons": [],
-          "likely_failure_if_overused": "nihilistic or repetitive critique"
-        },
-        "reason_entered": "The bottleneck is hidden fragility, not idea generation.",
-        "completion_signal_seen": true,
-        "failure_signal_seen": false,
-        "outcome_summary": "Execution yielded a valid artifact. completion_signal=critical_breakpoints_mapped failure_signal=destabilizers_unresolved_or_redundant"
-      },
       {
         "regime": {
           "name": "Operator Core",
@@ -2070,7 +2077,7 @@
           "rejection_reasons": [],
           "likely_failure_if_overused": "forced closure"
         },
-        "reason_entered": "Switching from adversarial to operator.",
+        "reason_entered": "Decision-intent language dominates; the immediate need is commitment and explicit tradeoffs.",
         "completion_signal_seen": false,
         "failure_signal_seen": true,
         "outcome_summary": "Execution yielded validation failures. completion_signal=decision_committed_with_actions failure_signal=decision_not_actionable_under_constraints"
@@ -2078,42 +2085,34 @@
     ],
     "orchestration_enabled": true,
     "max_switches": 2,
-    "switches_attempted": 2,
-    "switches_executed": 1,
+    "switches_attempted": 1,
+    "switches_executed": 0,
     "orchestration_stop_reason": "switch_not_recommended",
     "executed_regime_stages": [
-      "adversarial",
       "operator"
     ],
     "switch_history": [
       {
         "switch_index": 1,
-        "from_stage": "adversarial",
-        "to_stage": "operator",
-        "switch_recommended": true,
-        "switch_executed": true,
-        "reason": "Switching from adversarial to operator.",
-        "switch_trigger": "destabilizers_unresolved_or_redundant"
-      },
-      {
-        "switch_index": 2,
         "from_stage": "operator",
         "to_stage": null,
         "switch_recommended": false,
         "switch_executed": false,
         "reason": "Current regime should continue; no allowed transition selected.",
-        "switch_trigger": "destabilizers_unresolved_or_redundant"
+        "switch_trigger": "Switch when the decision, tradeoff, and fallback trigger are explicit."
       }
     ],
     "escalation_debug": {
-      "direction": "looser",
-      "justification": "Relax toward looser regimes due to underformed-space or premature narrowing signals.",
+      "direction": "stricter",
+      "justification": "Escalate toward stricter regimes due to consequence/contradiction/certainty signals.",
       "biases": {
-        "exploration": 2
+        "epistemic": 3,
+        "adversarial": 1
       },
-      "switch_pressure_adjustment": -2,
+      "switch_pressure_adjustment": 3,
       "signals": [
-        "premature_narrowing_signal"
+        "high_consequence_or_deployment",
+        "certainty_or_proof_request"
       ]
     },
     "task_classification": {
