@@ -229,7 +229,9 @@ def test_operator_healthy_and_failing_pairs():
                 "decision": "Ship staged rollout to paid tier first.",
                 "rationale": "Limits blast radius while validating conversion impact.",
                 "tradeoff_accepted": "Lower short-term reach for operational safety.",
+                "next_actions": ["Deploy to staging", "Monitor conversion for 7 days"],
                 "fallback_trigger": "Rollback if trial-to-paid conversion drops below baseline.",
+                "review_point": "Review after first 7-day measurement window.",
             },
         ),
     )
