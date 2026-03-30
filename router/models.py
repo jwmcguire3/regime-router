@@ -196,7 +196,7 @@ class RegimeExecutionResult:
     ollama_meta: Dict[str, object] = field(default_factory=dict)
 
 
-class RegimeOutputContract(TypedDict):
+class RegimeOutputPayload(TypedDict):
     regime: str
     purpose: str
     artifact_type: str
