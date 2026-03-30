@@ -240,8 +240,6 @@ class OutputValidator:
         model_profile: str = "strict",
     ) -> List[str]:
         cfg = self._profile_config(model_profile)
-        failures: List[str] = []
-
         flat_fields: Dict[str, str] = {}
         for k, v in artifact.items():
             if isinstance(v, list):
@@ -250,15 +248,40 @@ class OutputValidator:
                 flat_fields[k] = str(v).strip()
 
         values = {k: self._normalize(v) for k, v in flat_fields.items() if v}
+        all_text = " ".join(flat_fields.values()).lower()
+        artifact_tokens = self._tokenize(all_text)
+        extracted_signals = set(extract_structural_signals(task))
+        active_signals = extracted_signals | set(task_signals or [])
 
-        # 1) Empty/short content
+        failures: List[str] = []
+        failures.extend(self._check_field_length(flat_fields, cfg))
+        failures.extend(self._check_field_repetition(values, cfg))
+        failures.extend(self._check_generic_filler(values, cfg))
+        failures.extend(self._check_task_grounding(values, task, cfg))
+        failures.extend(
+            self._check_signal_grounding(
+                flat_fields,
+                artifact_tokens,
+                active_signals,
+                task,
+                cfg,
+                model_profile,
+            )
+        )
+        failures.extend(self._check_stage_specific(stage, flat_fields, values, active_signals, cfg))
+        return failures
+
+    def _check_field_length(self, flat_fields: Dict[str, str], cfg: Dict[str, object]) -> List[str]:
+        failures: List[str] = []
         min_words_per_field = int(cfg["min_words_per_field"])
         if min_words_per_field > 0:
             for k, v in flat_fields.items():
                 if len(v.split()) < min_words_per_field:
                     failures.append(f"{k} is too short to be meaningful")
+        return failures
 
-        # 2) Repetition across fields
+    def _check_field_repetition(self, values: Dict[str, str], cfg: Dict[str, object]) -> List[str]:
+        failures: List[str] = []
         jaccard_limit = float(cfg["jaccard_similarity_limit"])
         keys = list(values.keys())
         for i in range(len(keys)):
@@ -268,15 +291,19 @@ class OutputValidator:
                     failures.append(f"{a} duplicates {b}")
                 elif self._jaccard(values[a], values[b]) > jaccard_limit:
                     failures.append(f"{a} is too similar to {b}")
+        return failures
 
-        # 3) Generic filler detection
+    def _check_generic_filler(self, values: Dict[str, str], cfg: Dict[str, object]) -> List[str]:
+        failures: List[str] = []
         if bool(cfg["check_generic_filler"]):
             for k, v in values.items():
                 hits = [p for p in self.GENERIC_PHRASES if p in v]
                 if hits:
                     failures.append(f"{k} contains generic filler: {', '.join(hits[:3])}")
+        return failures
 
-        # 4) Task grounding check
+    def _check_task_grounding(self, values: Dict[str, str], task: str, cfg: Dict[str, object]) -> List[str]:
+        failures: List[str] = []
         task_tokens = self._tokenize(task)
         overlap_min = int(cfg["task_overlap_min"])
         if task_tokens and overlap_min > 0:
@@ -288,13 +315,19 @@ class OutputValidator:
                     break
             if not grounded:
                 failures.append("artifact is not grounded in the task specifics")
+        return failures
 
-        # 5) Task-specific grounding checks for abstract framing tasks
+    def _check_signal_grounding(
+        self,
+        flat_fields: Dict[str, str],
+        artifact_tokens: Set[str],
+        active_signals: Set[str],
+        task: str,
+        cfg: Dict[str, object],
+        model_profile: str,
+    ) -> List[str]:
+        failures: List[str] = []
         all_text = " ".join(flat_fields.values()).lower()
-        artifact_tokens = self._tokenize(all_text)
-
-        extracted_signals = set(extract_structural_signals(task))
-        active_signals = extracted_signals | set(task_signals or [])
         if active_signals:
             if bool(cfg["check_forbidden_generic"]):
                 forbidden_hits = sorted(t for t in self.FORBIDDEN_GENERIC if t in artifact_tokens)
@@ -316,8 +349,19 @@ class OutputValidator:
                         matched += 1
                 if matched < 1:
                     failures.append("artifact is not grounded in the task's core structural signals")
+        return failures
 
-        # 6) Stage-specific checks
+    def _check_stage_specific(
+        self,
+        stage: Stage,
+        flat_fields: Dict[str, str],
+        values: Dict[str, str],
+        active_signals: Set[str],
+        cfg: Dict[str, object],
+    ) -> List[str]:
+        failures: List[str] = []
+        all_text = " ".join(flat_fields.values()).lower()
+        artifact_tokens = self._tokenize(all_text)
         if bool(cfg["check_stage_specific"]) and stage == Stage.SYNTHESIS:
             if "central_claim" in values and "organizing_idea" in values:
                 if self._jaccard(values["central_claim"], values["organizing_idea"]) > 0.65:
