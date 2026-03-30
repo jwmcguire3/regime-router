@@ -418,6 +418,7 @@ class SwitchOrchestrator:
     ) -> SwitchOrchestrationResult:
         completion_signal = self._signal_from_output(output, key="completion_signal")
         failure_signal = self._signal_from_output(output, key="failure_signal")
+        semantic_operator_failure = self._operator_semantic_failure(output)
         bounded = switches_used >= max_switches
 
         if bounded:
@@ -448,7 +449,14 @@ class SwitchOrchestrator:
                 updated_state=state,
             )
 
-        next_stage = self._next_stage(state, completion_signal, failure_signal, detection, escalation)
+        next_stage = self._next_stage(
+            state,
+            completion_signal,
+            failure_signal,
+            detection,
+            escalation,
+            semantic_operator_failure=semantic_operator_failure,
+        )
         if next_stage is None:
             return SwitchOrchestrationResult(
                 next_regime=None,
@@ -459,7 +467,11 @@ class SwitchOrchestrator:
 
         next_regime = self._resolve_stage(state, next_stage)
         state.recommended_next_regime = next_regime
-        state.switch_trigger = failure_signal or completion_signal or "misrouting_detected"
+        state.switch_trigger = (
+            "semantic_validation_failed_in_operator"
+            if semantic_operator_failure
+            else failure_signal or completion_signal or "misrouting_detected"
+        )
         return SwitchOrchestrationResult(
             next_regime=next_regime,
             switch_recommended_now=True,
@@ -474,6 +486,8 @@ class SwitchOrchestrator:
         failure_signal: str,
         detection: MisroutingDetectionResult,
         escalation: Optional[EscalationPolicyResult],
+        *,
+        semantic_operator_failure: bool = False,
     ) -> Optional[Stage]:
         current_stage = state.current_regime.stage
         allowed = self._ALLOWED_PATHWAYS.get(current_stage, set())
@@ -490,7 +504,7 @@ class SwitchOrchestrator:
             if recommended == Stage.ADVERSARIAL and Stage.ADVERSARIAL in allowed:
                 return Stage.ADVERSARIAL
             return Stage.EPISTEMIC if Stage.EPISTEMIC in allowed else None
-        if current_stage == Stage.OPERATOR and failure_signal and detection.misrouting_detected:
+        if current_stage == Stage.OPERATOR and (semantic_operator_failure or (failure_signal and detection.misrouting_detected)):
             if recommended == Stage.EPISTEMIC and Stage.EPISTEMIC in allowed:
                 return Stage.EPISTEMIC
             return Stage.EPISTEMIC if Stage.EPISTEMIC in allowed else None
@@ -531,6 +545,22 @@ class SwitchOrchestrator:
         if not (assumption_collapse_signaled or frame_collapse_signaled):
             return False
         return bool(state.assumptions) and (bool(state.contradictions) or assumption_collapse_signaled)
+
+    def _operator_semantic_failure(self, output: RegimeOutputContract) -> bool:
+        if output.stage != Stage.OPERATOR:
+            return False
+        validation = output.validation
+        semantic_failures = validation.get("semantic_failures", [])
+        if not semantic_failures:
+            return False
+        return (
+            bool(validation.get("valid_json", False))
+            and bool(validation.get("required_keys_present", False))
+            and bool(validation.get("artifact_fields_present", False))
+            and bool(validation.get("artifact_type_matches", False))
+            and bool(validation.get("contract_controls_valid", False))
+            and not bool(validation.get("semantic_valid", True))
+        )
 
 
 class EvolutionEngine:

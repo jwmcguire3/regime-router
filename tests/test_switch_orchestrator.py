@@ -37,7 +37,14 @@ def _state_for(stage: Stage, *, recurrence_potential: float = 0.0, assumptions=N
     )
 
 
-def _output(stage: Stage, artifact: dict, *, completion_signal: str, failure_signal: str) -> RegimeOutputContract:
+def _output(
+    stage: Stage,
+    artifact: dict,
+    *,
+    completion_signal: str,
+    failure_signal: str,
+    validation_overrides: dict | None = None,
+) -> RegimeOutputContract:
     parsed = {
         "regime": "test",
         "purpose": "test purpose",
@@ -47,7 +54,10 @@ def _output(stage: Stage, artifact: dict, *, completion_signal: str, failure_sig
         "recommended_next_regime": "operator",
         "artifact": artifact,
     }
-    return RegimeOutputContract(stage=stage, raw_response=json.dumps(parsed), validation={"parsed": parsed})
+    validation = {"parsed": parsed}
+    if validation_overrides:
+        validation.update(validation_overrides)
+    return RegimeOutputContract(stage=stage, raw_response=json.dumps(parsed), validation=validation)
 
 
 def _detect(state: RouterState, output: RegimeOutputContract):
@@ -165,6 +175,61 @@ def test_operator_failure_moves_to_epistemic():
     assert result.switch_recommended_now is True
     assert result.next_regime is not None
     assert result.next_regime.stage == Stage.EPISTEMIC
+
+
+def test_operator_semantic_failure_moves_to_epistemic():
+    state = _state_for(Stage.OPERATOR)
+    output = _output(
+        Stage.OPERATOR,
+        {
+            "decision": "Proceed with guarded offer acceptance.",
+            "rationale": "Expected value is positive if one missing diligence check passes.",
+            "tradeoff_accepted": "Accept slower commitment in exchange for lower downside.",
+            "next_actions": ["Run final diligence check.", "Collect counterparty confirmation."],
+            "fallback_trigger": "Reconsider if new information affects understanding of risk.",
+            "review_point": "Review after diligence result.",
+        },
+        completion_signal="decision_committed_with_actions",
+        failure_signal="decision_not_actionable_under_constraints",
+        validation_overrides={
+            "is_valid": False,
+            "valid_json": True,
+            "required_keys_present": True,
+            "artifact_fields_present": True,
+            "artifact_type_matches": True,
+            "contract_controls_valid": True,
+            "semantic_valid": False,
+            "semantic_failures": ["fallback_trigger contains generic filler: understanding"],
+        },
+    )
+    result = SwitchOrchestrator().orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
+    assert result.switch_recommended_now is True
+    assert result.next_regime is not None
+    assert result.next_regime.stage == Stage.EPISTEMIC
+
+
+def test_valid_operator_output_with_no_recurrence_does_not_switch():
+    state = _state_for(Stage.OPERATOR, recurrence_potential=0.0)
+    output = _output(
+        Stage.OPERATOR,
+        {
+            "decision": "Choose path A now",
+            "rationale": "Path A preserves the highest value under current constraints.",
+            "tradeoff_accepted": "Accept delayed optionality review for immediate clarity.",
+            "next_actions": ["Notify team", "Start execution"],
+            "fallback_trigger": "If key metric worsens by 20%.",
+            "review_point": "Review in one week.",
+        },
+        completion_signal="decision_committed_with_actions",
+        failure_signal="decision_not_actionable_under_constraints",
+        validation_overrides={
+            "is_valid": True,
+            "semantic_failures": [],
+        },
+    )
+    result = SwitchOrchestrator().orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
+    assert result.switch_recommended_now is False
+    assert result.next_regime is None
 
 
 def test_assumption_collapse_triggers_exploration_fallback():
@@ -416,6 +481,91 @@ def test_runtime_failed_operator_switches_to_epistemic_in_bounded_mode(monkeypat
                     "failure_signal": "decision_not_actionable_under_constraints",
                     "recommended_next_regime": "synthesis",
                     "artifact": {},
+                },
+            },
+        ),
+        RegimeExecutionResult(
+            task="task",
+            model="fake",
+            regime_name="Epistemic Core",
+            stage=Stage.EPISTEMIC,
+            system_prompt="",
+            user_prompt="",
+            raw_response="{}",
+            artifact_text="{}",
+            validation={
+                "is_valid": True,
+                "semantic_failures": [],
+                "parsed": {
+                    "completion_signal": "evidence_boundary_clear",
+                    "failure_signal": "insufficient_support_for_key_claims",
+                    "recommended_next_regime": "operator",
+                    "artifact": {
+                        "supported_claims": ["Claim with support"],
+                        "plausible_but_unproven": ["Claim lacking support"],
+                        "contradictions": [],
+                        "omitted_due_to_insufficient_support": ["Omitted claim"],
+                        "decision_relevant_conclusions": ["What to decide next"],
+                    },
+                },
+            },
+        ),
+    ]
+    call_count = {"n": 0}
+
+    def fake_execute_once(self, **kwargs):
+        idx = call_count["n"]
+        call_count["n"] += 1
+        return scripted[idx]
+
+    monkeypatch.setattr(CognitiveRuntime, "_execute_regime_once", fake_execute_once)
+    runtime.execute(
+        task="Choose one course of action now and provide fallback trigger.",
+        model="fake",
+        bounded_orchestration=True,
+        max_switches=1,
+    )
+
+    assert runtime.router_state is not None
+    assert call_count["n"] == 2
+    assert runtime.router_state.switches_executed == 1
+    assert runtime.router_state.executed_regime_stages == [Stage.OPERATOR, Stage.EPISTEMIC]
+    assert runtime.router_state.switch_history[0].to_stage == Stage.EPISTEMIC
+
+
+def test_runtime_semantically_invalid_operator_switches_to_epistemic_in_bounded_mode(monkeypatch):
+    runtime = CognitiveRuntime()
+    scripted = [
+        RegimeExecutionResult(
+            task="task",
+            model="fake",
+            regime_name="Operator Core",
+            stage=Stage.OPERATOR,
+            system_prompt="",
+            user_prompt="",
+            raw_response="{}",
+            artifact_text="{}",
+            validation={
+                "is_valid": False,
+                "valid_json": True,
+                "required_keys_present": True,
+                "artifact_fields_present": True,
+                "artifact_type_matches": True,
+                "contract_controls_valid": True,
+                "semantic_valid": False,
+                "semantic_failures": ["fallback_trigger contains generic filler: understanding"],
+                "parsed": {
+                    "completion_signal": "decision_committed_with_actions",
+                    "failure_signal": "decision_not_actionable_under_constraints",
+                    "recommended_next_regime": "exploration",
+                    "artifact": {
+                        "decision": "Proceed with conditions.",
+                        "rationale": "Current evidence supports provisional commitment.",
+                        "tradeoff_accepted": "Accept slower pace to preserve reversibility.",
+                        "next_actions": ["Collect missing evidence"],
+                        "fallback_trigger": "If new information changes understanding.",
+                        "review_point": "Review after evidence update.",
+                    },
                 },
             },
         ),
