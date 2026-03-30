@@ -15,6 +15,15 @@ def _pwsh() -> str | None:
     return shutil.which("pwsh") or shutil.which("powershell")
 
 
+def _load_json_stdout(stdout: str) -> dict:
+    payload = json.loads(stdout)
+    decoder = json.JSONDecoder()
+    _, end_index = decoder.raw_decode(stdout.lstrip())
+    trailing = stdout.lstrip()[end_index:].strip()
+    assert trailing == ""
+    return payload
+
+
 @pytest.mark.skipif(_pwsh() is None, reason="PowerShell is not available in this environment")
 def test_wrapper_settings_show_set_reset(tmp_path):
     pwsh = _pwsh()
@@ -41,7 +50,7 @@ def test_wrapper_settings_show_set_reset(tmp_path):
         capture_output=True,
         text=True,
     )
-    set_payload = json.loads(set_result.stdout)
+    set_payload = _load_json_stdout(set_result.stdout)
     assert set_payload["settings"]["model"] == "qwen3"
     assert set_payload["settings"]["debug_routing"] is True
 
@@ -52,7 +61,7 @@ def test_wrapper_settings_show_set_reset(tmp_path):
         capture_output=True,
         text=True,
     )
-    show_payload = json.loads(show_result.stdout)
+    show_payload = _load_json_stdout(show_result.stdout)
     assert show_payload["settings"]["model"] == "qwen3"
 
     reset_result = subprocess.run(
@@ -62,7 +71,7 @@ def test_wrapper_settings_show_set_reset(tmp_path):
         capture_output=True,
         text=True,
     )
-    reset_payload = json.loads(reset_result.stdout)
+    reset_payload = _load_json_stdout(reset_result.stdout)
     assert reset_payload["settings"]["model"] == "llama3"
 
 
@@ -91,6 +100,6 @@ def test_wrapper_settings_set_does_not_override_existing_defaults_without_flags(
         capture_output=True,
         text=True,
     )
-    payload = json.loads(show_result.stdout)
+    payload = _load_json_stdout(show_result.stdout)
     assert payload["settings"]["model"] == "qwen3"
     assert payload["settings"]["max_switches"] == 7

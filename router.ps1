@@ -101,7 +101,7 @@ function Invoke-RouterPython {
     }
 
     & $py @fullArgs
-    return $LASTEXITCODE
+    $global:LASTEXITCODE = $LASTEXITCODE
 }
 
 function Get-CommonArgs {
@@ -277,7 +277,7 @@ function Ensure-SettingsInitialized {
         return
     }
 
-    Write-Info ("No settings file found at '{0}'. Initializing persisted defaults." -f $SettingsFile)
+    Write-Verbose ("No settings file found at '{0}'. Initializing persisted defaults." -f $SettingsFile)
     $argList = @(
         "--settings-file", $SettingsFile,
         "settings", "set",
@@ -289,7 +289,7 @@ function Ensure-SettingsInitialized {
         "--model-profile", "strict"
     )
     Invoke-RouterPython -ArgList $argList | Out-Null
-    Write-Ok "Persisted defaults initialized."
+    Write-Verbose "Persisted defaults initialized."
 }
 
 function Invoke-ListRuns {
