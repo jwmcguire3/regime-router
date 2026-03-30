@@ -867,9 +867,12 @@ class Router:
                 "what would break it": 5,
             },
         )
-        if any(_has_phrase(b, k) for k in interpretation_shortcut_markers):
-            add_score(Stage.SYNTHESIS, 4, "lexical", "interpretation_shortcut_marker")
-            if any(_has_phrase(b, k) for k in epistemic_markers):
+        has_interpretation_shortcut_marker = any(_has_phrase(b, k) for k in interpretation_shortcut_markers)
+        has_epistemic_marker = any(_has_phrase(b, k) for k in epistemic_markers)
+        if has_interpretation_shortcut_marker:
+            if not has_epistemic_marker:
+                add_score(Stage.SYNTHESIS, 4, "lexical", "interpretation_shortcut_marker")
+            else:
                 add_score(Stage.EPISTEMIC, 2, "lexical", "epistemic_marker_with_interpretation_shortcut")
 
         add_phrase_weights(

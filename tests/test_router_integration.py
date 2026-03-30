@@ -441,6 +441,16 @@ def test_confidence_mixed_interpretation_and_evidence_prompt_remains_medium():
     assert decision.confidence.level == "medium"
 
 
+def test_interpretation_shortcut_stays_synthesis_but_mixed_evidence_prompt_prefers_epistemic():
+    interpretation_only = Router().route("Find the strongest interpretation of what this actually is.")
+    assert interpretation_only.primary_regime == Stage.SYNTHESIS
+
+    mixed_with_evidence = Router().route(
+        "Find the strongest interpretation and also verify which evidence supports it."
+    )
+    assert mixed_with_evidence.primary_regime == Stage.EPISTEMIC
+
+
 def test_confidence_vague_help_prompt_remains_low():
     decision = Router().route("Help me think about this.")
     assert decision.primary_regime == Stage.EXPLORATION
