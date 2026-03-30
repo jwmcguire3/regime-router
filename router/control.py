@@ -160,13 +160,22 @@ class MisroutingDetector:
 
         if stage == Stage.OPERATOR:
             has_decision = self._present(artifact.get("decision"))
-            if not has_decision:
-                return False
+            missing_decision = not has_decision
             missing_tradeoff = not self._present(artifact.get("tradeoff_accepted"))
             missing_rationale = not self._present(artifact.get("rationale"))
+            missing_next_actions = not self._present(artifact.get("next_actions"))
             missing_fallback = not self._present(artifact.get("fallback_trigger"))
+            missing_review_point = not self._present(artifact.get("review_point"))
             assumptions_hidden = self._has_live_assumptions(state) and missing_rationale and missing_fallback
-            return missing_tradeoff or missing_rationale or missing_fallback or assumptions_hidden
+            return (
+                missing_decision
+                or missing_tradeoff
+                or missing_rationale
+                or missing_next_actions
+                or missing_fallback
+                or missing_review_point
+                or assumptions_hidden
+            )
 
         if stage == Stage.BUILDER:
             has_modules_or_interfaces = self._present(artifact.get("modules")) or self._present(artifact.get("interfaces"))
@@ -255,7 +264,9 @@ class MisroutingDetector:
         return self._present(artifact.get("pressure_points"))
 
     def _operator_evidence_gap(self, artifact: Dict[str, object]) -> bool:
-        return self._present(artifact.get("decision")) and not self._present(artifact.get("rationale"))
+        has_decision = self._present(artifact.get("decision"))
+        has_rationale = self._present(artifact.get("rationale"))
+        return (not has_decision) or (has_decision and not has_rationale)
 
     def _recurrence_established(self, state: RouterState) -> bool:
         return state.recurrence_potential >= 2.0
@@ -388,7 +399,7 @@ class SwitchOrchestrator:
         Stage.SYNTHESIS: {Stage.EPISTEMIC, Stage.ADVERSARIAL},
         Stage.EPISTEMIC: {Stage.OPERATOR},
         Stage.ADVERSARIAL: {Stage.OPERATOR},
-        Stage.OPERATOR: {Stage.BUILDER},
+        Stage.OPERATOR: {Stage.EPISTEMIC, Stage.BUILDER},
         Stage.BUILDER: set(),
     }
 
@@ -478,6 +489,10 @@ class SwitchOrchestrator:
         if current_stage == Stage.SYNTHESIS and failure_signal:
             if recommended == Stage.ADVERSARIAL and Stage.ADVERSARIAL in allowed:
                 return Stage.ADVERSARIAL
+            return Stage.EPISTEMIC if Stage.EPISTEMIC in allowed else None
+        if current_stage == Stage.OPERATOR and failure_signal and detection.misrouting_detected:
+            if recommended == Stage.EPISTEMIC and Stage.EPISTEMIC in allowed:
+                return Stage.EPISTEMIC
             return Stage.EPISTEMIC if Stage.EPISTEMIC in allowed else None
         if current_stage in {Stage.EPISTEMIC, Stage.ADVERSARIAL} and completion_signal:
             return Stage.OPERATOR if Stage.OPERATOR in allowed else None

@@ -269,6 +269,29 @@ def test_operator_complete_and_fail_still_work():
     assert fail_result.recommended_next_regime.stage == Stage.EPISTEMIC
 
 
+def test_operator_missing_decision_is_treated_as_failure_and_routes_to_epistemic():
+    detector = MisroutingDetector()
+    state = _state_for(Stage.OPERATOR)
+    result = detector.detect(
+        state,
+        _output_for(
+            Stage.OPERATOR,
+            {
+                "decision": "",
+                "rationale": "",
+                "tradeoff_accepted": "",
+                "next_actions": [],
+                "fallback_trigger": "",
+                "review_point": "",
+            },
+        ),
+    )
+
+    assert result.misrouting_detected is True
+    assert result.recommended_next_regime is not None
+    assert result.recommended_next_regime.stage == Stage.EPISTEMIC
+
+
 def test_builder_positive_detects_premature_architecture_with_weak_recurrence():
     detector = MisroutingDetector()
     state = _state_for(Stage.BUILDER, recurrence_potential=0.0)
