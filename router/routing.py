@@ -49,6 +49,101 @@ def _score_from_matches(*matches: List[str]) -> int:
     return min(10, sum(len(group) for group in matches))
 
 
+LEXICAL_PHRASE_TABLE: tuple[tuple[str, Stage, int, str], ...] = (
+    # Operator
+    ("decide", Stage.OPERATOR, 4, "decide"),
+    ("deciding", Stage.OPERATOR, 4, "deciding"),
+    ("decision", Stage.OPERATOR, 4, "decision"),
+    ("choose", Stage.OPERATOR, 4, "choose"),
+    ("choosing", Stage.OPERATOR, 4, "choosing"),
+    ("recommend", Stage.OPERATOR, 4, "recommend"),
+    ("recommendation", Stage.OPERATOR, 4, "recommendation"),
+    ("make a call", Stage.OPERATOR, 5, "make a call"),
+    ("what should we do", Stage.OPERATOR, 5, "what should we do"),
+    ("now", Stage.OPERATOR, 2, "now"),
+    ("this week", Stage.OPERATOR, 2, "this week"),
+    ("immediate", Stage.OPERATOR, 3, "immediate"),
+    ("commit", Stage.OPERATOR, 3, "commit"),
+    ("next move", Stage.OPERATOR, 4, "next move"),
+    ("tradeoff", Stage.OPERATOR, 4, "tradeoff"),
+    ("best option now", Stage.OPERATOR, 6, "best option now"),
+    ("select", Stage.OPERATOR, 4, "select"),
+    ("selecting", Stage.OPERATOR, 4, "selecting"),
+    ("select between options", Stage.OPERATOR, 5, "select between options"),
+    ("choose between", Stage.OPERATOR, 5, "choose between"),
+    ("time pressure", Stage.OPERATOR, 3, "time pressure"),
+    # Epistemic
+    ("unknown", Stage.EPISTEMIC, 4, "unknown"),
+    ("unknowns", Stage.EPISTEMIC, 4, "unknowns"),
+    ("unclear", Stage.EPISTEMIC, 4, "unclear"),
+    ("unresolved", Stage.EPISTEMIC, 4, "unresolved"),
+    ("what is missing", Stage.EPISTEMIC, 5, "what is missing"),
+    ("what do we not know", Stage.EPISTEMIC, 5, "what do we not know"),
+    ("support", Stage.EPISTEMIC, 3, "support"),
+    ("evidence", Stage.EPISTEMIC, 4, "evidence"),
+    ("verify", Stage.EPISTEMIC, 4, "verify"),
+    ("rigor", Stage.EPISTEMIC, 3, "rigor"),
+    ("proof", Stage.EPISTEMIC, 3, "proof"),
+    ("confidence", Stage.EPISTEMIC, 2, "confidence"),
+    ("are you sure", Stage.EPISTEMIC, 4, "are you sure"),
+    ("can't tell", Stage.EPISTEMIC, 4, "can't tell"),
+    ("can't tell what kind", Stage.EPISTEMIC, 5, "can't tell what kind"),
+    ("don't know what kind", Stage.EPISTEMIC, 5, "don't know what kind"),
+    ("hard to characterize", Stage.EPISTEMIC, 4, "hard to characterize"),
+    ("can't characterize", Stage.EPISTEMIC, 4, "can't characterize"),
+    ("can't identify", Stage.EPISTEMIC, 4, "can't identify"),
+    ("can't name it yet", Stage.EPISTEMIC, 4, "can't name it yet"),
+    # Synthesis
+    ("strongest interpretation", Stage.SYNTHESIS, 10, "strongest interpretation"),
+    ("strongest frame", Stage.SYNTHESIS, 10, "strongest frame"),
+    ("what this actually is", Stage.SYNTHESIS, 10, "what this actually is"),
+    ("many signals", Stage.SYNTHESIS, 4, "many signals"),
+    ("no center", Stage.SYNTHESIS, 4, "no center"),
+    ("parts are legible", Stage.SYNTHESIS, 5, "parts are legible"),
+    ("whole organizing logic is missing", Stage.SYNTHESIS, 6, "whole organizing logic is missing"),
+    ("fragments but no spine", Stage.SYNTHESIS, 6, "fragments but no spine"),
+    ("fragments are understood", Stage.SYNTHESIS, 5, "fragments are understood"),
+    ("spine is still missing", Stage.SYNTHESIS, 6, "spine is still missing"),
+    ("hidden spine", Stage.SYNTHESIS, 4, "hidden spine"),
+    ("what this really is", Stage.SYNTHESIS, 4, "what this really is"),
+    ("unify", Stage.SYNTHESIS, 4, "unify"),
+    ("coherent picture", Stage.SYNTHESIS, 5, "coherent picture"),
+    ("coherent", Stage.SYNTHESIS, 2, "coherent"),
+    # Adversarial
+    ("weakest points", Stage.ADVERSARIAL, 5, "weakest points"),
+    ("weak spots", Stage.ADVERSARIAL, 5, "weak spots"),
+    ("strongest objections", Stage.ADVERSARIAL, 6, "strongest objections"),
+    ("vulnerabilities", Stage.ADVERSARIAL, 6, "vulnerabilities"),
+    ("failure modes", Stage.ADVERSARIAL, 6, "failure modes"),
+    ("where this breaks", Stage.ADVERSARIAL, 5, "where this breaks"),
+    ("break under pressure", Stage.ADVERSARIAL, 6, "break under pressure"),
+    ("how this could fail", Stage.ADVERSARIAL, 6, "how this could fail"),
+    ("attack this frame", Stage.ADVERSARIAL, 7, "attack this frame"),
+    ("stress points", Stage.ADVERSARIAL, 5, "stress points"),
+    ("what would break this frame", Stage.ADVERSARIAL, 6, "what would break this frame"),
+    ("what would break it", Stage.ADVERSARIAL, 5, "what would break it"),
+    # Exploration
+    ("possibility", Stage.EXPLORATION, 3, "possibility"),
+    ("brainstorm", Stage.EXPLORATION, 4, "brainstorm"),
+    ("explore", Stage.EXPLORATION, 2, "explore"),
+    ("alternatives", Stage.EXPLORATION, 3, "alternatives"),
+    ("option space", Stage.EXPLORATION, 3, "option space"),
+    ("open possibilities", Stage.EXPLORATION, 4, "open possibilities"),
+)
+
+NEGATED_CLOSURE_PHRASES: Dict[str, int] = {
+    "do not decide": 4,
+    "don't decide": 4,
+    "not decide yet": 4,
+    "do not recommend": 4,
+    "don't recommend": 4,
+    "do not choose": 4,
+    "don't choose": 4,
+    "do not make a call": 5,
+    "not ready to decide": 4,
+}
+
+
 def extract_routing_features(task: str) -> RoutingFeatures:
     text = task.lower().replace("’", "'")
 
@@ -713,56 +808,19 @@ class Router:
         add_score,
         suppress_score,
     ) -> None:
-        def add_phrase_weights(stage: Stage, weighted_terms: Dict[str, int]) -> None:
-            for phrase, weight in weighted_terms.items():
-                if _has_phrase(b, phrase):
-                    add_score(stage, weight, "lexical", f"phrase='{phrase}'")
-
         interpretation_shortcut_markers = ["strongest interpretation", "strongest frame", "what this actually is"]
         epistemic_markers = ["evidence", "support", "verify", "unknown", "unknowns", "unclear", "unresolved"]
 
-        add_phrase_weights(
-            Stage.OPERATOR,
-            {
-                "decide": 4,
-                "deciding": 4,
-                "decision": 4,
-                "choose": 4,
-                "choosing": 4,
-                "recommend": 4,
-                "recommendation": 4,
-                "make a call": 5,
-                "what should we do": 5,
-                "now": 2,
-                "this week": 2,
-                "immediate": 3,
-                "commit": 3,
-                "next move": 4,
-                "tradeoff": 4,
-                "best option now": 6,
-                "select": 4,
-                "selecting": 4,
-                "select between options": 5,
-                "choose between": 5,
-                "time pressure": 3,
-            },
-        )
-        negated_closure_weights = {
-            "do not decide": 4,
-            "don't decide": 4,
-            "not decide yet": 4,
-            "do not recommend": 4,
-            "don't recommend": 4,
-            "do not choose": 4,
-            "don't choose": 4,
-            "do not make a call": 5,
-            "not ready to decide": 4,
-        }
-        negated_hits = [phrase for phrase in negated_closure_weights if _has_phrase(b, phrase)]
-        for phrase in negated_hits:
+        for phrase, stage, weight, tag in LEXICAL_PHRASE_TABLE:
+            if _has_phrase(b, phrase):
+                add_score(stage, weight, "lexical", f"phrase='{tag}'")
+
+        for phrase, weight in NEGATED_CLOSURE_PHRASES.items():
+            if not _has_phrase(b, phrase):
+                continue
             suppress_score(
                 Stage.OPERATOR,
-                negated_closure_weights[phrase],
+                weight,
                 "lexical",
                 f"negated_closure:phrase='{phrase}'",
             )
@@ -772,31 +830,7 @@ class Router:
                 "lexical",
                 f"negated_closure:keep_open_phrase='{phrase}'",
             )
-        add_phrase_weights(
-            Stage.EPISTEMIC,
-            {
-                "unknown": 4,
-                "unknowns": 4,
-                "unclear": 4,
-                "unresolved": 4,
-                "what is missing": 5,
-                "what do we not know": 5,
-                "support": 3,
-                "evidence": 4,
-                "verify": 4,
-                "rigor": 3,
-                "proof": 3,
-                "confidence": 2,
-                "are you sure": 4,
-                "can't tell": 4,
-                "can't tell what kind": 5,
-                "don't know what kind": 5,
-                "hard to characterize": 4,
-                "can't characterize": 4,
-                "can't identify": 4,
-                "can't name it yet": 4,
-            },
-        )
+
         before_deciding_epistemic_phrases = (
             "before deciding",
             "before we decide",
@@ -810,43 +844,7 @@ class Router:
 
         if "pattern" in b:
             add_score(Stage.SYNTHESIS, 1, "lexical", "generic_pattern_signal")
-        add_phrase_weights(
-            Stage.SYNTHESIS,
-            {
-                "strongest interpretation": 10,
-                "strongest frame": 10,
-                "what this actually is": 10,
-                "many signals": 4,
-                "no center": 4,
-                "parts are legible": 5,
-                "whole organizing logic is missing": 6,
-                "fragments but no spine": 6,
-                "fragments are understood": 5,
-                "spine is still missing": 6,
-                "hidden spine": 4,
-                "what this really is": 4,
-                "unify": 4,
-                "coherent picture": 5,
-                "coherent": 2,
-            },
-        )
-        add_phrase_weights(
-            Stage.ADVERSARIAL,
-            {
-                "weakest points": 5,
-                "weak spots": 5,
-                "strongest objections": 6,
-                "vulnerabilities": 6,
-                "failure modes": 6,
-                "where this breaks": 5,
-                "break under pressure": 6,
-                "how this could fail": 6,
-                "attack this frame": 7,
-                "stress points": 5,
-                "what would break this frame": 6,
-                "what would break it": 5,
-            },
-        )
+
         has_interpretation_shortcut_marker = any(_has_phrase(b, k) for k in interpretation_shortcut_markers)
         has_epistemic_marker = any(_has_phrase(b, k) for k in epistemic_markers)
         if has_interpretation_shortcut_marker:
@@ -854,18 +852,6 @@ class Router:
                 add_score(Stage.SYNTHESIS, 4, "lexical", "interpretation_shortcut_marker")
             else:
                 add_score(Stage.EPISTEMIC, 2, "lexical", "epistemic_marker_with_interpretation_shortcut")
-
-        add_phrase_weights(
-            Stage.EXPLORATION,
-            {
-                "possibility": 3,
-                "brainstorm": 4,
-                "explore": 2,
-                "alternatives": 3,
-                "option space": 3,
-                "open possibilities": 4,
-            },
-        )
 
         # "options" alone is intentionally weak to avoid swallowing decision tasks.
         if "options" in b:
