@@ -213,6 +213,13 @@ def test_explore_several_frames_before_selecting_one_is_consistent_with_confiden
     assert decision.confidence.level in {"medium", "high"}
 
 
+@pytest.mark.parametrize("closure_verb", ["selecting", "choosing", "deciding"])
+def test_explore_several_frames_before_inflected_closure_is_mixed_intent(closure_verb: str):
+    decision = Router().route(f"Explore several frames before {closure_verb} one.")
+    assert decision.primary_regime in {Stage.OPERATOR, Stage.EXPLORATION}
+    assert decision.confidence.level in {"medium", "high"}
+
+
 def test_mixed_prompt_debug_contributions_show_operator_precedence_reason():
     decision = Router().route("Explore a few alternatives, then choose the best option now.")
     operator_contributions = decision.deterministic_score_contributions.get(Stage.OPERATOR, [])
