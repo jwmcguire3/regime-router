@@ -103,7 +103,7 @@ class CognitiveRouterRuntime:
         risks_inferred: bool = False,
     ) -> Tuple[RoutingDecision, Regime, Handoff]:
         classification = self.task_classifier.classify(bottleneck)
-        if classification.route_type == "direct":
+        if classification.route_type == "direct" and classification.classification_source == "pattern":
             return self._plan_direct(bottleneck, handoff_expected=handoff_expected, classification=classification)
 
         features = extract_routing_features(bottleneck)
@@ -194,7 +194,7 @@ class CognitiveRouterRuntime:
         max_switches: int = 2,
     ) -> Tuple[RoutingDecision, Regime, RegimeExecutionResult, Handoff]:
         classification = self.task_classifier.classify(task)
-        if classification.route_type == "direct":
+        if classification.route_type == "direct" and classification.classification_source == "pattern":
             decision, regime, handoff = self._plan_direct(task, handoff_expected=handoff_expected, classification=classification)
             result = self._execute_direct_task(task=task, model=model, regime=regime)
             self._update_router_state_from_execution(self.router_state, result, reason_entered=decision.why_primary_wins_now)
