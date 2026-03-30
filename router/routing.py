@@ -607,44 +607,21 @@ class Router:
 
         return (len(reasons) == 0, reasons)
 
-
-    def route(
+    def _apply_shortcut_routes(
         self,
-        bottleneck: str,
-        task_signals: Optional[List[str]] = None,
-        risk_profile: Optional[Set[str]] = None,
-        routing_features: Optional[RoutingFeatures] = None,
-        escalation_policy_result: Optional["EscalationPolicyResult"] = None,
-        deterministic_stage_scores: Optional[Dict[Stage, int]] = None,
-        deterministic_confidence: Optional[RegimeConfidenceResult] = None,
-        analyzer_result: Optional[TaskAnalyzerOutput] = None,
-        analyzer_enabled: bool = False,
-        analyzer_gap_threshold: int = 1,
-    ) -> RoutingDecision:
-        b = bottleneck.lower().replace("’", "'").strip()
-        features = routing_features or extract_routing_features(bottleneck)
-        signals = set(task_signals or features.structural_signals)
-        risks = set(risk_profile or set())
-        if escalation_policy_result is None:
-            from .control import EscalationPolicy
-
-            escalation_policy_result = EscalationPolicy().evaluate(
-                state=None,
-                routing_features=features,
-                task_text=bottleneck,
-                current_regime=None,
-                regime_confidence=deterministic_confidence,
-                misrouting_result=None,
-            )
-
+        b: str,
+        features: RoutingFeatures,
+        analyzer_enabled: bool,
+    ) -> Optional[RoutingDecision]:
+        normalized_b = b.lower().replace("’", "'").strip()
         interpretation_shortcut_markers = ["strongest interpretation", "strongest frame", "what this actually is"]
         epistemic_markers = ["evidence", "support", "verify", "unknown", "unknowns", "unclear", "unresolved"]
 
-        if any(_has_phrase(b, k) for k in interpretation_shortcut_markers) and not any(
-            _has_phrase(b, k) for k in epistemic_markers
+        if any(_has_phrase(normalized_b, k) for k in interpretation_shortcut_markers) and not any(
+            _has_phrase(normalized_b, k) for k in epistemic_markers
         ):
             return RoutingDecision(
-                bottleneck=bottleneck,
+                bottleneck=b,
                 primary_regime=Stage.SYNTHESIS,
                 runner_up_regime=Stage.ADVERSARIAL,
                 why_primary_wins_now="The task asks for interpretation-level compression first, then pressure-testing against break conditions.",
@@ -678,9 +655,9 @@ class Router:
             "what would break this frame",
         ]
 
-        if any(_has_phrase(b, k) for k in adversarial_shortcut_markers):
+        if any(_has_phrase(normalized_b, k) for k in adversarial_shortcut_markers):
             return RoutingDecision(
-                bottleneck=bottleneck,
+                bottleneck=b,
                 primary_regime=Stage.ADVERSARIAL,
                 runner_up_regime=Stage.EPISTEMIC,
                 why_primary_wins_now="The bottleneck is hidden fragility, not idea generation.",
@@ -695,7 +672,7 @@ class Router:
             )
 
         if any(
-            _has_phrase(b, k)
+            _has_phrase(normalized_b, k)
             for k in [
                 "repeatable",
                 "reusable",
@@ -710,7 +687,7 @@ class Router:
             ]
         ):
             return RoutingDecision(
-                bottleneck=bottleneck,
+                bottleneck=b,
                 primary_regime=Stage.BUILDER,
                 runner_up_regime=Stage.OPERATOR,
                 why_primary_wins_now="The pattern should be turned into durable structure.",
@@ -724,35 +701,25 @@ class Router:
                 analyzer_enabled=analyzer_enabled,
             )
 
-        stage_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
-        lexical_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
-        structural_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
-        stage_contributions: Dict[Stage, List[str]] = {stage: [] for stage in Stage}
+        return None
 
-        def add_score(stage: Stage, amount: int, bucket: str, reason: str) -> None:
-            if amount <= 0:
-                return
-            stage_scores[stage] += amount
-            if bucket == "lexical":
-                lexical_scores[stage] += amount
-            else:
-                structural_scores[stage] += amount
-            stage_contributions[stage].append(f"+{amount} {bucket}:{reason}")
-
-        def suppress_score(stage: Stage, amount: int, bucket: str, reason: str) -> None:
-            if amount <= 0:
-                return
-            stage_scores[stage] = max(0, stage_scores[stage] - amount)
-            if bucket == "lexical":
-                lexical_scores[stage] = max(0, lexical_scores[stage] - amount)
-            else:
-                structural_scores[stage] = max(0, structural_scores[stage] - amount)
-            stage_contributions[stage].append(f"-{amount} {bucket}:{reason}")
-
+    def _apply_lexical_scores(
+        self,
+        b: str,
+        features: RoutingFeatures,
+        stage_scores: Dict[Stage, int],
+        lexical_scores: Dict[Stage, int],
+        stage_contributions: Dict[Stage, List[str]],
+        add_score,
+        suppress_score,
+    ) -> None:
         def add_phrase_weights(stage: Stage, weighted_terms: Dict[str, int]) -> None:
             for phrase, weight in weighted_terms.items():
                 if _has_phrase(b, phrase):
                     add_score(stage, weight, "lexical", f"phrase='{phrase}'")
+
+        interpretation_shortcut_markers = ["strongest interpretation", "strongest frame", "what this actually is"]
+        epistemic_markers = ["evidence", "support", "verify", "unknown", "unknowns", "unclear", "unresolved"]
 
         add_phrase_weights(
             Stage.OPERATOR,
@@ -917,6 +884,19 @@ class Router:
         ):
             add_score(Stage.SYNTHESIS, 4, "lexical", "parts_whole_mismatch_phrase_cluster")
 
+    def _apply_structural_scores(
+        self,
+        b: str,
+        features: RoutingFeatures,
+        risks: Set[str],
+        signals: Set[str],
+        stage_scores: Dict[Stage, int],
+        structural_scores: Dict[Stage, int],
+        stage_contributions: Dict[Stage, List[str]],
+        add_score,
+        suppress_score,
+        escalation_policy_result: Optional["EscalationPolicyResult"] = None,
+    ) -> None:
         if STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED in signals:
             add_score(Stage.SYNTHESIS, 5, "structural", STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED)
             add_score(Stage.EPISTEMIC, 1, "structural", "fragments_spine_gap:verification_followup")
@@ -1058,6 +1038,13 @@ class Router:
                 if bias > 0:
                     add_score(stage, bias, "structural", f"escalation_policy:{escalation_policy_result.escalation_direction}")
 
+    def _apply_embedding_scores(
+        self,
+        bottleneck: str,
+        stage_scores: Dict[Stage, int],
+        stage_contributions: Dict[Stage, List[str]],
+        add_score,
+    ) -> None:
         if self.embedding_router is not None:
             embedding_score = self.embedding_router.score(bottleneck)
             if not embedding_score.below_threshold:
@@ -1074,14 +1061,20 @@ class Router:
                     if second_value > 0.35:
                         add_score(second_stage, 1, "embedding", f"second_similarity={second_value:.3f}")
 
-        if deterministic_stage_scores:
-            for stage in Stage:
-                if stage in deterministic_stage_scores:
-                    override_value = int(deterministic_stage_scores[stage])
-                    if override_value != stage_scores[stage]:
-                        stage_contributions[stage].append(f"override:external_deterministic_score={override_value}")
-                    stage_scores[stage] = override_value
-
+    def _build_final_decision(
+        self,
+        *,
+        bottleneck: str,
+        features: RoutingFeatures,
+        stage_scores: Dict[Stage, int],
+        lexical_scores: Dict[Stage, int],
+        structural_scores: Dict[Stage, int],
+        stage_contributions: Dict[Stage, List[str]],
+        deterministic_confidence: Optional[RegimeConfidenceResult],
+        analyzer_enabled: bool,
+        analyzer_gap_threshold: int,
+        analyzer_result: Optional[TaskAnalyzerOutput],
+    ) -> RoutingDecision:
         ranked = sorted(stage_scores.items(), key=lambda x: (-x[1], self.precedence_order.index(x[0])))
         top_stage, top_score = ranked[0]
 
@@ -1255,6 +1248,113 @@ class Router:
                 f"Analyzer confidence={analyzer_result.confidence:.2f}; rationale={analyzer_result.rationale}; "
                 f"candidates={[stage.value for stage in analyzer_result.candidate_regimes]}"
             ),
+        )
+
+
+    def route(
+        self,
+        bottleneck: str,
+        task_signals: Optional[List[str]] = None,
+        risk_profile: Optional[Set[str]] = None,
+        routing_features: Optional[RoutingFeatures] = None,
+        escalation_policy_result: Optional["EscalationPolicyResult"] = None,
+        deterministic_stage_scores: Optional[Dict[Stage, int]] = None,
+        deterministic_confidence: Optional[RegimeConfidenceResult] = None,
+        analyzer_result: Optional[TaskAnalyzerOutput] = None,
+        analyzer_enabled: bool = False,
+        analyzer_gap_threshold: int = 1,
+    ) -> RoutingDecision:
+        b = bottleneck.lower().replace("’", "'").strip()
+        features = routing_features or extract_routing_features(bottleneck)
+        signals = set(task_signals or features.structural_signals)
+        risks = set(risk_profile or set())
+        if escalation_policy_result is None:
+            from .control import EscalationPolicy
+
+            escalation_policy_result = EscalationPolicy().evaluate(
+                state=None,
+                routing_features=features,
+                task_text=bottleneck,
+                current_regime=None,
+                regime_confidence=deterministic_confidence,
+                misrouting_result=None,
+            )
+        shortcut_decision = self._apply_shortcut_routes(bottleneck, features, analyzer_enabled)
+        if shortcut_decision is not None:
+            return shortcut_decision
+
+        stage_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
+        lexical_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
+        structural_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
+        stage_contributions: Dict[Stage, List[str]] = {stage: [] for stage in Stage}
+
+        def add_score(stage: Stage, amount: int, bucket: str, reason: str) -> None:
+            if amount <= 0:
+                return
+            stage_scores[stage] += amount
+            if bucket == "lexical":
+                lexical_scores[stage] += amount
+            else:
+                structural_scores[stage] += amount
+            stage_contributions[stage].append(f"+{amount} {bucket}:{reason}")
+
+        def suppress_score(stage: Stage, amount: int, bucket: str, reason: str) -> None:
+            if amount <= 0:
+                return
+            stage_scores[stage] = max(0, stage_scores[stage] - amount)
+            if bucket == "lexical":
+                lexical_scores[stage] = max(0, lexical_scores[stage] - amount)
+            else:
+                structural_scores[stage] = max(0, structural_scores[stage] - amount)
+            stage_contributions[stage].append(f"-{amount} {bucket}:{reason}")
+
+        self._apply_lexical_scores(
+            b,
+            features,
+            stage_scores,
+            lexical_scores,
+            stage_contributions,
+            add_score,
+            suppress_score,
+        )
+        self._apply_structural_scores(
+            b,
+            features,
+            risks,
+            signals,
+            stage_scores,
+            structural_scores,
+            stage_contributions,
+            add_score,
+            suppress_score,
+            escalation_policy_result=escalation_policy_result,
+        )
+        self._apply_embedding_scores(
+            bottleneck,
+            stage_scores,
+            stage_contributions,
+            add_score,
+        )
+
+        if deterministic_stage_scores:
+            for stage in Stage:
+                if stage in deterministic_stage_scores:
+                    override_value = int(deterministic_stage_scores[stage])
+                    if override_value != stage_scores[stage]:
+                        stage_contributions[stage].append(f"override:external_deterministic_score={override_value}")
+                    stage_scores[stage] = override_value
+
+        return self._build_final_decision(
+            bottleneck=bottleneck,
+            features=features,
+            stage_scores=stage_scores,
+            lexical_scores=lexical_scores,
+            structural_scores=structural_scores,
+            stage_contributions=stage_contributions,
+            deterministic_confidence=deterministic_confidence,
+            analyzer_enabled=analyzer_enabled,
+            analyzer_gap_threshold=analyzer_gap_threshold,
+            analyzer_result=analyzer_result,
         )
 # ============================================================
 # Composer
