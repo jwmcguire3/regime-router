@@ -121,6 +121,15 @@ class RouterState:
         if uncertainties is not None:
             self.uncertainties = uncertainties
 
+    def resolve_regime(self, stage: Stage, compose_fn: Callable[[Stage], Regime]) -> Regime:
+        if self.current_regime.stage == stage:
+            return self.current_regime
+        if self.runner_up_regime and self.runner_up_regime.stage == stage:
+            return self.runner_up_regime
+        if self.recommended_next_regime and self.recommended_next_regime.stage == stage:
+            return self.recommended_next_regime
+        return compose_fn(stage)
+
 
 @dataclass
 class Handoff:

@@ -106,13 +106,7 @@ class MisroutingDetector:
         return self._regime_for_stage(state, self._DEFAULT_NEXT_REGIME_BY_STAGE[stage])
 
     def _regime_for_stage(self, state: RouterState, stage: Stage) -> Regime:
-        if state.current_regime.stage == stage:
-            return state.current_regime
-        if state.runner_up_regime and state.runner_up_regime.stage == stage:
-            return state.runner_up_regime
-        if state.recommended_next_regime and state.recommended_next_regime.stage == stage:
-            return state.recommended_next_regime
-        return self._composer.compose(stage)
+        return state.resolve_regime(stage, self._composer.compose)
 
     def _extract_artifact(self, output: RegimeOutputContract) -> Dict[str, object]:
         parsed = output.validation.get("parsed", {})
@@ -542,13 +536,7 @@ class SwitchOrchestrator:
         return None
 
     def _resolve_stage(self, state: RouterState, stage: Stage) -> Regime:
-        if state.current_regime.stage == stage:
-            return state.current_regime
-        if state.runner_up_regime and state.runner_up_regime.stage == stage:
-            return state.runner_up_regime
-        if state.recommended_next_regime and state.recommended_next_regime.stage == stage:
-            return state.recommended_next_regime
-        return self._composer.compose(stage)
+        return state.resolve_regime(stage, self._composer.compose)
 
     def _signal_from_output(self, output: RegimeOutputContract, *, key: str) -> str:
         parsed = output.validation.get("parsed", {})
