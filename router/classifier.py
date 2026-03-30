@@ -17,6 +17,7 @@ class TaskClassification:
     route_type: str
     confidence: float
     reason: str
+    classification_source: str
 
 
 class TaskClassifier:
@@ -73,6 +74,9 @@ class TaskClassifier:
         "diagram",
         "file",
         "bug",
+        "login",
+        "flow",
+        "environment",
     )
 
     def __init__(self, embedding_router: Optional[EmbeddingRouterLike] = None) -> None:
@@ -85,6 +89,7 @@ class TaskClassifier:
                 route_type="direct",
                 confidence=0.92,
                 reason="Imperative action+artifact request detected near task start.",
+                classification_source="pattern",
             )
         if self.embedding_router is not None:
             embedding_score = self.embedding_router.score(task)
@@ -96,11 +101,13 @@ class TaskClassifier:
                     route_type="direct",
                     confidence=0.6,
                     reason="No regime has semantic affinity above threshold",
+                    classification_source="embedding",
                 )
         return TaskClassification(
             route_type="regime",
             confidence=0.85,
             reason="No early action+artifact imperative pattern detected.",
+            classification_source="fallback",
         )
 
     def _has_action_artifact_pattern_near_start(self, text: str) -> bool:
