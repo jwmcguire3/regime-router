@@ -146,6 +146,27 @@ def test_operator_completion_with_recurrence_moves_to_builder():
     assert result.next_regime.stage == Stage.BUILDER
 
 
+def test_operator_failure_moves_to_epistemic():
+    state = _state_for(Stage.OPERATOR)
+    output = _output(
+        Stage.OPERATOR,
+        {
+            "decision": "",
+            "rationale": "",
+            "tradeoff_accepted": "",
+            "next_actions": [],
+            "fallback_trigger": "",
+            "review_point": "",
+        },
+        completion_signal="decision_committed_with_actions",
+        failure_signal="decision_not_actionable_under_constraints",
+    )
+    result = SwitchOrchestrator().orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
+    assert result.switch_recommended_now is True
+    assert result.next_regime is not None
+    assert result.next_regime.stage == Stage.EPISTEMIC
+
+
 def test_assumption_collapse_triggers_exploration_fallback():
     state = _state_for(Stage.OPERATOR, assumptions=["a1"], contradictions=["c1"])
     output = _output(
@@ -368,3 +389,80 @@ def test_runtime_prevents_stage_loops_in_bounded_mode(monkeypatch):
     assert runtime.router_state.switches_executed == 1
     assert runtime.router_state.orchestration_stop_reason == "loop_prevented_prior_stage"
     assert runtime.router_state.switch_history[-1].switch_executed is False
+
+
+def test_runtime_failed_operator_switches_to_epistemic_in_bounded_mode(monkeypatch):
+    runtime = CognitiveRuntime()
+    scripted = [
+        RegimeExecutionResult(
+            task="task",
+            model="fake",
+            regime_name="Operator Core",
+            stage=Stage.OPERATOR,
+            system_prompt="",
+            user_prompt="",
+            raw_response="{}",
+            artifact_text="{}",
+            validation={
+                "is_valid": False,
+                "valid_json": True,
+                "required_keys_present": True,
+                "artifact_fields_present": False,
+                "artifact_type_matches": True,
+                "contract_controls_valid": False,
+                "semantic_failures": [],
+                "parsed": {
+                    "completion_signal": "decision_committed_with_actions",
+                    "failure_signal": "decision_not_actionable_under_constraints",
+                    "recommended_next_regime": "synthesis",
+                    "artifact": {},
+                },
+            },
+        ),
+        RegimeExecutionResult(
+            task="task",
+            model="fake",
+            regime_name="Epistemic Core",
+            stage=Stage.EPISTEMIC,
+            system_prompt="",
+            user_prompt="",
+            raw_response="{}",
+            artifact_text="{}",
+            validation={
+                "is_valid": True,
+                "semantic_failures": [],
+                "parsed": {
+                    "completion_signal": "evidence_boundary_clear",
+                    "failure_signal": "insufficient_support_for_key_claims",
+                    "recommended_next_regime": "operator",
+                    "artifact": {
+                        "supported_claims": ["Claim with support"],
+                        "plausible_but_unproven": ["Claim lacking support"],
+                        "contradictions": [],
+                        "omitted_due_to_insufficient_support": ["Omitted claim"],
+                        "decision_relevant_conclusions": ["What to decide next"],
+                    },
+                },
+            },
+        ),
+    ]
+    call_count = {"n": 0}
+
+    def fake_execute_once(self, **kwargs):
+        idx = call_count["n"]
+        call_count["n"] += 1
+        return scripted[idx]
+
+    monkeypatch.setattr(CognitiveRuntime, "_execute_regime_once", fake_execute_once)
+    runtime.execute(
+        task="Choose one course of action now and provide fallback trigger.",
+        model="fake",
+        bounded_orchestration=True,
+        max_switches=1,
+    )
+
+    assert runtime.router_state is not None
+    assert call_count["n"] == 2
+    assert runtime.router_state.switches_executed == 1
+    assert runtime.router_state.executed_regime_stages == [Stage.OPERATOR, Stage.EPISTEMIC]
+    assert runtime.router_state.switch_history[0].to_stage == Stage.EPISTEMIC
