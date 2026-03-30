@@ -122,3 +122,30 @@ def test_execute_records_completion_and_failure_signals_in_prior_regime_summary(
     summary = runtime.router_state.prior_regimes[-1].outcome_summary
     assert "completion_signal=" in summary
     assert "failure_signal=" in summary
+
+
+def test_invalid_structural_output_does_not_override_recommended_next_regime_or_handoff():
+    runtime = CognitiveRuntime()
+    invalid_structural = json.dumps(
+        {
+            "regime": "exploration",
+            "purpose": "Explore frames before choosing.",
+            "artifact_type": "decision_packet",
+            "completion_signal": "decision_committed_with_actions",
+            "failure_signal": "decision_not_actionable_under_constraints",
+            "recommended_next_regime": "synthesis",
+            "artifact": {
+                "frames": ["Frame A", "Frame B"],
+            },
+        }
+    )
+    runtime.ollama = FakeOllama([invalid_structural, invalid_structural])
+
+    decision, _, result, handoff = runtime.execute(task=STRUCTURAL_TASK, model="fake")
+
+    assert decision.runner_up_regime == Stage.ADVERSARIAL
+    assert result.validation["is_valid"] is False
+    assert runtime.router_state is not None
+    assert runtime.router_state.recommended_next_regime is not None
+    assert runtime.router_state.recommended_next_regime.stage == Stage.ADVERSARIAL
+    assert handoff.recommended_next_regime == Stage.ADVERSARIAL

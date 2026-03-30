@@ -573,6 +573,22 @@ def test_validator_rejects_pressure_points_as_execution_risks(synthesis_bad_pres
         (
             json.dumps(
                 {
+                    "regime": "exploration",
+                    "purpose": "Explore potential directions before deciding.",
+                    "artifact_type": "decision_packet",
+                    "completion_signal": "decision_committed_with_actions",
+                    "failure_signal": "decision_not_actionable_under_constraints",
+                    "recommended_next_regime": "synthesis",
+                    "artifact": {
+                        "frames": ["frame a", "frame b"],
+                    },
+                }
+            ),
+            PromptBuilder.REPAIR_MODE_SCHEMA,
+        ),
+        (
+            json.dumps(
+                {
                     "regime": "Synthesis Core",
                     "purpose": "Produce the strongest coherent interpretation from live signals.",
                     "stage": "synthesis",

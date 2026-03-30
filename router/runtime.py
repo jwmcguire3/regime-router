@@ -463,6 +463,16 @@ class CognitiveRouterRuntime:
     def _select_repair_mode(self, validation: Dict[str, object]) -> str:
         if not validation.get("valid_json", False):
             return PromptBuilder.REPAIR_MODE_SCHEMA
+        if (
+            not validation.get("required_keys_present", False)
+            or not validation.get("artifact_fields_present", False)
+            or not validation.get("artifact_type_matches", False)
+            or not validation.get("contract_controls_valid", False)
+            or bool(validation.get("missing_keys", []))
+            or bool(validation.get("missing_artifact_fields", []))
+            or bool(validation.get("control_failures", []))
+        ):
+            return PromptBuilder.REPAIR_MODE_SCHEMA
 
         semantic_failures = [str(f).lower() for f in validation.get("semantic_failures", [])]
         genericity_markers = (
@@ -538,22 +548,30 @@ class CognitiveRouterRuntime:
         if state is None:
             return
         parsed = result.validation.get("parsed", {})
+        structurally_trustworthy = bool(
+            result.validation.get("valid_json", False)
+            and result.validation.get("required_keys_present", False)
+            and result.validation.get("artifact_fields_present", False)
+            and result.validation.get("artifact_type_matches", False)
+            and result.validation.get("contract_controls_valid", False)
+        )
         completion_signal = ""
         failure_signal = ""
         if isinstance(parsed, dict):
             completion_signal = str(parsed.get("completion_signal", "")).strip()
             failure_signal = str(parsed.get("failure_signal", "")).strip()
 
-            artifact = parsed.get("artifact", {})
-            if isinstance(artifact, dict):
-                central_claim = artifact.get("central_claim")
-                if isinstance(central_claim, str) and central_claim.strip():
-                    state.apply_dominant_frame(central_claim.strip())
-            recommended_next = parsed.get("recommended_next_regime")
-            if isinstance(recommended_next, str):
-                normalized_stage = recommended_next.strip().lower()
-                if normalized_stage in Stage._value2member_map_:
-                    state.recommended_next_regime = self._resolve_next_regime(state, Stage(normalized_stage))
+            if structurally_trustworthy:
+                artifact = parsed.get("artifact", {})
+                if isinstance(artifact, dict):
+                    central_claim = artifact.get("central_claim")
+                    if isinstance(central_claim, str) and central_claim.strip():
+                        state.apply_dominant_frame(central_claim.strip())
+                recommended_next = parsed.get("recommended_next_regime")
+                if isinstance(recommended_next, str):
+                    normalized_stage = recommended_next.strip().lower()
+                    if normalized_stage in Stage._value2member_map_:
+                        state.recommended_next_regime = self._resolve_next_regime(state, Stage(normalized_stage))
 
         semantic_failures = [str(f) for f in result.validation.get("semantic_failures", [])]
         if semantic_failures:
