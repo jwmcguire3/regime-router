@@ -72,7 +72,7 @@ def test_wrapper_settings_show_set_reset(tmp_path):
         text=True,
     )
     reset_payload = _load_json_stdout(reset_result.stdout)
-    assert reset_payload["settings"]["model"] == "llama3"
+    assert reset_payload["settings"]["model"] == "dolphin29:latest"
 
 
 @pytest.mark.skipif(_pwsh() is None, reason="PowerShell is not available in this environment")
