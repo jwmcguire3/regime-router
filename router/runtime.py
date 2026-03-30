@@ -266,6 +266,7 @@ class CognitiveRouterRuntime:
                     "switch_pressure_adjustment": escalation.switch_pressure_adjustment,
                     "signals": escalation.debug_signals,
                 }
+                prior_recommended_next = self.router_state.recommended_next_regime
                 orchestrated = self.switch_orchestrator.orchestrate(
                     self.router_state,
                     output_contract,
@@ -288,6 +289,7 @@ class CognitiveRouterRuntime:
                     self.router_state.orchestration_stop_reason = "switch_not_recommended"
                     break
                 if orchestrated.next_regime.stage == self.router_state.current_regime.stage:
+                    self.router_state.recommended_next_regime = prior_recommended_next
                     self.router_state.record_switch_decision(
                         switch_index=switch_index,
                         from_stage=self.router_state.current_regime.stage,
@@ -300,6 +302,7 @@ class CognitiveRouterRuntime:
                     self.router_state.orchestration_stop_reason = "loop_prevented_same_stage"
                     break
                 if orchestrated.next_regime.stage in self.router_state.executed_regime_stages:
+                    self.router_state.recommended_next_regime = prior_recommended_next
                     self.router_state.record_switch_decision(
                         switch_index=switch_index,
                         from_stage=self.router_state.current_regime.stage,
