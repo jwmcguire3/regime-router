@@ -36,12 +36,19 @@ _confidence_module = _load_routing_support_module("router.routing.confidence", "
 _analyzer_override_module = _load_routing_support_module("router.routing.analyzer_override", "analyzer_override.py")
 _decision_builder_module = _load_routing_support_module("router.routing.decision_builder", "decision_builder.py")
 _score_tracking_module = _load_routing_support_module("router.routing.score_tracking", "score_tracking.py")
+_grammar_rules_module = _load_routing_support_module("router.routing.grammar_rules", "grammar_rules.py")
 
 LEXICAL_PHRASE_TABLE = _lexical_tables_module.LEXICAL_PHRASE_TABLE
 NEGATED_CLOSURE_PHRASES = _lexical_tables_module.NEGATED_CLOSURE_PHRASES
 RegimeConfidenceCalculator = _confidence_module.RegimeConfidenceCalculator
 StageScoreTracking = _score_tracking_module.StageScoreTracking
 apply_deterministic_stage_score_overrides = _score_tracking_module.apply_deterministic_stage_score_overrides
+
+deduplicate_lines = _grammar_rules_module.deduplicate_lines
+has_hard_conflict = _grammar_rules_module.has_hard_conflict
+has_soft_conflict = _grammar_rules_module.has_soft_conflict
+resolve_conflict = _grammar_rules_module.resolve_conflict
+validate_regime_grammar = _grammar_rules_module.validate_regime_grammar
 
 
 def _contains_any(text: str, phrases: Tuple[str, ...]) -> List[str]:
