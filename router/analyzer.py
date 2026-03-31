@@ -6,7 +6,7 @@ import textwrap
 from typing import Dict, List, Optional, Set, Tuple
 
 from .llm import ModelClient
-from .models import RoutingFeatures, Stage, TaskAnalyzerOutput
+from .models import RegimeConfidenceResult, RoutingDecision, RoutingFeatures, Severity, Stage, TaskAnalyzerOutput
 
 
 class TaskAnalyzer:
@@ -84,8 +84,132 @@ class TaskAnalyzer:
               "confidence": number 0-1,
               "rationale": "short string"
             }
+
+            Explain in 1-2 sentences why this stage is the current bottleneck, referencing specific
+            features of the input task. Do not use generic language like 'best fit' or 'most suitable'.
             """
         ).strip()
+
+    def propose_route(
+        self,
+        task: str,
+        routing_features: RoutingFeatures,
+        task_signals: List[str],
+        risk_profile: Set[str],
+    ) -> RoutingDecision:
+        analyzer_result = self.analyze(task, routing_features, task_signals, risk_profile)
+        if analyzer_result is None:
+            summary = self.last_error_summary or "Analyzer failed without a detailed error summary."
+            return RoutingDecision(
+                bottleneck=task,
+                primary_regime=Stage.EXPLORATION,
+                runner_up_regime=Stage.SYNTHESIS,
+                why_primary_wins_now="Analyzer unavailable; exploration is the safest low-confidence fallback.",
+                switch_trigger="Switch when one frame becomes clearly more decision-relevant than alternatives.",
+                confidence=RegimeConfidenceResult(
+                    level=Severity.LOW.value,
+                    rationale="Analyzer failed; defaulting to conservative exploration fallback.",
+                    top_stage_score=0,
+                    runner_up_score=0,
+                    score_gap=0,
+                    nontrivial_stage_count=0,
+                    weak_lexical_dependence=True,
+                    structural_feature_state="sparse",
+                ),
+                analyzer_enabled=True,
+                analyzer_used=True,
+                analyzer_summary=summary,
+            )
+
+        ranked = sorted(
+            analyzer_result.stage_scores.items(),
+            key=lambda item: (-item[1], list(Stage).index(item[0])),
+        )
+        primary = ranked[0][0] if ranked else Stage.EXPLORATION
+        runner_up = next((stage for stage, _ in ranked if stage != primary), Stage.SYNTHESIS)
+
+        notes: List[str] = []
+        has_decision_markers = bool(routing_features.detected_markers.get("decision_tradeoff_commitment"))
+        if primary == Stage.OPERATOR and routing_features.decision_pressure == 0 and not has_decision_markers:
+            primary = Stage.EXPLORATION
+            notes.append("operator proposed without decision evidence; demoted to exploration")
+        if primary == Stage.BUILDER and routing_features.recurrence_potential == 0:
+            primary = Stage.EXPLORATION
+            notes.append("builder proposed without recurrence potential; demoted to exploration")
+        if primary == Stage.ADVERSARIAL and routing_features.fragility_pressure == 0:
+            primary = Stage.EXPLORATION
+            notes.append("adversarial proposed without fragility pressure; demoted to exploration")
+
+        if primary == runner_up:
+            runner_up = Stage.SYNTHESIS if primary != Stage.SYNTHESIS else Stage.EXPLORATION
+
+        confidence_score = analyzer_result.confidence
+        if confidence_score >= 0.8:
+            confidence_level = Severity.HIGH.value
+        elif confidence_score >= 0.5:
+            confidence_level = Severity.MEDIUM.value
+        else:
+            confidence_level = Severity.LOW.value
+
+        top_score = int(round(ranked[0][1])) if ranked else 0
+        runner_up_score = int(round(next((score for stage, score in ranked if stage == runner_up), 0.0)))
+        nontrivial_stage_count = sum(1 for _, score in ranked if score > 0)
+        confidence = RegimeConfidenceResult(
+            level=confidence_level,
+            rationale=f"Analyzer confidence={confidence_score:.2f}.",
+            top_stage_score=top_score,
+            runner_up_score=runner_up_score,
+            score_gap=max(0, top_score - runner_up_score),
+            nontrivial_stage_count=nontrivial_stage_count,
+            weak_lexical_dependence=False,
+            structural_feature_state="rich" if routing_features.structural_signals else "sparse",
+        )
+
+        stage_reasons = {
+            Stage.OPERATOR: (
+                "Decision-intent pressure is currently the bottleneck.",
+                "Switch when the decision, tradeoffs, and fallback are explicit.",
+            ),
+            Stage.EPISTEMIC: (
+                "Evidence quality and uncertainty calibration are currently the bottleneck.",
+                "Switch when supported and unsupported claims are separated clearly enough to decide.",
+            ),
+            Stage.SYNTHESIS: (
+                "The task needs a coherent organizing frame before action.",
+                "Switch when one frame becomes dominant and exclusion criteria are explicit.",
+            ),
+            Stage.EXPLORATION: (
+                "The task still needs broader option-space coverage before narrowing.",
+                "Switch when distinct frames are surfaced and one starts to dominate.",
+            ),
+            Stage.BUILDER: (
+                "The bottleneck is converting patterns into reusable operating structure.",
+                "Switch when modules, repeatability, and implementation order are concretely defined.",
+            ),
+            Stage.ADVERSARIAL: (
+                "The bottleneck is latent fragility that must be stress-tested.",
+                "Switch when key failure modes are surfaced and mitigation revisions are clear.",
+            ),
+        }
+        why_primary_wins_now, switch_trigger = stage_reasons[primary]
+
+        summary_parts = [
+            f"Analyzer confidence={confidence_score:.2f}",
+            f"rationale={analyzer_result.rationale}",
+            f"candidates={[stage.value for stage in analyzer_result.candidate_regimes]}",
+        ]
+        summary_parts.extend(notes)
+        return RoutingDecision(
+            bottleneck=analyzer_result.bottleneck_label,
+            primary_regime=primary,
+            runner_up_regime=runner_up,
+            why_primary_wins_now=why_primary_wins_now,
+            switch_trigger=switch_trigger,
+            confidence=confidence,
+            analyzer_enabled=True,
+            analyzer_used=True,
+            analyzer_summary="; ".join(summary_parts),
+        )
 
     def _build_user_prompt(
         self,
