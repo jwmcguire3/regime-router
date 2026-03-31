@@ -26,18 +26,8 @@ class CognitiveRouterRuntime:
         ollama_base_url: str = "http://localhost:11434",
         use_task_analyzer: bool = False,
         task_analyzer_model: str = "llama3",
-        use_embedding_router: bool = True,
-        embedding_model_name: str = "all-MiniLM-L6-v2",
     ) -> None:
-        embedding_router = None
-        if use_embedding_router:
-            try:
-                from ..embeddings import EmbeddingRouter
-
-                embedding_router = EmbeddingRouter(model_name=embedding_model_name)
-            except Exception:
-                embedding_router = None
-        self.router = Router(embedding_router=embedding_router)
+        self.router = Router(embedding_router=None)
         self.composer = RegimeComposer()
         self.validator = OutputValidator()
         self.prompt_builder = PromptBuilder()
@@ -48,7 +38,7 @@ class CognitiveRouterRuntime:
         self.model_client: ModelClient = OllamaModelClient(base_url=ollama_base_url)
         self.use_task_analyzer = use_task_analyzer
         self.task_analyzer = TaskAnalyzer(self.model_client, model=task_analyzer_model) if use_task_analyzer else None
-        self.task_classifier = TaskClassifier(embedding_router=embedding_router)
+        self.task_classifier = TaskClassifier()
         self.router_state: Optional[RouterState] = None
 
         self.planner = RuntimePlanner(

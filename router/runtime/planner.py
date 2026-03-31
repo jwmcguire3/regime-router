@@ -5,7 +5,7 @@ from typing import List, Optional, Set, Tuple
 from ..analyzer import TaskAnalyzer
 from ..classifier import TaskClassification, TaskClassifier
 from ..control import EscalationPolicy
-from ..models import Regime, RoutingDecision, TaskAnalyzerOutput
+from ..models import Regime, RoutingDecision
 from ..routing import RegimeComposer, Router, extract_routing_features, infer_risk_profile
 from ..state import Handoff, RouterState
 from .state_updater import build_router_state, handoff_from_state
@@ -57,45 +57,13 @@ class RuntimePlanner:
         )
         signals = task_signals if task_signals is not None else features.structural_signals
         risks = set(risk_profile or set()) if risks_inferred else infer_risk_profile(bottleneck, risk_profile)
-        deterministic_decision = self.router.route(
-            bottleneck,
-            task_signals=signals,
-            risk_profile=risks,
-            routing_features=features,
-            escalation_policy_result=escalation,
-        )
-        analysis: Optional[TaskAnalyzerOutput] = None
-        analyzer_attempted = False
-        if (
-            use_task_analyzer
-            and task_analyzer
-            and self.router.should_use_analyzer(deterministic_decision.confidence, score_gap_threshold=1)
-        ):
-            analyzer_attempted = True
-            analysis = task_analyzer.analyze(
-                bottleneck,
-                routing_features=features,
-                task_signals=signals,
-                risk_profile=risks,
-            )
-
         decision = self.router.route(
             bottleneck,
             task_signals=signals,
             risk_profile=risks,
             routing_features=features,
             escalation_policy_result=escalation,
-            deterministic_stage_scores=deterministic_decision.deterministic_stage_scores,
-            deterministic_confidence=deterministic_decision.confidence,
-            analyzer_enabled=use_task_analyzer,
-            analyzer_result=analysis,
-            analyzer_gap_threshold=1,
         )
-        if analyzer_attempted and analysis is None and decision.analyzer_summary is None:
-            analyzer_error = (
-                task_analyzer.last_error_summary if task_analyzer and task_analyzer.last_error_summary else "Analyzer returned invalid/non-JSON output."
-            )
-            decision.analyzer_summary = f"{analyzer_error} Deterministic routing retained."
 
         regime = self.composer.compose(decision.primary_regime, risk_profile=risks, handoff_expected=handoff_expected)
         state = build_router_state(

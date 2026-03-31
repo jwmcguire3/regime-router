@@ -2,14 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import List, Optional, Protocol
-
-from .models import EmbeddingScore
-
-
-class EmbeddingRouterLike(Protocol):
-    def score(self, task: str) -> EmbeddingScore:
-        ...
+from typing import List
 
 
 @dataclass(frozen=True)
@@ -21,8 +14,6 @@ class TaskClassification:
 
 
 class TaskClassifier:
-    EMBEDDING_THRESHOLD = 0.35
-
     ACTION_VERBS = (
         "write",
         "create",
@@ -79,8 +70,8 @@ class TaskClassifier:
         "environment",
     )
 
-    def __init__(self, embedding_router: Optional[EmbeddingRouterLike] = None) -> None:
-        self.embedding_router = embedding_router
+    def __init__(self) -> None:
+        pass
 
     def classify(self, task: str) -> TaskClassification:
         text = task.lower().strip()
@@ -91,18 +82,6 @@ class TaskClassifier:
                 reason="Imperative action+artifact request detected near task start.",
                 classification_source="pattern",
             )
-        if self.embedding_router is not None:
-            embedding_score = self.embedding_router.score(task)
-            has_semantic_affinity = any(
-                score > self.EMBEDDING_THRESHOLD for score in embedding_score.stage_scores.values()
-            )
-            if embedding_score.below_threshold and not has_semantic_affinity:
-                return TaskClassification(
-                    route_type="direct",
-                    confidence=0.6,
-                    reason="No regime has semantic affinity above threshold",
-                    classification_source="embedding",
-                )
         return TaskClassification(
             route_type="regime",
             confidence=0.85,

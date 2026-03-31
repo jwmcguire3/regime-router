@@ -6,11 +6,22 @@ import sys
 from typing import Dict, List, Optional, Set
 
 from .models import RoutingDecision, RoutingFeatures
-from .routing import Router, extract_routing_features, infer_risk_profile
+from .routing import extract_routing_features, infer_risk_profile
 from .runtime import CognitiveRouterRuntime
 from .settings import CliSettings, CliSettingsStore
 from .state import Handoff, make_record
 from .storage import SessionStore
+
+
+def _format_stage_contributions(contributions: Dict[object, List[str]]) -> str:
+    if not contributions:
+        return "n/a"
+    parts: List[str] = []
+    for stage, reasons in contributions.items():
+        stage_name = getattr(stage, "value", str(stage))
+        reason_text = ", ".join(reasons) if reasons else "no details"
+        parts.append(f"{stage_name}: {reason_text}")
+    return " | ".join(parts)
 
 
 class CliOutputFormatter:
@@ -46,10 +57,10 @@ def print_routing(decision: RoutingDecision, fmt: CliOutputFormatter) -> None:
         )
         fmt.print_kv("Confidence rationale", decision.confidence.rationale)
     fmt.print_kv("Deterministic scores", decision.deterministic_score_summary or "n/a")
-    if decision.deterministic_score_contributions and not fmt.compact:
+    if not fmt.compact:
         fmt.print_kv(
             "Deterministic contributions",
-            Router._format_stage_contributions(decision.deterministic_score_contributions),
+            _format_stage_contributions(decision.deterministic_score_contributions),
         )
     fmt.print_kv("Analyzer enabled", decision.analyzer_enabled)
     fmt.print_kv(
@@ -81,10 +92,8 @@ def print_routing_debug(
         fmt.print_kv("Detected markers", json.dumps(features.detected_markers, ensure_ascii=False))
         fmt.print_kv(
             "Confidence detail",
-            f"level={decision.confidence.level}, rationale={decision.confidence.rationale}, nontrivial_stage_count={decision.confidence.nontrivial_stage_count}, weak_lexical_dependence={decision.confidence.weak_lexical_dependence}, structural_feature_state={decision.confidence.structural_feature_state}",
+            f"level={decision.confidence.level}, rationale={decision.confidence.rationale}",
         )
-        fmt.print_kv("Stage scores", decision.deterministic_score_summary or "n/a")
-        fmt.print_kv("Stage contributions", Router._format_stage_contributions(decision.deterministic_score_contributions))
     fmt.print_kv(
         "Analyzer state",
         f"enabled={decision.analyzer_enabled}, used={decision.analyzer_used}, summary={decision.analyzer_summary or 'n/a'}",
