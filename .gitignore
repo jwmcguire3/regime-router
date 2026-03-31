@@ -5,3 +5,4 @@ batch_runs/
 __pycache__/
 *.pyc
 router_batch.py
+agents.md
