@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 from typing import Dict, List, Optional, Set, Tuple
-import json
 import hashlib
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 from .analyzer import TaskAnalyzer
 from .classifier import TaskClassification, TaskClassifier
@@ -14,54 +11,7 @@ from .prompts import PromptBuilder
 from .routing import RegimeComposer, Router, extract_routing_features, extract_structural_signals, infer_risk_profile
 from .state import Handoff, RouterState, router_state_from_jsonable
 from .validation import OutputValidator
-
-class OllamaClient:
-    def __init__(self, base_url: str = "http://localhost:11434", timeout: int = 300) -> None:
-        self.base_url = base_url.rstrip("/")
-        self.timeout = timeout
-
-    def generate(
-        self,
-        *,
-        model: str,
-        system: str,
-        prompt: str,
-        stream: bool = False,
-        temperature: float = 0.2,
-        num_predict: int = 1200,
-    ) -> Dict[str, object]:
-        payload = {
-            "model": model,
-            "system": system,
-            "prompt": prompt,
-            "stream": stream,
-            "options": {
-                "temperature": temperature,
-                "num_predict": num_predict,
-            },
-        }
-        url = f"{self.base_url}/api/generate"
-        data = json.dumps(payload).encode("utf-8")
-        req = Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
-        try:
-            with urlopen(req, timeout=self.timeout) as resp:
-                body = resp.read().decode("utf-8")
-                return json.loads(body)
-        except HTTPError as e:
-            detail = e.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Ollama HTTP error {e.code}: {detail}") from e
-        except URLError as e:
-            raise RuntimeError(f"Could not reach Ollama at {self.base_url}. Is it running?") from e
-
-    def list_models(self) -> Dict[str, object]:
-        url = f"{self.base_url}/api/tags"
-        req = Request(url, method="GET")
-        try:
-            with urlopen(req, timeout=self.timeout) as resp:
-                body = resp.read().decode("utf-8")
-                return json.loads(body)
-        except Exception as e:
-            raise RuntimeError(f"Could not list Ollama models from {self.base_url}: {e}") from e
+from .llm import ModelClient, OllamaModelClient
 
 class CognitiveRouterRuntime:
     def __init__(
@@ -88,11 +38,22 @@ class CognitiveRouterRuntime:
         self.misrouting_detector = MisroutingDetector()
         self.escalation_policy = EscalationPolicy()
         self.switch_orchestrator = SwitchOrchestrator()
-        self.ollama = OllamaClient(base_url=ollama_base_url)
+        self.model_client: ModelClient = OllamaModelClient(base_url=ollama_base_url)
         self.use_task_analyzer = use_task_analyzer
-        self.task_analyzer = TaskAnalyzer(self.ollama, model=task_analyzer_model) if use_task_analyzer else None
+        self.task_analyzer = TaskAnalyzer(self.model_client, model=task_analyzer_model) if use_task_analyzer else None
         self.task_classifier = TaskClassifier(embedding_router=embedding_router)
         self.router_state: Optional[RouterState] = None
+
+
+    @property
+    def ollama(self) -> ModelClient:
+        return self.model_client
+
+    @ollama.setter
+    def ollama(self, client: ModelClient) -> None:
+        self.model_client = client
+        if self.task_analyzer is not None:
+            self.task_analyzer.model_client = client
 
     def plan(
         self,
@@ -243,6 +204,9 @@ class CognitiveRouterRuntime:
 
         handoff = self._handoff_from_state(self.router_state) if self.router_state else handoff
         return decision, regime, result, handoff
+
+    def list_models(self) -> Dict[str, object]:
+        return self.model_client.list_models()
 
     def _run_orchestration_loop(
         self,
@@ -401,7 +365,7 @@ class CognitiveRouterRuntime:
 
     def _execute_direct_task(self, *, task: str, model: str, regime: Regime) -> RegimeExecutionResult:
         system_prompt = "Complete this task directly."
-        response = self.ollama.generate(model=model, system=system_prompt, prompt=task, stream=False)
+        response = self.model_client.generate(model=model, system=system_prompt, prompt=task, stream=False)
         raw_text = str(response.get("response", "")).strip()
         return RegimeExecutionResult(
             task=task,
@@ -428,7 +392,7 @@ class CognitiveRouterRuntime:
         system_prompt = self.prompt_builder.build_system_prompt(regime, task_signals=task_signals, risk_profile=risk_profile)
         user_prompt = self.prompt_builder.build_user_prompt(task, regime, task_signals=task_signals, risk_profile=risk_profile)
 
-        response = self.ollama.generate(model=model, system=system_prompt, prompt=user_prompt, stream=False)
+        response = self.model_client.generate(model=model, system=system_prompt, prompt=user_prompt, stream=False)
         raw_text = str(response.get("response", "")).strip()
         validation = self.validator.validate(
             regime.stage,
@@ -450,7 +414,7 @@ class CognitiveRouterRuntime:
                 task_signals=task_signals,
                 repair_mode=repair_mode,
             )
-            repair_response = self.ollama.generate(model=model, system=system_prompt, prompt=repair_prompt, stream=False)
+            repair_response = self.model_client.generate(model=model, system=system_prompt, prompt=repair_prompt, stream=False)
             repaired_text = str(repair_response.get("response", "")).strip()
             repaired_validation = self.validator.validate(
                 regime.stage,
