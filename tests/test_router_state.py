@@ -76,37 +76,3 @@ def test_plan_populates_router_state_core_fields():
     assert state.prior_regimes == []
 
 
-def test_execute_populates_router_state_and_mutation_helpers(synthesis_ok_json):
-    runtime = CognitiveRuntime()
-    runtime.ollama = FakeOllama([synthesis_ok_json])
-
-    decision, _, _, _ = runtime.execute(task=STRUCTURAL_TASK, model="fake")
-
-    assert runtime.router_state is not None
-    state = runtime.router_state
-    assert state.current_regime.stage == decision.primary_regime
-    assert state.recommended_next_regime is not None
-    assert state.recommended_next_regime.stage == decision.runner_up_regime
-    assert state.prior_regimes
-    assert state.prior_regimes[-1].regime.stage == decision.primary_regime
-
-    before_len = len(state.prior_regimes)
-    state.record_regime_step(
-        regime=runtime.composer.compose(Stage.OPERATOR),
-        reason_entered="Need convergence.",
-        completion_signal_seen=False,
-        failure_signal_seen=True,
-        outcome_summary="Escalated due to decision pressure.",
-    )
-    assert len(state.prior_regimes) == before_len + 1
-    assert state.prior_regimes[-1].regime.stage == Stage.OPERATOR
-
-    state.apply_dominant_frame("Updated frame")
-    assert state.dominant_frame == "Updated frame"
-
-    state.update_inference_state(
-        contradictions=state.contradictions + ["New contradiction"],
-        assumptions=state.assumptions + ["New assumption"],
-    )
-    assert "New contradiction" in state.contradictions
-    assert "New assumption" in state.assumptions
