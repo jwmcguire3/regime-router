@@ -35,10 +35,13 @@ _risk_inference_module = _load_routing_support_module("router.routing.risk_infer
 _confidence_module = _load_routing_support_module("router.routing.confidence", "confidence.py")
 _analyzer_override_module = _load_routing_support_module("router.routing.analyzer_override", "analyzer_override.py")
 _decision_builder_module = _load_routing_support_module("router.routing.decision_builder", "decision_builder.py")
+_score_tracking_module = _load_routing_support_module("router.routing.score_tracking", "score_tracking.py")
 
 LEXICAL_PHRASE_TABLE = _lexical_tables_module.LEXICAL_PHRASE_TABLE
 NEGATED_CLOSURE_PHRASES = _lexical_tables_module.NEGATED_CLOSURE_PHRASES
 RegimeConfidenceCalculator = _confidence_module.RegimeConfidenceCalculator
+StageScoreTracking = _score_tracking_module.StageScoreTracking
+apply_deterministic_stage_score_overrides = _score_tracking_module.apply_deterministic_stage_score_overrides
 
 
 def _contains_any(text: str, phrases: Tuple[str, ...]) -> List[str]:
@@ -447,74 +450,49 @@ class Router:
         if shortcut_decision is not None:
             return shortcut_decision
 
-        stage_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
-        lexical_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
-        structural_scores: Dict[Stage, int] = {stage: 0 for stage in Stage}
-        stage_contributions: Dict[Stage, List[str]] = {stage: [] for stage in Stage}
-
-        def add_score(stage: Stage, amount: int, bucket: str, reason: str) -> None:
-            if amount <= 0:
-                return
-            stage_scores[stage] += amount
-            if bucket == "lexical":
-                lexical_scores[stage] += amount
-            else:
-                structural_scores[stage] += amount
-            stage_contributions[stage].append(f"+{amount} {bucket}:{reason}")
-
-        def suppress_score(stage: Stage, amount: int, bucket: str, reason: str) -> None:
-            if amount <= 0:
-                return
-            stage_scores[stage] = max(0, stage_scores[stage] - amount)
-            if bucket == "lexical":
-                lexical_scores[stage] = max(0, lexical_scores[stage] - amount)
-            else:
-                structural_scores[stage] = max(0, structural_scores[stage] - amount)
-            stage_contributions[stage].append(f"-{amount} {bucket}:{reason}")
+        tracking = StageScoreTracking()
 
         self._apply_lexical_scores(
             b,
             features,
-            stage_scores,
-            lexical_scores,
-            stage_contributions,
-            add_score,
-            suppress_score,
+            tracking.stage_scores,
+            tracking.lexical_scores,
+            tracking.stage_contributions,
+            tracking.add_score,
+            tracking.suppress_score,
         )
         self._apply_structural_scores(
             b,
             features,
             risks,
             signals,
-            stage_scores,
-            structural_scores,
-            stage_contributions,
-            add_score,
-            suppress_score,
+            tracking.stage_scores,
+            tracking.structural_scores,
+            tracking.stage_contributions,
+            tracking.add_score,
+            tracking.suppress_score,
             escalation_policy_result=escalation_policy_result,
         )
         self._apply_embedding_scores(
             bottleneck,
-            stage_scores,
-            stage_contributions,
-            add_score,
+            tracking.stage_scores,
+            tracking.stage_contributions,
+            tracking.add_score,
         )
 
         if deterministic_stage_scores:
-            for stage in Stage:
-                if stage in deterministic_stage_scores:
-                    override_value = int(deterministic_stage_scores[stage])
-                    if override_value != stage_scores[stage]:
-                        stage_contributions[stage].append(f"override:external_deterministic_score={override_value}")
-                    stage_scores[stage] = override_value
+            apply_deterministic_stage_score_overrides(
+                tracking=tracking,
+                deterministic_stage_scores=deterministic_stage_scores,
+            )
 
         return self._build_final_decision(
             bottleneck=bottleneck,
             features=features,
-            stage_scores=stage_scores,
-            lexical_scores=lexical_scores,
-            structural_scores=structural_scores,
-            stage_contributions=stage_contributions,
+            stage_scores=tracking.stage_scores,
+            lexical_scores=tracking.lexical_scores,
+            structural_scores=tracking.structural_scores,
+            stage_contributions=tracking.stage_contributions,
             deterministic_confidence=deterministic_confidence,
             analyzer_enabled=analyzer_enabled,
             analyzer_gap_threshold=analyzer_gap_threshold,
