@@ -1,0 +1,253 @@
+from __future__ import annotations
+
+from typing import Dict, List, Optional, Set, Tuple
+
+from ..analyzer import TaskAnalyzer
+from ..classifier import TaskClassification, TaskClassifier
+from ..control import EscalationPolicy, EvolutionEngine, MisroutingDetector, SwitchOrchestrator
+from ..models import Regime, RegimeExecutionResult, RoutingDecision, RoutingFeatures
+from ..prompts import PromptBuilder
+from ..routing import RegimeComposer, Router, extract_routing_features, extract_structural_signals, infer_risk_profile
+from ..state import Handoff, RouterState
+from ..validation import OutputValidator
+from ..llm import ModelClient, OllamaModelClient
+from ..execution.direct_execution import execute_direct_task
+from ..execution.executor import RegimeExecutor
+from ..execution.repair_policy import select_repair_mode
+from .planner import RuntimePlanner
+from .restore import restore_router_state
+from .session_runtime import SessionRuntime
+from .state_updater import handoff_from_state, update_router_state_from_execution
+
+
+class CognitiveRouterRuntime:
+    def __init__(
+        self,
+        ollama_base_url: str = "http://localhost:11434",
+        use_task_analyzer: bool = False,
+        task_analyzer_model: str = "llama3",
+        use_embedding_router: bool = True,
+        embedding_model_name: str = "all-MiniLM-L6-v2",
+    ) -> None:
+        embedding_router = None
+        if use_embedding_router:
+            try:
+                from ..embeddings import EmbeddingRouter
+
+                embedding_router = EmbeddingRouter(model_name=embedding_model_name)
+            except Exception:
+                embedding_router = None
+        self.router = Router(embedding_router=embedding_router)
+        self.composer = RegimeComposer()
+        self.validator = OutputValidator()
+        self.prompt_builder = PromptBuilder()
+        self.evolver = EvolutionEngine()
+        self.misrouting_detector = MisroutingDetector()
+        self.escalation_policy = EscalationPolicy()
+        self.switch_orchestrator = SwitchOrchestrator()
+        self.model_client: ModelClient = OllamaModelClient(base_url=ollama_base_url)
+        self.use_task_analyzer = use_task_analyzer
+        self.task_analyzer = TaskAnalyzer(self.model_client, model=task_analyzer_model) if use_task_analyzer else None
+        self.task_classifier = TaskClassifier(embedding_router=embedding_router)
+        self.router_state: Optional[RouterState] = None
+
+        self.planner = RuntimePlanner(
+            router=self.router,
+            composer=self.composer,
+            escalation_policy=self.escalation_policy,
+            task_classifier=self.task_classifier,
+        )
+        self.executor = RegimeExecutor(
+            model_client=self.model_client,
+            prompt_builder=self.prompt_builder,
+            validator=self.validator,
+        )
+        self.session_runtime = SessionRuntime(
+            misrouting_detector=self.misrouting_detector,
+            escalation_policy=self.escalation_policy,
+            switch_orchestrator=self.switch_orchestrator,
+        )
+
+    @property
+    def ollama(self) -> ModelClient:
+        return self.model_client
+
+    @ollama.setter
+    def ollama(self, client: ModelClient) -> None:
+        self.model_client = client
+        self.executor.model_client = client
+        if self.task_analyzer is not None:
+            self.task_analyzer.model_client = client
+
+    def plan(
+        self,
+        bottleneck: str,
+        risk_profile: Optional[Set[str]] = None,
+        handoff_expected: bool = True,
+        task_signals: Optional[List[str]] = None,
+        risks_inferred: bool = False,
+    ) -> Tuple[RoutingDecision, Regime, Handoff]:
+        decision, regime, handoff, state, _classification = self.planner.plan(
+            bottleneck,
+            router_state=self.router_state,
+            use_task_analyzer=self.use_task_analyzer,
+            task_analyzer=self.task_analyzer,
+            risk_profile=risk_profile,
+            handoff_expected=handoff_expected,
+            task_signals=task_signals,
+            risks_inferred=risks_inferred,
+        )
+        self.router_state = state
+        return decision, regime, handoff
+
+    def execute(
+        self,
+        task: str,
+        model: str,
+        risk_profile: Optional[Set[str]] = None,
+        handoff_expected: bool = True,
+        bounded_orchestration: bool = False,
+        max_switches: int = 2,
+    ) -> Tuple[RoutingDecision, Regime, RegimeExecutionResult, Handoff]:
+        classification = self.task_classifier.classify(task)
+        if classification.route_type == "direct" and classification.classification_source == "pattern":
+            decision, regime, handoff = self._plan_direct(task, handoff_expected=handoff_expected, classification=classification)
+            result = self._execute_direct_task(task=task, model=model, regime=regime)
+            self._update_router_state_from_execution(self.router_state, result, reason_entered=decision.why_primary_wins_now)
+            handoff = self._handoff_from_state(self.router_state) if self.router_state else handoff
+            return decision, regime, result, handoff
+
+        task_signals = extract_structural_signals(task)
+        routing_features = extract_routing_features(task)
+        inferred_risks = infer_risk_profile(task, risk_profile)
+        decision, regime, handoff = self.plan(
+            task,
+            risk_profile=inferred_risks,
+            handoff_expected=handoff_expected,
+            task_signals=task_signals,
+            risks_inferred=True,
+        )
+        result = self._execute_regime_once(
+            task=task,
+            model=model,
+            regime=regime,
+            task_signals=task_signals,
+            risk_profile=inferred_risks,
+        )
+        if self.router_state is not None:
+            self.router_state.orchestration_enabled = bounded_orchestration
+            self.router_state.max_switches = max_switches
+            self.router_state.switches_attempted = 0
+            self.router_state.switches_executed = 0
+            self.router_state.orchestration_stop_reason = None
+            self.router_state.executed_regime_stages = []
+            self.router_state.switch_history = []
+        self._update_router_state_from_execution(self.router_state, result, reason_entered=decision.why_primary_wins_now)
+
+        if bounded_orchestration and self.router_state is not None:
+            result = self._run_orchestration_loop(
+                task=task,
+                model=model,
+                initial_result=result,
+                task_signals=task_signals,
+                risk_profile=inferred_risks,
+                routing_features=routing_features,
+                max_switches=max_switches,
+            )
+        elif self.router_state is not None:
+            self.router_state.orchestration_stop_reason = "single_step_mode"
+
+        handoff = self._handoff_from_state(self.router_state) if self.router_state else handoff
+        return decision, regime, result, handoff
+
+    def list_models(self) -> Dict[str, object]:
+        return self.model_client.list_models()
+
+    def _run_orchestration_loop(
+        self,
+        *,
+        task: str,
+        model: str,
+        initial_result: RegimeExecutionResult,
+        task_signals: List[str],
+        risk_profile: Set[str],
+        routing_features: RoutingFeatures,
+        max_switches: int,
+    ) -> RegimeExecutionResult:
+        if self.router_state is None:
+            return initial_result
+        result = self.session_runtime.run_orchestration_loop(
+            state=self.router_state,
+            task=task,
+            model=model,
+            initial_result=initial_result,
+            task_signals=task_signals,
+            risk_profile=risk_profile,
+            routing_features=routing_features,
+            max_switches=max_switches,
+            execute_regime_once=self._execute_regime_once,
+            update_state_from_execution=self._update_router_state_from_execution,
+        )
+        return result
+
+    def _plan_direct(
+        self,
+        task: str,
+        *,
+        handoff_expected: bool,
+        classification: TaskClassification,
+    ) -> Tuple[RoutingDecision, Regime, Handoff]:
+        decision, regime, handoff, state = self.planner.plan_direct(
+            task,
+            handoff_expected=handoff_expected,
+            classification=classification,
+        )
+        self.router_state = state
+        return decision, regime, handoff
+
+    def _execute_direct_task(self, *, task: str, model: str, regime: Regime) -> RegimeExecutionResult:
+        return execute_direct_task(model_client=self.model_client, task=task, model=model, regime=regime)
+
+    def _execute_regime_once(
+        self,
+        *,
+        task: str,
+        model: str,
+        regime: Regime,
+        task_signals: List[str],
+        risk_profile: Set[str],
+    ) -> RegimeExecutionResult:
+        return self.executor.execute_once(
+            task=task,
+            model=model,
+            regime=regime,
+            task_signals=task_signals,
+            risk_profile=risk_profile,
+        )
+
+    def _select_repair_mode(self, validation: Dict[str, object]) -> str:
+        return select_repair_mode(validation)
+
+    def _update_router_state_from_execution(
+        self,
+        state: Optional[RouterState],
+        result: RegimeExecutionResult,
+        *,
+        reason_entered: str,
+    ) -> None:
+        update_router_state_from_execution(
+            state,
+            result,
+            reason_entered=reason_entered,
+            composer=self.composer,
+        )
+
+    def _handoff_from_state(self, state: Optional[RouterState]) -> Handoff:
+        return handoff_from_state(state)
+
+    def restore_router_state(self, payload: object) -> Optional[RouterState]:
+        self.router_state = restore_router_state(payload, composer=self.composer)
+        return self.router_state
+
+
+CognitiveRuntime = CognitiveRouterRuntime
