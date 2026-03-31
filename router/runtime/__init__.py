@@ -25,7 +25,7 @@ class CognitiveRouterRuntime:
         self,
         ollama_base_url: str = "http://localhost:11434",
         use_task_analyzer: bool = True,
-        task_analyzer_model: str = "llama3",
+        task_analyzer_model: str = "dolphin29:latest",
     ) -> None:
         self.router = Router(embedding_router=None)
         self.composer = RegimeComposer()
