@@ -160,7 +160,7 @@ def test_run_and_plan_use_persisted_defaults(monkeypatch, tmp_path, capsys):
             "--model",
             "qwen3",
             "--task-analyzer-model",
-            "llama3.2",
+            "dolphin29:latest",
             "--debug-routing",
             "--bounded-orchestration",
             "--max-switches",
@@ -181,7 +181,7 @@ def test_run_and_plan_use_persisted_defaults(monkeypatch, tmp_path, capsys):
     assert "=== Debug ===" in plan_out
     assert "Saved run to:" in run_out
     assert FakeRuntime.init_calls[0]["use_task_analyzer"] is True
-    assert FakeRuntime.init_calls[0]["task_analyzer_model"] == "llama3.2"
+    assert FakeRuntime.init_calls[0]["task_analyzer_model"] == "dolphin29:latest"
     assert FakeRuntime.execute_calls[0]["model"] == "qwen3"
     assert FakeRuntime.execute_calls[0]["bounded_orchestration"] is True
     assert FakeRuntime.execute_calls[0]["max_switches"] == 3
@@ -218,7 +218,7 @@ def test_explicit_run_flags_override_stored_defaults(monkeypatch, tmp_path, caps
             "--task",
             "Choose a direction",
             "--model",
-            "llama3.1",
+            "dolphin29:latest",
             "--no-use-task-analyzer",
             "--no-bounded-orchestration",
             "--max-switches",
@@ -229,7 +229,7 @@ def test_explicit_run_flags_override_stored_defaults(monkeypatch, tmp_path, caps
 
     assert rc == 0
     assert FakeRuntime.init_calls[0]["use_task_analyzer"] is False
-    assert FakeRuntime.execute_calls[0]["model"] == "llama3.1"
+    assert FakeRuntime.execute_calls[0]["model"] == "dolphin29:latest"
     assert FakeRuntime.execute_calls[0]["bounded_orchestration"] is False
     assert FakeRuntime.execute_calls[0]["max_switches"] == 1
 
