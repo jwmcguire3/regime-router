@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
 from typing import List, Optional, Set, Tuple
 
 from router.models import (
@@ -12,9 +15,36 @@ from router.models import (
     Stage,
 )
 
+logger = logging.getLogger(__name__)
+
+_GRAMMAR_COMPOSER_SPEC = spec_from_file_location(
+    "router.routing.grammar_composer",
+    Path(__file__).with_name("grammar_composer.py"),
+)
+if _GRAMMAR_COMPOSER_SPEC is None or _GRAMMAR_COMPOSER_SPEC.loader is None:
+    raise ImportError("Unable to load grammar_composer.py")
+_grammar_composer_module = module_from_spec(_GRAMMAR_COMPOSER_SPEC)
+_GRAMMAR_COMPOSER_SPEC.loader.exec_module(_grammar_composer_module)
+GrammarComposer = _grammar_composer_module.GrammarComposer
+
 
 class RegimeComposer:
+    def __init__(self) -> None:
+        self._grammar_composer = GrammarComposer()
+
     def compose(self, stage: Stage, risk_profile: Optional[Set[str]] = None, handoff_expected: bool = False) -> Regime:
+        try:
+            return self._grammar_composer.compose(
+                stage=stage,
+                risk_profile=risk_profile,
+                handoff_expected=handoff_expected,
+            )
+        except Exception as exc:
+            logger.warning(
+                "GrammarComposer.compose failed; falling back to legacy RegimeComposer logic: %s",
+                exc,
+            )
+
         risk_profile = risk_profile or set()
         dominant = self._choose_dominant(stage, risk_profile)
         suppression = self._choose_suppressions(stage, risk_profile)
