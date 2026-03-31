@@ -519,6 +519,15 @@ _composer_module = module_from_spec(_composer_spec)
 _composer_spec.loader.exec_module(_composer_module)
 RegimeComposer = _composer_module.RegimeComposer
 
+_grammar_composer_spec = spec_from_file_location(
+    "router.routing.grammar_composer",
+    Path(__file__).with_name("routing").joinpath("grammar_composer.py"),
+)
+if _grammar_composer_spec is None or _grammar_composer_spec.loader is None:
+    raise ImportError("Unable to load GrammarComposer from router/routing/grammar_composer.py")
+_grammar_composer_module = module_from_spec(_grammar_composer_spec)
+_grammar_composer_spec.loader.exec_module(_grammar_composer_module)
+GrammarComposer = _grammar_composer_module.GrammarComposer
 
 
 # ============================================================
