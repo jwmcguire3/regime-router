@@ -247,7 +247,7 @@ def cmd_show_run(args: argparse.Namespace) -> int:
 
 def cmd_models(args: argparse.Namespace) -> int:
     runtime = CognitiveRouterRuntime(ollama_base_url=args.base_url)
-    models = runtime.ollama.list_models()
+    models = runtime.list_models()
     print(json.dumps(models, indent=2, ensure_ascii=False))
     return 0
 

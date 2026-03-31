@@ -5,12 +5,13 @@ import re
 import textwrap
 from typing import Dict, List, Optional, Set, Tuple
 
+from .llm import ModelClient
 from .models import RoutingFeatures, Stage, TaskAnalyzerOutput
 
 
 class TaskAnalyzer:
-    def __init__(self, ollama: OllamaClient, model: str) -> None:
-        self.ollama = ollama
+    def __init__(self, model_client: ModelClient, model: str) -> None:
+        self.model_client = model_client
         self.model = model
         self.last_error_summary: Optional[str] = None
 
@@ -22,7 +23,7 @@ class TaskAnalyzer:
         risk_profile: Set[str],
     ) -> Optional[TaskAnalyzerOutput]:
         self.last_error_summary = None
-        response = self.ollama.generate(
+        response = self.model_client.generate(
             model=self.model,
             system=self._build_system_prompt(),
             prompt=self._build_user_prompt(task, routing_features, task_signals, risk_profile),
@@ -201,7 +202,7 @@ class TaskAnalyzer:
             """
         ).strip()
         try:
-            repair_response = self.ollama.generate(
+            repair_response = self.model_client.generate(
                 model=self.model,
                 system=self._build_system_prompt(),
                 prompt=repair_prompt,
@@ -273,7 +274,7 @@ class TaskAnalyzer:
             """
         ).strip()
         try:
-            repair_response = self.ollama.generate(
+            repair_response = self.model_client.generate(
                 model=self.model,
                 system=self._build_system_prompt(),
                 prompt=repair_prompt,
