@@ -1,0 +1,97 @@
+Infrastructure-failure triage diagnosis (11 tests)
+
+Context:
+- Change under test replaced Router.route() deterministic routing with a fixed stub:
+  primary=EXPLORATION, runner_up=SYNTHESIS, low confidence.
+- This shifts runtime plan/execute stage selection and can change validation/repair behavior.
+
+Legend for root-cause category:
+(a) Depends on Router.route() returning non-stub decision (reclassify OUTCOME/MECHANICS)
+(b) Depends on RoutingDecision fields/methods no longer populated/available (reclassify MECHANICS)
+(c) Genuine infrastructure issue unrelated to scoring removal
+
+1) tests/test_router_integration.py::test_plan_debug_routing_flag_prints_observability_details
+- Failing assertion / error:
+  assert rc == 0 (actual rc=1)
+  immediate error printed by CLI: "type object 'Router' has no attribute '_format_stage_contributions'"
+- Root cause category: (b)
+- Why: CLI debug path still calls removed Router formatting helper; this is coupling to removed decision-formatting pipeline API.
+- Recommended reclassification: MECHANICS
+
+2) tests/test_router_integration.py::test_execute_populates_router_state_and_prior_regimes
+- Failing assertion / error:
+  runtime.execute(...) raises AssertionError("No fake response left for generate().")
+- Root cause category: (a)
+- Why: fixed EXPLORATION route changes selected regime/prompts; fixture provides one response for prior route assumptions, causing extra repair/generate call.
+- Recommended reclassification: OUTCOME
+
+3) tests/test_router_integration.py::test_router_state_serializes_in_saved_runs
+- Failing assertion / error:
+  runtime.execute(...) raises AssertionError("No fake response left for generate().")
+- Root cause category: (a)
+- Why: same as #2; execute path behavior changes because route is now stubbed and no longer picks prior deterministic stage.
+- Recommended reclassification: OUTCOME
+
+4) tests/test_router_integration.py::test_contradictions_and_assumptions_persist_across_simple_transition
+- Failing assertion:
+  assert any("Validation semantic failures were observed" in item for item in runtime.router_state.assumptions)
+- Root cause category: (a)
+- Why: assumption/transition content depends on prior routing/execution path; with fixed EXPLORATION/SYNTHESIS, expected semantic-failure trail no longer materializes.
+- Recommended reclassification: OUTCOME
+
+5) tests/test_router_integration.py::test_handoff_remains_router_state_backed
+- Failing assertion / error:
+  runtime.execute(...) raises AssertionError("No fake response left for generate().")
+- Root cause category: (a)
+- Why: same fixture exhaustion caused by changed routed regime and downstream repair attempts.
+- Recommended reclassification: OUTCOME
+
+6) tests/test_router_state.py::test_execute_populates_router_state_and_mutation_helpers
+- Failing assertion / error:
+  runtime.execute(...) raises AssertionError("No fake response left for generate().")
+- Root cause category: (a)
+- Why: state-mutation expectations assume prior regime selection/validation path; stub routing alters execution and consumes extra fake responses.
+- Recommended reclassification: OUTCOME
+
+7) tests/test_router_state_integration.py::test_execute_overrides_recommended_next_regime_from_validated_output
+- Failing assertion:
+  assert decision.runner_up_regime == Stage.EPISTEMIC (actual Stage.SYNTHESIS)
+- Root cause category: (a)
+- Why: assertion directly depends on non-stub runner-up computation; stub hard-codes runner_up=SYNTHESIS.
+- Recommended reclassification: OUTCOME
+
+8) tests/test_router_state_integration.py::test_invalid_structural_output_does_not_override_recommended_next_regime_or_handoff
+- Failing assertion:
+  assert decision.runner_up_regime == Stage.ADVERSARIAL (actual Stage.SYNTHESIS)
+- Root cause category: (a)
+- Why: same direct dependency on non-stub routing output.
+- Recommended reclassification: OUTCOME
+
+9) tests/test_switch_orchestrator.py::test_runtime_failed_operator_switches_to_epistemic_in_bounded_mode
+- Failing assertion:
+  assert runtime.router_state.executed_regime_stages == [Stage.OPERATOR, Stage.EPISTEMIC]
+  actual starts with [Stage.EXPLORATION, Stage.SYNTHESIS]
+- Root cause category: (a)
+- Why: orchestration seed stages come from initial Router.route() decision; stub changes stage sequence.
+- Recommended reclassification: OUTCOME
+
+10) tests/test_switch_orchestrator.py::test_runtime_semantically_invalid_operator_switches_to_epistemic_in_bounded_mode
+- Failing assertion:
+  assert runtime.router_state.executed_regime_stages == [Stage.OPERATOR, Stage.EPISTEMIC]
+  actual starts with [Stage.EXPLORATION, Stage.SYNTHESIS]
+- Root cause category: (a)
+- Why: same as #9.
+- Recommended reclassification: OUTCOME
+
+11) tests/test_switch_orchestrator.py::test_runtime_denied_loop_switch_keeps_parsed_recommendation_in_state_and_handoff
+- Failing assertion / error:
+  runtime.execute(...) raises IndexError: list index out of range in fake_execute_once (third call attempted, only two scripted results)
+- Root cause category: (a)
+- Why: stub route alters orchestration path/loop behavior, causing an additional execute_once call beyond scripted expectation.
+- Recommended reclassification: OUTCOME
+
+Conclusion:
+- (a): 10 tests
+- (b): 1 test
+- (c): 0 tests
+- No genuine infrastructure issue unrelated to scoring removal was identified among these 11 failures.
