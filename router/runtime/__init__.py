@@ -24,7 +24,7 @@ class CognitiveRouterRuntime:
     def __init__(
         self,
         ollama_base_url: str = "http://localhost:11434",
-        use_task_analyzer: bool = False,
+        use_task_analyzer: bool = True,
         task_analyzer_model: str = "llama3",
     ) -> None:
         self.router = Router(embedding_router=None)
@@ -37,7 +37,7 @@ class CognitiveRouterRuntime:
         self.switch_orchestrator = SwitchOrchestrator()
         self.model_client: ModelClient = OllamaModelClient(base_url=ollama_base_url)
         self.use_task_analyzer = use_task_analyzer
-        self.task_analyzer = TaskAnalyzer(self.model_client, model=task_analyzer_model) if use_task_analyzer else None
+        self.task_analyzer = TaskAnalyzer(self.model_client, model=task_analyzer_model)
         self.task_classifier = TaskClassifier()
         self.router_state: Optional[RouterState] = None
 

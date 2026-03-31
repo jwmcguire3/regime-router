@@ -57,13 +57,21 @@ class RuntimePlanner:
         )
         signals = task_signals if task_signals is not None else features.structural_signals
         risks = set(risk_profile or set()) if risks_inferred else infer_risk_profile(bottleneck, risk_profile)
-        decision = self.router.route(
-            bottleneck,
-            task_signals=signals,
-            risk_profile=risks,
-            routing_features=features,
-            escalation_policy_result=escalation,
-        )
+        if task_analyzer is not None:
+            decision = task_analyzer.propose_route(
+                bottleneck,
+                routing_features=features,
+                task_signals=signals,
+                risk_profile=risks,
+            )
+        else:
+            decision = self.router.route(
+                bottleneck,
+                task_signals=signals,
+                risk_profile=risks,
+                routing_features=features,
+                escalation_policy_result=escalation,
+            )
 
         regime = self.composer.compose(decision.primary_regime, risk_profile=risks, handoff_expected=handoff_expected)
         state = build_router_state(

@@ -63,10 +63,14 @@ def print_routing(decision: RoutingDecision, fmt: CliOutputFormatter) -> None:
             _format_stage_contributions(decision.deterministic_score_contributions),
         )
     fmt.print_kv("Analyzer enabled", decision.analyzer_enabled)
-    fmt.print_kv(
-        "Analyzer used",
-        f"{decision.analyzer_used} (changed primary={decision.analyzer_changed_primary}, changed runner-up={decision.analyzer_changed_runner_up})",
-    )
+    analyzer_used_line = str(decision.analyzer_used)
+    if decision.analyzer_changed_primary or decision.analyzer_changed_runner_up:
+        analyzer_used_line = (
+            f"{analyzer_used_line} "
+            f"(changed primary={decision.analyzer_changed_primary}, "
+            f"changed runner-up={decision.analyzer_changed_runner_up})"
+        )
+    fmt.print_kv("Analyzer used", analyzer_used_line)
     if decision.analyzer_summary:
         fmt.print_kv("Analyzer summary", decision.analyzer_summary)
     fmt.print_kv("Why primary wins now", decision.why_primary_wins_now)
