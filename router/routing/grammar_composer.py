@@ -56,6 +56,12 @@ class GrammarComposer:
         dominant = select_dominant(effective_stage, risks)
         ranked_failures = rank_failures_by_cost(dominant, risks)
         suppressions = select_suppressions(dominant, ranked_failures, risks)
+        suppressions = self._apply_synthesis_break_condition_pressure(
+            stage=effective_stage,
+            dominant=dominant,
+            suppressions=suppressions,
+            risk_profile=risks,
+        )
         shapes = select_shapes(effective_stage, dominant, suppressions, risks)
         tail = select_tail(effective_stage, handoff_expected, risks)
 
@@ -87,6 +93,39 @@ class GrammarComposer:
             rejected_lines=rejected_lines,
             rejection_reasons=rejection_reasons,
         )
+
+    def _apply_synthesis_break_condition_pressure(
+        self,
+        *,
+        stage: Stage,
+        dominant: LinePrimitive,
+        suppressions: List[LinePrimitive],
+        risk_profile: Set[str],
+    ) -> List[LinePrimitive]:
+        if stage != Stage.SYNTHESIS or not self._requires_synthesis_break_condition_pressure(risk_profile):
+            return suppressions
+
+        selected = list(suppressions)
+        selected_ids = {line.id for line in selected}
+        candidate = LIBRARY["SYN-P2"]
+        if candidate.id in selected_ids:
+            return selected
+        if has_hard_conflict(dominant, candidate):
+            return selected
+        if any(has_hard_conflict(existing, candidate) for existing in selected):
+            return selected
+        selected.append(candidate)
+        return selected[:2]
+
+    @staticmethod
+    def _requires_synthesis_break_condition_pressure(risk_profile: Set[str]) -> bool:
+        high_risk_synthesis_conditions = {
+            "coherence_over_truth",
+            "false_unification",
+            "high_stakes",
+            "abstract_structural_task",
+        }
+        return bool(high_risk_synthesis_conditions & risk_profile)
 
     def _remove_hard_conflicts(self, lines: List[LinePrimitive]) -> Tuple[List[LinePrimitive], List[str], List[str]]:
         kept: List[LinePrimitive] = []
