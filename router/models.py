@@ -703,5 +703,48 @@ FAILURE_SIGNAL_HINTS: Dict[Stage, str] = {
 }
 
 
+DOMINANT_FAILURE_MAP: Dict[str, List[str]] = {
+    "EXP-D1": ["sprawl", "fake_divergence", "no_transition"],
+    "SYN-D1": ["premature_lock", "false_unification"],
+    "SYN-D2": ["false_unification", "coherence_over_truth"],
+    "EPI-D1": ["flat_output", "under_synthesis"],
+    "EPI-D2": ["weak_gestalt", "decision_drag"],
+    "ADV-D1": ["tunnel_vision", "critique_sludge", "strawman_attack"],
+    "OPR-D1": ["forced_closure", "hidden_tradeoff"],
+    "BLD-D1": ["overbuild", "premature_productization"],
+}
+
+FAILURE_SUPPRESSOR_MAP: Dict[str, List[str]] = {
+    "sprawl": ["EXP-P1"],
+    "fake_divergence": ["EXP-S1"],
+    "premature_lock": ["SYN-P1"],
+    "false_unification": ["SYN-P1", "SYN-P2"],
+    "coherence_over_truth": ["SYN-P1", "SYN-P2"],
+    "flat_output": ["EPI-S1"],
+    "under_synthesis": ["EPI-S1"],
+    "weak_gestalt": ["EPI-P2"],
+    "decision_drag": ["EPI-S1"],
+    "elegant_theory_drift": ["EPI-D2"],
+    "tunnel_vision": ["ADV-P1", "ADV-S1"],
+    "critique_sludge": ["ADV-P2"],
+    "strawman_attack": ["ADV-P1"],
+    "forced_closure": ["OPR-G1"],
+    "hidden_tradeoff": ["OPR-S2"],
+    "overbuild": ["BLD-P1"],
+    "premature_productization": ["BLD-P1", "BLD-S2"],
+}
+
+DOMINANT_SELECTION_RULES: Dict[Stage, Dict[str, str]] = {
+    Stage.SYNTHESIS: {
+        "default": "SYN-D1",
+        "sprawl": "SYN-D2",
+    },
+    Stage.EPISTEMIC: {
+        "default": "EPI-D1",
+        "elegant_theory_drift": "EPI-D2",
+    },
+}
+
+
 # ============================================================
 # Router
