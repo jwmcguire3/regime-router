@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import replace
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
-import re
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 from .models import (
@@ -22,368 +21,46 @@ from .models import (
 if TYPE_CHECKING:
     from .control import EscalationPolicyResult
 
+
+def _load_routing_support_module(module_name: str, filename: str):
+    spec = spec_from_file_location(module_name, Path(__file__).with_name("routing").joinpath(filename))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load {module_name} from router/routing/{filename}")
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_lexical_tables_module = _load_routing_support_module("router.routing.lexical_tables", "lexical_tables.py")
+_feature_extraction_module = _load_routing_support_module("router.routing.feature_extraction", "feature_extraction.py")
+_risk_inference_module = _load_routing_support_module("router.routing.risk_inference", "risk_inference.py")
+
+LEXICAL_PHRASE_TABLE = _lexical_tables_module.LEXICAL_PHRASE_TABLE
+NEGATED_CLOSURE_PHRASES = _lexical_tables_module.NEGATED_CLOSURE_PHRASES
+
+
 def _contains_any(text: str, phrases: Tuple[str, ...]) -> List[str]:
-    matches: List[str] = []
-    for phrase in phrases:
-        if " " in phrase:
-            if phrase in text:
-                matches.append(phrase)
-            continue
-
-        if re.search(rf"\b{re.escape(phrase)}\b", text):
-            matches.append(phrase)
-
-    return matches
+    return _feature_extraction_module.contains_any(text, phrases)
 
 
 def _has_phrase(text: str, phrase: str) -> bool:
-    if " " in phrase:
-        return phrase in text
-    return bool(re.search(rf"\b{re.escape(phrase)}\b", text))
+    return _feature_extraction_module.has_phrase(text, phrase)
 
 
 def _score_from_matches(*matches: List[str]) -> int:
-    return min(10, sum(len(group) for group in matches))
-
-
-LEXICAL_PHRASE_TABLE: tuple[tuple[str, Stage, int, str], ...] = (
-    # Operator
-    ("decide", Stage.OPERATOR, 4, "decide"),
-    ("deciding", Stage.OPERATOR, 4, "deciding"),
-    ("decision", Stage.OPERATOR, 4, "decision"),
-    ("choose", Stage.OPERATOR, 4, "choose"),
-    ("choosing", Stage.OPERATOR, 4, "choosing"),
-    ("recommend", Stage.OPERATOR, 4, "recommend"),
-    ("recommendation", Stage.OPERATOR, 4, "recommendation"),
-    ("make a call", Stage.OPERATOR, 5, "make a call"),
-    ("what should we do", Stage.OPERATOR, 5, "what should we do"),
-    ("now", Stage.OPERATOR, 2, "now"),
-    ("this week", Stage.OPERATOR, 2, "this week"),
-    ("immediate", Stage.OPERATOR, 3, "immediate"),
-    ("commit", Stage.OPERATOR, 3, "commit"),
-    ("next move", Stage.OPERATOR, 4, "next move"),
-    ("tradeoff", Stage.OPERATOR, 4, "tradeoff"),
-    ("best option now", Stage.OPERATOR, 6, "best option now"),
-    ("select", Stage.OPERATOR, 4, "select"),
-    ("selecting", Stage.OPERATOR, 4, "selecting"),
-    ("select between options", Stage.OPERATOR, 5, "select between options"),
-    ("choose between", Stage.OPERATOR, 5, "choose between"),
-    ("time pressure", Stage.OPERATOR, 3, "time pressure"),
-    # Epistemic
-    ("unknown", Stage.EPISTEMIC, 4, "unknown"),
-    ("unknowns", Stage.EPISTEMIC, 4, "unknowns"),
-    ("unclear", Stage.EPISTEMIC, 4, "unclear"),
-    ("unresolved", Stage.EPISTEMIC, 4, "unresolved"),
-    ("what is missing", Stage.EPISTEMIC, 5, "what is missing"),
-    ("what do we not know", Stage.EPISTEMIC, 5, "what do we not know"),
-    ("support", Stage.EPISTEMIC, 3, "support"),
-    ("evidence", Stage.EPISTEMIC, 4, "evidence"),
-    ("verify", Stage.EPISTEMIC, 4, "verify"),
-    ("rigor", Stage.EPISTEMIC, 3, "rigor"),
-    ("proof", Stage.EPISTEMIC, 3, "proof"),
-    ("confidence", Stage.EPISTEMIC, 2, "confidence"),
-    ("are you sure", Stage.EPISTEMIC, 4, "are you sure"),
-    ("can't tell", Stage.EPISTEMIC, 4, "can't tell"),
-    ("can't tell what kind", Stage.EPISTEMIC, 5, "can't tell what kind"),
-    ("don't know what kind", Stage.EPISTEMIC, 5, "don't know what kind"),
-    ("hard to characterize", Stage.EPISTEMIC, 4, "hard to characterize"),
-    ("can't characterize", Stage.EPISTEMIC, 4, "can't characterize"),
-    ("can't identify", Stage.EPISTEMIC, 4, "can't identify"),
-    ("can't name it yet", Stage.EPISTEMIC, 4, "can't name it yet"),
-    # Synthesis
-    ("strongest interpretation", Stage.SYNTHESIS, 10, "strongest interpretation"),
-    ("strongest frame", Stage.SYNTHESIS, 10, "strongest frame"),
-    ("what this actually is", Stage.SYNTHESIS, 10, "what this actually is"),
-    ("many signals", Stage.SYNTHESIS, 4, "many signals"),
-    ("no center", Stage.SYNTHESIS, 4, "no center"),
-    ("parts are legible", Stage.SYNTHESIS, 5, "parts are legible"),
-    ("whole organizing logic is missing", Stage.SYNTHESIS, 6, "whole organizing logic is missing"),
-    ("fragments but no spine", Stage.SYNTHESIS, 6, "fragments but no spine"),
-    ("fragments are understood", Stage.SYNTHESIS, 5, "fragments are understood"),
-    ("spine is still missing", Stage.SYNTHESIS, 6, "spine is still missing"),
-    ("hidden spine", Stage.SYNTHESIS, 4, "hidden spine"),
-    ("what this really is", Stage.SYNTHESIS, 4, "what this really is"),
-    ("unify", Stage.SYNTHESIS, 4, "unify"),
-    ("coherent picture", Stage.SYNTHESIS, 5, "coherent picture"),
-    ("coherent", Stage.SYNTHESIS, 2, "coherent"),
-    # Adversarial
-    ("weakest points", Stage.ADVERSARIAL, 5, "weakest points"),
-    ("weak spots", Stage.ADVERSARIAL, 5, "weak spots"),
-    ("strongest objections", Stage.ADVERSARIAL, 6, "strongest objections"),
-    ("vulnerabilities", Stage.ADVERSARIAL, 6, "vulnerabilities"),
-    ("failure modes", Stage.ADVERSARIAL, 6, "failure modes"),
-    ("where this breaks", Stage.ADVERSARIAL, 5, "where this breaks"),
-    ("break under pressure", Stage.ADVERSARIAL, 6, "break under pressure"),
-    ("how this could fail", Stage.ADVERSARIAL, 6, "how this could fail"),
-    ("attack this frame", Stage.ADVERSARIAL, 7, "attack this frame"),
-    ("stress points", Stage.ADVERSARIAL, 5, "stress points"),
-    ("what would break this frame", Stage.ADVERSARIAL, 6, "what would break this frame"),
-    ("what would break it", Stage.ADVERSARIAL, 5, "what would break it"),
-    # Exploration
-    ("possibility", Stage.EXPLORATION, 3, "possibility"),
-    ("brainstorm", Stage.EXPLORATION, 4, "brainstorm"),
-    ("explore", Stage.EXPLORATION, 2, "explore"),
-    ("alternatives", Stage.EXPLORATION, 3, "alternatives"),
-    ("option space", Stage.EXPLORATION, 3, "option space"),
-    ("open possibilities", Stage.EXPLORATION, 4, "open possibilities"),
-)
-
-NEGATED_CLOSURE_PHRASES: Dict[str, int] = {
-    "do not decide": 4,
-    "don't decide": 4,
-    "not decide yet": 4,
-    "do not recommend": 4,
-    "don't recommend": 4,
-    "do not choose": 4,
-    "don't choose": 4,
-    "do not make a call": 5,
-    "not ready to decide": 4,
-}
+    return _feature_extraction_module.score_from_matches(*matches)
 
 
 def extract_routing_features(task: str) -> RoutingFeatures:
-    text = task.lower().replace("’", "'")
-
-    # Grouped deterministic pattern families, optimized for task-shape markers.
-    expansion_words = ("expand", "expands", "expansion", "broadens", "gets bigger", "widens", "balloons")
-    define_words = ("define", "defined", "definition", "specify", "specified", "scope", "frame")
-    concrete_words = ("concrete", "specific", "instance", "version", "example", "implementation")
-    too_small_words = ("too small", "small", "narrow", "shrinks", "feels tiny", "cramped", "thin slice")
-    parts_words = ("fragment", "fragments", "pieces", "parts", "components")
-    whole_words = ("whole", "spine", "core", "throughline", "center", "backbone", "organizing logic")
-    missing_words = ("missed", "missing", "lost", "not seen", "not grasped", "not holding")
-    understood_words = ("understood", "clear", "comprehensible", "makes sense", "legible")
-
-    evidence_words = (
-        "evidence",
-        "support",
-        "verify",
-        "unknown",
-        "unknowns",
-        "unclear",
-        "unresolved",
-        "proof",
-        "confidence",
-    )
-    uncertainty_words = ("uncertain", "ambigu", "not sure", "missing information", "what is missing")
-    uncertainty_characterization_words = (
-        "can't tell",
-        "can't tell what kind",
-        "don't know what kind",
-        "hard to characterize",
-        "can't characterize",
-        "can't identify",
-        "can't name it yet",
-    )
-
-    decision_words = (
-        "decide",
-        "deciding",
-        "decision",
-        "choose",
-        "choosing",
-        "commit",
-        "recommend",
-        "recommendation",
-        "make a call",
-        "what should we do",
-        "next move",
-        "time pressure",
-        "ship now",
-        "best option now",
-        "now",
-        "this week",
-        "immediate",
-        "select",
-        "selecting",
-    )
-    tradeoff_words = ("tradeoff", "trade-off", "between options", "opportunity cost")
-
-    fragility_words = (
-        "fragile",
-        "break",
-        "stress test",
-        "failure mode",
-        "failure modes",
-        "weakest points",
-        "weak spots",
-        "strongest objections",
-        "vulnerabilities",
-        "where this breaks",
-        "break under pressure",
-        "how this could fail",
-        "attack this frame",
-        "stress points",
-        "risk",
-        "destabil",
-        "brittle",
-    )
-    launch_words = ("launch", "production", "deploy", "deployment", "go-live", "trust", "customer-facing")
-
-    recurrence_words_strong = (
-        "repeatable",
-        "reusable",
-        "template",
-        "playbook",
-        "systematize",
-        "systematized",
-        "systematizing",
-        "standardize",
-        "standardized",
-    )
-    recurrence_words_generic = ("pattern",)
-    builder_words = ("productize", "modules", "interfaces", "workflow", "automation")
-
-    possibility_words = (
-        "possibility",
-        "explore",
-        "exploration",
-        "brainstorm",
-        "alternatives",
-        "option space",
-        "open",
-        "multiple frames",
-        "multiple possible frames",
-        "multiple perspectives",
-        "multiple interpretations",
-        "perspectives",
-        "interpretations",
-        "map the space",
-    )
-    convergence_words = ("too early", "premature", "locked in", "single frame", "compresses", "narrowing")
-    anti_convergence_words = (
-        "keep it open",
-        "rather than converging",
-        "instead of converging",
-        "delay convergence",
-        "delaying convergence",
-        "before narrowing",
-    )
-    negated_closure_words = (
-        "do not decide",
-        "don't decide",
-        "not decide yet",
-        "do not recommend",
-        "don't recommend",
-        "do not choose",
-        "don't choose",
-        "do not make a call",
-        "not ready to decide",
-    )
-
-    matches: Dict[str, List[str]] = {}
-
-    expansion_hits = _contains_any(text, expansion_words)
-    define_hits = _contains_any(text, define_words)
-    concrete_hits = _contains_any(text, concrete_words)
-    too_small_hits = _contains_any(text, too_small_words)
-    parts_hits = _contains_any(text, parts_words)
-    whole_hits = _contains_any(text, whole_words)
-    missing_hits = _contains_any(text, missing_words)
-    understood_hits = _contains_any(text, understood_words)
-    evidence_hits = _contains_any(text, evidence_words)
-    uncertainty_hits = _contains_any(text, uncertainty_words)
-    uncertainty_characterization_hits = _contains_any(text, uncertainty_characterization_words)
-    decision_hits = _contains_any(text, decision_words)
-    tradeoff_hits = _contains_any(text, tradeoff_words)
-    fragility_hits = _contains_any(text, fragility_words)
-    launch_hits = _contains_any(text, launch_words)
-    recurrence_hits_strong = _contains_any(text, recurrence_words_strong)
-    recurrence_hits_generic = _contains_any(text, recurrence_words_generic)
-    builder_hits = _contains_any(text, builder_words)
-    possibility_hits = _contains_any(text, possibility_words)
-    convergence_hits = _contains_any(text, convergence_words)
-    anti_convergence_hits = _contains_any(text, anti_convergence_words)
-    negated_closure_hits = _contains_any(text, negated_closure_words)
-
-    if negated_closure_hits:
-        negated_tokens = {"decide", "recommend", "choose", "make a call"}
-        decision_hits = [hit for hit in decision_hits if hit not in negated_tokens]
-        anti_convergence_hits = sorted(set(anti_convergence_hits + negated_closure_hits))
-
-    structural_signals: List[str] = []
-
-    # expansion-when-defined
-    if expansion_hits and define_hits:
-        structural_signals.append(STRUCTURAL_SIGNAL_EXPANSION_WHEN_DEFINED)
-        matches["expansion_when_defined"] = sorted(set(expansion_hits + define_hits))
-
-    # concrete-form-too-small / abstraction overflow
-    if concrete_hits and too_small_hits:
-        structural_signals.append(STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL)
-        matches["concrete_form_too_small"] = sorted(set(concrete_hits + too_small_hits))
-
-    # parts/whole mismatch (legacy-compatible signal name retained)
-    if parts_hits and whole_hits and missing_hits and understood_hits:
-        structural_signals.append(STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED)
-        matches["parts_whole_mismatch"] = sorted(set(parts_hits + whole_hits + missing_hits + understood_hits))
-
-    if parts_hits and whole_hits and missing_hits:
-        matches.setdefault("parts_whole_mismatch", sorted(set(parts_hits + whole_hits + missing_hits)))
-
-    if evidence_hits or uncertainty_hits or uncertainty_characterization_hits:
-        matches["uncertainty_evidence_demand"] = sorted(
-            set(evidence_hits + uncertainty_hits + uncertainty_characterization_hits)
-        )
-    if uncertainty_characterization_hits:
-        matches["uncertainty_characterization"] = sorted(set(uncertainty_characterization_hits))
-    if decision_hits or tradeoff_hits:
-        matches["decision_tradeoff_commitment"] = sorted(set(decision_hits + tradeoff_hits))
-    if fragility_hits or launch_hits:
-        matches["fragility_launch_trust"] = sorted(set(fragility_hits + launch_hits))
-    if recurrence_hits_strong or builder_hits:
-        matches["recurrence_systemization_strong"] = sorted(set(recurrence_hits_strong + builder_hits))
-    if recurrence_hits_generic:
-        matches["recurrence_pattern_generic"] = sorted(set(recurrence_hits_generic))
-    if recurrence_hits_strong or recurrence_hits_generic or builder_hits:
-        matches["recurrence_systemization"] = sorted(
-            set(recurrence_hits_strong + recurrence_hits_generic + builder_hits)
-        )
-    if possibility_hits or convergence_hits or anti_convergence_hits:
-        matches["open_possibility_space"] = sorted(set(possibility_hits + convergence_hits + anti_convergence_hits))
-    if anti_convergence_hits:
-        matches["anti_convergence_preference"] = sorted(set(anti_convergence_hits))
-    if negated_closure_hits:
-        matches["negated_closure_preference"] = sorted(set(negated_closure_hits))
-
-    return RoutingFeatures(
-        structural_signals=structural_signals,
-        decision_pressure=_score_from_matches(decision_hits, tradeoff_hits),
-        evidence_demand=_score_from_matches(evidence_hits, uncertainty_hits, uncertainty_characterization_hits),
-        fragility_pressure=_score_from_matches(fragility_hits, launch_hits),
-        recurrence_potential=min(10, (2 * len(recurrence_hits_strong)) + (2 * len(builder_hits))),
-        possibility_space_need=_score_from_matches(possibility_hits, convergence_hits, anti_convergence_hits),
-        detected_markers=matches,
-    )
+    return _feature_extraction_module.extract_routing_features(task)
 
 
 def extract_structural_signals(task: str) -> List[str]:
-    return extract_routing_features(task).structural_signals
+    return _feature_extraction_module.extract_structural_signals(task)
 
 
 def infer_risk_profile(task: str, risk_profile: Optional[Set[str]]) -> Set[str]:
-    inferred = set(risk_profile or set())
-    text = task.lower()
-    features = extract_routing_features(task)
-    signals = set(features.structural_signals)
-
-    if signals:
-        inferred.add("abstract_structural_task")
-    if (
-        STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED in signals
-        and any(
-        k in text for k in ("single frame", "one frame", "unif", "compress", "organizing idea")
-        )
-    ):
-        inferred.add("false_unification")
-    if features.fragility_pressure >= 2:
-        inferred.add("fragility_pressure")
-    if features.evidence_demand >= 2:
-        inferred.add("evidence_gap")
-    if features.decision_pressure >= 2:
-        inferred.add("decision_urgency")
-
-    return inferred
+    return _risk_inference_module.infer_risk_profile(task, risk_profile)
 
 
 # ============================================================
