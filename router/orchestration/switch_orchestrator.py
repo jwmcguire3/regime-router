@@ -78,6 +78,7 @@ class SwitchOrchestrator:
             failure_signal,
             detection,
             escalation,
+            output,
             semantic_operator_failure=semantic_failure,
         )
         if resolved_next_stage is None:

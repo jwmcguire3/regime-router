@@ -53,12 +53,21 @@ def operator_semantic_failure(output: RegimeOutputContract) -> bool:
     )
 
 
+def control_failure_regime_mismatch(output: RegimeOutputContract) -> bool:
+    validation = output.validation
+    if not validation.get("valid_json", False):
+        return False
+    control_failures = validation.get("control_failures", [])
+    return any("regime field mismatch" in str(f).lower() for f in control_failures)
+
+
 def next_stage(
     state: RouterState,
     completion_signal: str,
     failure_signal: str,
     detection: MisroutingDetectionResult,
     escalation: Optional[EscalationPolicyResult],
+    output: RegimeOutputContract,
     *,
     semantic_operator_failure: bool = False,
 ) -> Optional[Stage]:
@@ -77,7 +86,11 @@ def next_stage(
         if recommended == Stage.ADVERSARIAL and Stage.ADVERSARIAL in allowed:
             return Stage.ADVERSARIAL
         return Stage.EPISTEMIC if Stage.EPISTEMIC in allowed else None
-    if current_stage == Stage.OPERATOR and (semantic_operator_failure or (failure_signal and detection.misrouting_detected)):
+    if current_stage == Stage.OPERATOR and (
+        semantic_operator_failure
+        or control_failure_regime_mismatch(output)
+        or (failure_signal and detection.misrouting_detected)
+    ):
         if recommended == Stage.EPISTEMIC and Stage.EPISTEMIC in allowed:
             return Stage.EPISTEMIC
         return Stage.EPISTEMIC if Stage.EPISTEMIC in allowed else None

@@ -42,6 +42,9 @@ class MisroutingDetector:
     JUSTIFICATION_SWITCH = "Current regime is hitting its dominant failure mode. Switching is justified."
     JUSTIFICATION_STAY = "Current regime remains productive. Switching is not justified."
     JUSTIFICATION_INCOMPLETE = "Current regime is incomplete but not in dominant failure mode yet. Switching is not justified."
+    JUSTIFICATION_CROSS_STAGE_MISMATCH = (
+        "Model output claims a different regime than the active stage, indicating the routing assignment was incorrect."
+    )
 
     _DEFAULT_NEXT_REGIME_BY_STAGE = {
         Stage.EXPLORATION: Stage.SYNTHESIS,
@@ -70,8 +73,23 @@ class MisroutingDetector:
         stage = current_regime.stage
         failure_signal = failure_signal_active(stage, state, artifact)
         completion_signal = completion_signal_active(stage, state, artifact)
+        cross_stage_mismatch = False
+        output_claimed_stage = None
+        parsed = output.validation.get("parsed", {})
+        if isinstance(parsed, dict):
+            output_regime = str(parsed.get("regime", "")).strip().lower()
+            if output_regime:
+                output_claimed_stage = self._stage_from_regime_text(output_regime)
+                if output_claimed_stage is not None and output_claimed_stage != stage:
+                    cross_stage_mismatch = True
+
+        misrouting_detected = failure_signal
         recommended_next = self._recommended_next_regime(state, artifact, failure_signal)
-        if failure_signal:
+        if cross_stage_mismatch and not failure_signal:
+            misrouting_detected = True
+            recommended_next = self._regime_for_stage(state, output_claimed_stage) if output_claimed_stage else None
+            justification = self.JUSTIFICATION_CROSS_STAGE_MISMATCH
+        elif failure_signal:
             justification = self.JUSTIFICATION_SWITCH
         elif completion_signal:
             justification = self.JUSTIFICATION_STAY
@@ -81,10 +99,17 @@ class MisroutingDetector:
             current_regime=current_regime,
             dominant_failure_mode=self._DOMINANT_FAILURE_MODE_BY_STAGE[stage],
             still_productive=completion_signal,
-            misrouting_detected=failure_signal,
+            misrouting_detected=misrouting_detected,
             justification=justification,
             recommended_next_regime=recommended_next,
         )
+
+    def _stage_from_regime_text(self, regime_text: str) -> Optional[Stage]:
+        normalized = regime_text.strip().lower()
+        for stage in Stage:
+            if stage.value in normalized:
+                return stage
+        return None
 
     def _recommended_next_regime(
         self,
