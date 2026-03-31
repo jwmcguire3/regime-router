@@ -66,6 +66,8 @@ def select_suppressions(
             if suppressor_id in selected_ids:
                 continue
             suppressor = LIBRARY[suppressor_id]
+            if suppressor.function != FunctionType.SUPPRESSION:
+                continue
             if _is_compatible_with_dominant(suppressor, dominant):
                 selected.append(suppressor)
                 selected_ids.add(suppressor_id)
@@ -84,6 +86,8 @@ def select_suppressions(
                 if suppressor_id in selected_ids:
                     continue
                 suppressor = LIBRARY[suppressor_id]
+                if suppressor.function != FunctionType.SUPPRESSION:
+                    continue
                 if _is_compatible_with_dominant(suppressor, dominant):
                     selected.append(suppressor)
                     selected_ids.add(suppressor_id)

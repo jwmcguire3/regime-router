@@ -8,6 +8,7 @@ from router.models import (
     CANONICAL_FAILURE_IF_OVERUSED,
     FAILURE_SUPPRESSOR_MAP,
     LIBRARY,
+    SUPPRESSION_BY_STAGE,
     FunctionType,
     LinePrimitive,
     Regime,
@@ -217,14 +218,21 @@ class GrammarComposer:
         ranked_failures: List[str],
     ) -> Optional[LinePrimitive]:
         for suppression in selected_suppressions:
-            if not has_hard_conflict(dominant, suppression):
+            if suppression.function == FunctionType.SUPPRESSION and not has_hard_conflict(dominant, suppression):
                 return suppression
 
         for failure in ranked_failures:
             for suppressor_id in FAILURE_SUPPRESSOR_MAP.get(failure, []):
                 suppressor = LIBRARY[suppressor_id]
+                if suppressor.function != FunctionType.SUPPRESSION:
+                    continue
                 if not has_hard_conflict(dominant, suppressor):
                     return suppressor
+
+        for suppressor_id in SUPPRESSION_BY_STAGE.get(dominant.stage, []):
+            suppressor = LIBRARY[suppressor_id]
+            if not has_hard_conflict(dominant, suppressor):
+                return suppressor
 
         return None
 
