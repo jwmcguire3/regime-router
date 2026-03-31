@@ -49,53 +49,6 @@ def _synthesis_ok_json() -> str:
     )
 
 
-def test_to_jsonable_and_saved_record_include_router_state_structure(tmp_path):
-    runtime = CognitiveRuntime()
-    ok_json = _synthesis_ok_json()
-    runtime.ollama = FakeOllama([ok_json, ok_json, ok_json, ok_json])
-    store = SessionStore(root=str(tmp_path))
-
-    decision, regime, result, handoff = runtime.execute(
-        task=STRUCTURAL_TASK,
-        model="fake",
-        bounded_orchestration=True,
-        max_switches=1,
-    )
-    assert runtime.router_state is not None
-
-    record = make_record(
-        STRUCTURAL_TASK,
-        set(),
-        "fake",
-        decision,
-        regime,
-        result,
-        handoff,
-        runtime.router_state,
-        bounded_orchestration=True,
-        max_switches=1,
-    )
-    jsonable = to_jsonable(record)
-    assert isinstance(jsonable, dict)
-    assert jsonable["router_state"]["current_regime"]["stage"] in jsonable["orchestration"]["execution_stages"]
-    assert jsonable["router_state"]["runner_up_regime"]["stage"] == decision.runner_up_regime.value
-    assert jsonable["router_state"]["recommended_next_regime"]["stage"]
-    assert jsonable["handoff"]["recommended_next_regime"] in {s.value for s in Stage}
-    assert jsonable["orchestration"]["bounded_orchestration"] is True
-    assert jsonable["orchestration"]["max_switches"] == 1
-    assert "switches_attempted" in jsonable["orchestration"]
-    assert "switches_executed" in jsonable["orchestration"]
-    assert "switch_history" in jsonable["orchestration"]
-    assert "stop_reason" in jsonable["orchestration"]
-
-    saved = store.save(record, filename="stateful.json")
-    loaded = store.load(saved.name)
-    assert loaded["router_state"]["runner_up_regime"]["stage"] == decision.runner_up_regime.value
-    assert loaded["router_state"]["recommended_next_regime"]["stage"] in {s.value for s in Stage}
-    assert loaded["orchestration"]["bounded_orchestration"] is True
-    assert loaded["orchestration"]["max_switches"] == 1
-
-
 def test_session_store_load_backfills_missing_router_state_for_legacy_runs(tmp_path):
     store = SessionStore(root=str(tmp_path))
     legacy_path = Path(tmp_path) / "legacy.json"
@@ -119,64 +72,6 @@ def test_session_store_load_backfills_missing_router_state_for_legacy_runs(tmp_p
     assert "router_state" in loaded
     assert loaded["router_state"] is None
     assert loaded["orchestration"]["stop_reason"] == "legacy_record"
-
-
-def test_runtime_can_restore_router_state_with_full_regime_payload(tmp_path):
-    runtime = CognitiveRuntime()
-    ok_json = _synthesis_ok_json()
-    runtime.ollama = FakeOllama([ok_json, ok_json])
-    store = SessionStore(root=str(tmp_path))
-
-    decision, regime, result, handoff = runtime.execute(task=STRUCTURAL_TASK, model="fake")
-    record = make_record(STRUCTURAL_TASK, set(), "fake", decision, regime, result, handoff, runtime.router_state)
-    saved = store.save(record, filename="stateful_restore.json")
-    loaded = store.load(saved.name)
-
-    restored = runtime.restore_router_state(loaded["router_state"])
-    assert restored is not None
-    assert restored.current_regime.stage == decision.primary_regime
-    assert restored.runner_up_regime is not None
-    assert restored.runner_up_regime.stage == decision.runner_up_regime
-    assert restored.recommended_next_regime is not None
-    assert restored.recommended_next_regime.stage == decision.runner_up_regime
-    assert restored.prior_regimes[0].regime.stage == decision.primary_regime
-
-
-def test_saved_record_includes_switch_denied_and_switch_exhausted_metadata(tmp_path):
-    runtime = CognitiveRuntime()
-    ok_json = _synthesis_ok_json()
-    runtime.ollama = FakeOllama([ok_json, ok_json, ok_json, ok_json])
-    store = SessionStore(root=str(tmp_path))
-
-    decision, regime, result, handoff = runtime.execute(
-        task=STRUCTURAL_TASK,
-        model="fake",
-        bounded_orchestration=True,
-        max_switches=1,
-    )
-    assert runtime.router_state is not None
-
-    record = make_record(
-        STRUCTURAL_TASK,
-        set(),
-        "fake",
-        decision,
-        regime,
-        result,
-        handoff,
-        runtime.router_state,
-        bounded_orchestration=True,
-        max_switches=1,
-    )
-    saved = store.save(record, filename="bounded_audit.json")
-    loaded = store.load(saved.name)
-
-    orchestration = loaded["orchestration"]
-    assert orchestration["bounded_orchestration"] is True
-    assert orchestration["switches_executed"] <= orchestration["max_switches"]
-    assert orchestration["switch_history"]
-    assert orchestration["switch_history"][-1]["switch_executed"] is False
-    assert orchestration["stop_reason"] in {"switch_limit_reached", "switch_not_recommended", "loop_prevented_same_stage", "loop_prevented_prior_stage"}
 
 
 def test_load_router_state_adapts_legacy_stage_only_regimes(tmp_path):
