@@ -48,7 +48,7 @@ def test_generate_constructs_correct_request_payload() -> None:
     assert payload == {
         "model": "gpt-test",
         "temperature": 0.7,
-        "max_tokens": 321,
+        "max_completion_tokens": 321,
         "messages": [
             {"role": "system", "content": "You are helpful"},
             {"role": "user", "content": "Say hi"},
