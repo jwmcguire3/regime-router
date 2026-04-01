@@ -103,6 +103,30 @@ class CognitiveRouterRuntime:
         task_signals: Optional[List[str]] = None,
         risks_inferred: bool = False,
     ) -> Tuple[RoutingDecision, Regime, Handoff]:
+        analyzer_result = None
+        if self.use_task_analyzer and self.task_analyzer is not None:
+            features = extract_routing_features(bottleneck)
+            signals = task_signals if task_signals is not None else features.structural_signals
+            risks = set(risk_profile or set()) if risks_inferred else infer_risk_profile(bottleneck, risk_profile)
+            classification = self.task_classifier.classify(bottleneck)
+            classifier_signal = {
+                "route_type": classification.route_type,
+                "confidence": classification.confidence,
+                "classification_source": classification.classification_source,
+            }
+            try:
+                analyzer_result = self.task_analyzer.analyze(
+                    bottleneck,
+                    routing_features=features,
+                    task_signals=signals,
+                    risk_profile=risks,
+                    classifier_signal=classifier_signal,
+                )
+            except Exception as exc:  # pragma: no cover - defensive runtime fallback
+                if hasattr(self.task_analyzer, "last_error_summary"):
+                    self.task_analyzer.last_error_summary = f"Analyzer call failed: {exc}"
+                analyzer_result = None
+
         decision, regime, handoff, state, _classification = self.planner.plan(
             bottleneck,
             router_state=self.router_state,
@@ -112,6 +136,7 @@ class CognitiveRouterRuntime:
             handoff_expected=handoff_expected,
             task_signals=task_signals,
             risks_inferred=risks_inferred,
+            analyzer_result=analyzer_result,
         )
         self.router_state = state
         return decision, regime, handoff

@@ -18,6 +18,7 @@ class StubAnalyzer:
         self.output = output
         self.decision = decision
         self.analyze_calls: List[Dict[str, object]] = []
+        self.decision_calls: List[Dict[str, object]] = []
 
     def analyze(
         self,
@@ -45,6 +46,13 @@ class StubAnalyzer:
         analyzer_result: Optional[TaskAnalyzerOutput],
         routing_features: RoutingFeatures,
     ) -> RoutingDecision:
+        self.decision_calls.append(
+            {
+                "task": task,
+                "analyzer_result": analyzer_result,
+                "routing_features": routing_features,
+            }
+        )
         return self.decision
 
 
@@ -100,21 +108,22 @@ def _planner() -> RuntimePlanner:
     )
 
 
-def test_all_tasks_reach_analyzer() -> None:
+def test_analyzer_decision_consumes_supplied_analysis() -> None:
     analyzer = StubAnalyzer(output=_analysis(confidence=0.7, candidates=[Stage.SYNTHESIS]), decision=_decision())
     planner = _planner()
+    analyzer_result = _analysis(confidence=0.7, candidates=[Stage.SYNTHESIS])
 
     planner.plan(
         "write a function",
         router_state=None,
         use_task_analyzer=True,
         task_analyzer=analyzer,
+        analyzer_result=analyzer_result,
     )
 
-    assert len(analyzer.analyze_calls) == 1
-    classifier_signal = analyzer.analyze_calls[0]["classifier_signal"]
-    assert classifier_signal is not None
-    assert classifier_signal["route_type"] == "direct"
+    assert len(analyzer.analyze_calls) == 0
+    assert len(analyzer.decision_calls) == 1
+    assert analyzer.decision_calls[0]["analyzer_result"] == analyzer_result
 
 
 def test_direct_fastpath_requires_all_three() -> None:
@@ -126,6 +135,7 @@ def test_direct_fastpath_requires_all_three() -> None:
         router_state=None,
         use_task_analyzer=True,
         task_analyzer=direct_analyzer,
+        analyzer_result=_analysis(confidence=0.95, candidates=[Stage.SYNTHESIS]),
     )
     assert decision.primary_regime is None
     assert regime.name == "Direct Passthrough"
@@ -136,6 +146,7 @@ def test_direct_fastpath_requires_all_three() -> None:
         router_state=None,
         use_task_analyzer=True,
         task_analyzer=low_conf_analyzer,
+        analyzer_result=_analysis(confidence=0.9, candidates=[Stage.SYNTHESIS]),
     )
     assert decision.primary_regime == Stage.SYNTHESIS
     assert regime.name != "Direct Passthrough"
@@ -148,6 +159,7 @@ def test_direct_fastpath_requires_all_three() -> None:
         router_state=None,
         use_task_analyzer=True,
         task_analyzer=multi_candidate_analyzer,
+        analyzer_result=_analysis(confidence=0.95, candidates=[Stage.SYNTHESIS, Stage.EXPLORATION]),
     )
     assert decision.primary_regime == Stage.SYNTHESIS
     assert regime.name != "Direct Passthrough"
@@ -158,6 +170,7 @@ def test_direct_fastpath_requires_all_three() -> None:
         router_state=None,
         use_task_analyzer=True,
         task_analyzer=structural_tension_analyzer,
+        analyzer_result=_analysis(confidence=0.95, candidates=[Stage.SYNTHESIS]),
     )
     assert decision.primary_regime == Stage.SYNTHESIS
     assert regime.name != "Direct Passthrough"
@@ -177,6 +190,7 @@ def test_direct_pattern_task_with_structural_tension_not_fastpathed_even_when_cl
         router_state=None,
         use_task_analyzer=True,
         task_analyzer=analyzer,
+        analyzer_result=_analysis(confidence=0.99, candidates=[Stage.SYNTHESIS]),
     )
 
     assert decision.primary_regime == Stage.SYNTHESIS

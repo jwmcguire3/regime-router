@@ -5,13 +5,19 @@ from typing import List, Optional, Set, Tuple
 from ..analyzer import TaskAnalyzer
 from ..classifier import TaskClassification, TaskClassifier
 from ..control import EscalationPolicy
-from ..models import Regime, RoutingDecision
+from ..models import Regime, RoutingDecision, TaskAnalyzerOutput
 from ..routing import RegimeComposer, Router, extract_routing_features, infer_risk_profile
 from ..state import Handoff, RouterState
 from .state_updater import build_router_state, handoff_from_state
 
 
 class RuntimePlanner:
+    """RuntimePlanner is deterministic.
+
+    Given identical inputs, it always produces identical outputs. It never calls
+    the model client or uses non-deterministic values.
+    """
+
     def __init__(
         self,
         *,
@@ -36,6 +42,7 @@ class RuntimePlanner:
         handoff_expected: bool = True,
         task_signals: Optional[List[str]] = None,
         risks_inferred: bool = False,
+        analyzer_result: Optional[TaskAnalyzerOutput] = None,
     ) -> Tuple[RoutingDecision, Regime, Handoff, RouterState, TaskClassification]:
         classification = self.task_classifier.classify(bottleneck)
         features = extract_routing_features(bottleneck)
@@ -54,21 +61,8 @@ class RuntimePlanner:
             "confidence": classification.confidence,
             "classification_source": classification.classification_source,
         }
-        analyzer_result = None
         if use_task_analyzer and task_analyzer is not None:
             if hasattr(task_analyzer, "analyze") and hasattr(task_analyzer, "decision_from_analysis"):
-                try:
-                    analyzer_result = task_analyzer.analyze(
-                        bottleneck,
-                        routing_features=features,
-                        task_signals=signals,
-                        risk_profile=risks,
-                        classifier_signal=classifier_signal,
-                    )
-                except Exception as exc:  # pragma: no cover - defensive runtime fallback
-                    if hasattr(task_analyzer, "last_error_summary"):
-                        task_analyzer.last_error_summary = f"Analyzer call failed: {exc}"
-                    analyzer_result = None
                 decision = task_analyzer.decision_from_analysis(
                     task=bottleneck,
                     analyzer_result=analyzer_result,
