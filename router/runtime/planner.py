@@ -38,14 +38,6 @@ class RuntimePlanner:
         risks_inferred: bool = False,
     ) -> Tuple[RoutingDecision, Regime, Handoff, RouterState, TaskClassification]:
         classification = self.task_classifier.classify(bottleneck)
-        if classification.route_type == "direct" and classification.classification_source == "pattern":
-            decision, regime, handoff, state = self.plan_direct(
-                bottleneck,
-                handoff_expected=handoff_expected,
-                classification=classification,
-            )
-            return decision, regime, handoff, state, classification
-
         features = extract_routing_features(bottleneck)
         escalation = self.escalation_policy.evaluate(
             state=router_state,
@@ -57,13 +49,47 @@ class RuntimePlanner:
         )
         signals = task_signals if task_signals is not None else features.structural_signals
         risks = set(risk_profile or set()) if risks_inferred else infer_risk_profile(bottleneck, risk_profile)
-        if task_analyzer is not None:
-            decision = task_analyzer.propose_route(
-                bottleneck,
-                routing_features=features,
-                task_signals=signals,
-                risk_profile=risks,
-            )
+        classifier_signal = {
+            "route_type": classification.route_type,
+            "confidence": classification.confidence,
+            "classification_source": classification.classification_source,
+        }
+        analyzer_result = None
+        if use_task_analyzer and task_analyzer is not None:
+            if hasattr(task_analyzer, "analyze") and hasattr(task_analyzer, "decision_from_analysis"):
+                try:
+                    analyzer_result = task_analyzer.analyze(
+                        bottleneck,
+                        routing_features=features,
+                        task_signals=signals,
+                        risk_profile=risks,
+                        classifier_signal=classifier_signal,
+                    )
+                except Exception as exc:  # pragma: no cover - defensive runtime fallback
+                    if hasattr(task_analyzer, "last_error_summary"):
+                        task_analyzer.last_error_summary = f"Analyzer call failed: {exc}"
+                    analyzer_result = None
+                decision = task_analyzer.decision_from_analysis(
+                    task=bottleneck,
+                    analyzer_result=analyzer_result,
+                    routing_features=features,
+                )
+            else:
+                try:
+                    decision = task_analyzer.propose_route(
+                        bottleneck,
+                        routing_features=features,
+                        task_signals=signals,
+                        risk_profile=risks,
+                        classifier_signal=classifier_signal,
+                    )
+                except TypeError:
+                    decision = task_analyzer.propose_route(
+                        bottleneck,
+                        routing_features=features,
+                        task_signals=signals,
+                        risk_profile=risks,
+                    )
         else:
             decision = self.router.route(
                 bottleneck,
@@ -72,6 +98,22 @@ class RuntimePlanner:
                 routing_features=features,
                 escalation_policy_result=escalation,
             )
+
+        should_fastpath_direct = bool(
+            use_task_analyzer
+            and analyzer_result is not None
+            and classification.route_type == "direct"
+            and analyzer_result.confidence > 0.9
+            and len(analyzer_result.candidate_regimes) == 1
+            and not (features.evidence_demand > 0 and features.decision_pressure > 0)
+        )
+        if should_fastpath_direct:
+            decision, regime, handoff, state = self.plan_direct(
+                bottleneck,
+                handoff_expected=handoff_expected,
+                classification=classification,
+            )
+            return decision, regime, handoff, state, classification
 
         regime = self.composer.compose(decision.primary_regime, risk_profile=risks, handoff_expected=handoff_expected)
         state = build_router_state(

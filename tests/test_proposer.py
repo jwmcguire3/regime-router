@@ -35,6 +35,7 @@ class AnalyzerWithStubbedAnalyze(TaskAnalyzer):
         routing_features: RoutingFeatures,
         task_signals: List[str],
         risk_profile: Set[str],
+        classifier_signal: Dict[str, object] | None = None,
     ) -> TaskAnalyzerOutput | None:
         return self.stub_result
 
@@ -141,3 +142,26 @@ def test_analyzer_summary_is_populated() -> None:
     assert decision.analyzer_summary is not None
     assert "Analyzer confidence=0.62" in decision.analyzer_summary
     assert "candidates=" in decision.analyzer_summary
+
+
+def test_classifier_signal_in_analyzer_prompt() -> None:
+    client = StubModelClient([{"response": json.dumps(_analysis_output())}])
+    captured: Dict[str, object] = {}
+    original_generate = client.generate
+
+    def _capture_generate(**kwargs: object) -> Dict[str, object]:
+        captured["prompt"] = kwargs["prompt"]
+        return original_generate(**kwargs)
+
+    analyzer = TaskAnalyzer(model_client=client, model="stub")
+    analyzer.model_client.generate = _capture_generate  # type: ignore[method-assign]
+    analyzer.analyze(
+        "write a function",
+        _features(),
+        [],
+        set(),
+        classifier_signal={"route_type": "direct", "confidence": 0.92, "classification_source": "pattern"},
+    )
+
+    prompt = str(captured["prompt"])
+    assert "Classifier assessment: direct, confidence: 0.92" in prompt

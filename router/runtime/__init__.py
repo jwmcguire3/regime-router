@@ -125,14 +125,6 @@ class CognitiveRouterRuntime:
         bounded_orchestration: bool = False,
         max_switches: int = 2,
     ) -> Tuple[RoutingDecision, Regime, RegimeExecutionResult, Handoff]:
-        classification = self.task_classifier.classify(task)
-        if classification.route_type == "direct" and classification.classification_source == "pattern":
-            decision, regime, handoff = self._plan_direct(task, handoff_expected=handoff_expected, classification=classification)
-            result = self._execute_direct_task(task=task, model=model, regime=regime)
-            self._update_router_state_from_execution(self.router_state, result, reason_entered=decision.why_primary_wins_now)
-            handoff = self._handoff_from_state(self.router_state) if self.router_state else handoff
-            return decision, regime, result, handoff
-
         task_signals = extract_structural_signals(task)
         routing_features = extract_routing_features(task)
         inferred_risks = infer_risk_profile(task, risk_profile)
