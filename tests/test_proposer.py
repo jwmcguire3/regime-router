@@ -78,6 +78,8 @@ def _analysis_output(*, confidence: float = 0.6, top_stage: Stage = Stage.SYNTHE
         "recurrence_potential": 5,
         "confidence": confidence,
         "rationale": "Task language explicitly prioritizes this bottleneck.",
+        "likely_endpoint_regime": Stage.OPERATOR.value,
+        "endpoint_confidence": 0.7,
     }
 
 
@@ -164,4 +166,58 @@ def test_classifier_signal_in_analyzer_prompt() -> None:
     )
 
     prompt = str(captured["prompt"])
+    system_prompt = analyzer._build_system_prompt()
     assert "Classifier assessment: direct, confidence: 0.92" in prompt
+    assert "Estimate which regime will produce the minimum useful artifact for this task." in system_prompt
+
+
+def test_endpoint_defaults_to_operator() -> None:
+    payload = _analysis_output(top_stage=Stage.SYNTHESIS)
+    payload.pop("likely_endpoint_regime")
+    payload.pop("endpoint_confidence")
+    client = StubModelClient([{"response": json.dumps(payload)}])
+    analyzer = TaskAnalyzer(model_client=client, model="stub")
+
+    decision = analyzer.propose_route("task", _features(), [], set())
+
+    assert decision.likely_endpoint_regime == Stage.OPERATOR.value
+    assert decision.endpoint_confidence == 0.7
+
+
+def test_builder_endpoint_demoted_without_recurrence() -> None:
+    payload = _analysis_output(top_stage=Stage.SYNTHESIS)
+    payload["likely_endpoint_regime"] = Stage.BUILDER.value
+    payload["endpoint_confidence"] = 0.9
+    payload["recurrence_potential"] = 0
+    client = StubModelClient([{"response": json.dumps(payload)}])
+    analyzer = TaskAnalyzer(model_client=client, model="stub")
+
+    decision = analyzer.propose_route("task", _features(recurrence_potential=0), [], set())
+
+    assert decision.likely_endpoint_regime == Stage.OPERATOR.value
+
+
+def test_endpoint_in_routing_decision() -> None:
+    payload = _analysis_output(top_stage=Stage.EPISTEMIC)
+    payload["likely_endpoint_regime"] = Stage.OPERATOR.value
+    payload["endpoint_confidence"] = 0.83
+    client = StubModelClient([{"response": json.dumps(payload)}])
+    analyzer = TaskAnalyzer(model_client=client, model="stub")
+
+    decision = analyzer.propose_route("task", _features(), [], set())
+
+    assert decision.likely_endpoint_regime == Stage.OPERATOR.value
+    assert decision.endpoint_confidence == 0.83
+
+
+def test_endpoint_cannot_precede_primary() -> None:
+    payload = _analysis_output(top_stage=Stage.SYNTHESIS)
+    payload["likely_endpoint_regime"] = Stage.EXPLORATION.value
+    payload["endpoint_confidence"] = 0.8
+    client = StubModelClient([{"response": json.dumps(payload)}])
+    analyzer = TaskAnalyzer(model_client=client, model="stub")
+
+    decision = analyzer.propose_route("task", _features(), [], set())
+
+    assert decision.primary_regime == Stage.SYNTHESIS
+    assert decision.likely_endpoint_regime == Stage.SYNTHESIS.value

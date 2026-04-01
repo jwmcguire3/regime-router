@@ -100,6 +100,8 @@ class RoutingDecision:
     runner_up_regime: Optional[Stage]
     why_primary_wins_now: str
     switch_trigger: str
+    likely_endpoint_regime: str = "operator"
+    endpoint_confidence: float = 0.7
     confidence: "RegimeConfidenceResult" = field(default_factory=lambda: RegimeConfidenceResult.low_default())
     deterministic_stage_scores: Dict[Stage, int] = field(default_factory=dict)
     deterministic_score_summary: str = ""
@@ -147,6 +149,8 @@ class TaskAnalyzerOutput:
     recurrence_potential: int
     confidence: float
     rationale: str
+    likely_endpoint_regime: Stage = Stage.OPERATOR
+    endpoint_confidence: float = 0.7
 
 
 @dataclass(frozen=True)

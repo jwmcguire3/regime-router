@@ -83,8 +83,15 @@ class TaskAnalyzer:
               "evidence_quality": integer 0-10,
               "recurrence_potential": integer 0-10,
               "confidence": number 0-1,
-              "rationale": "short string"
+              "rationale": "short string",
+              "likely_endpoint_regime": "exploration|synthesis|epistemic|adversarial|operator|builder",
+              "endpoint_confidence": number 0-1
             }
+
+            Estimate which regime will produce the minimum useful artifact for this task.
+            Most tasks terminate at operator. Builder is only appropriate when the task
+            explicitly involves creating reusable, recurring infrastructure — not when
+            recurrence is merely hypothetical. If unsure, default to operator.
 
             Explain in 1-2 sentences why this stage is the current bottleneck, referencing specific
             features of the input task. Do not use generic language like 'best fit' or 'most suitable'.
@@ -208,10 +215,23 @@ class TaskAnalyzer:
         }
         why_primary_wins_now, switch_trigger = stage_reasons[primary]
 
+        stage_progression = list(Stage)
+        likely_endpoint = analyzer_result.likely_endpoint_regime
+        endpoint_confidence = analyzer_result.endpoint_confidence
+
+        if likely_endpoint == Stage.BUILDER and analyzer_result.recurrence_potential == 0:
+            likely_endpoint = Stage.OPERATOR
+            notes.append("builder endpoint proposed without recurrence potential; demoted to operator")
+
+        if stage_progression.index(likely_endpoint) < stage_progression.index(primary):
+            likely_endpoint = primary
+            notes.append("endpoint proposed before primary regime; clamped to primary")
+
         summary_parts = [
             f"Analyzer confidence={confidence_score:.2f}",
             f"rationale={analyzer_result.rationale}",
             f"candidates={[stage.value for stage in analyzer_result.candidate_regimes]}",
+            f"endpoint={likely_endpoint.value}@{endpoint_confidence:.2f}",
         ]
         summary_parts.extend(notes)
         return RoutingDecision(
@@ -220,6 +240,8 @@ class TaskAnalyzer:
             runner_up_regime=runner_up,
             why_primary_wins_now=why_primary_wins_now,
             switch_trigger=switch_trigger,
+            likely_endpoint_regime=likely_endpoint.value,
+            endpoint_confidence=endpoint_confidence,
             confidence=confidence,
             analyzer_enabled=True,
             analyzer_used=True,
@@ -502,6 +524,18 @@ class TaskAnalyzer:
         if not isinstance(confidence, (int, float)) or confidence < 0 or confidence > 1:
             return None
 
+        endpoint_stage_raw = payload.get("likely_endpoint_regime", Stage.OPERATOR.value)
+        if not isinstance(endpoint_stage_raw, str):
+            return None
+        try:
+            likely_endpoint_regime = Stage(endpoint_stage_raw)
+        except ValueError:
+            return None
+
+        endpoint_confidence = payload.get("endpoint_confidence", 0.7)
+        if not isinstance(endpoint_confidence, (int, float)) or endpoint_confidence < 0 or endpoint_confidence > 1:
+            return None
+
         return TaskAnalyzerOutput(
             bottleneck_label=payload["bottleneck_label"].strip(),
             candidate_regimes=candidate_regimes,
@@ -512,6 +546,8 @@ class TaskAnalyzer:
             recurrence_potential=payload["recurrence_potential"],
             confidence=float(confidence),
             rationale=payload["rationale"].strip(),
+            likely_endpoint_regime=likely_endpoint_regime,
+            endpoint_confidence=float(endpoint_confidence),
         )
 
 
