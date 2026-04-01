@@ -342,7 +342,7 @@ def test_forward_handoff_accumulates_knowns():
         validation={"is_valid": True, "parsed": payload},
     )
     forward_handoff = compute_forward_handoff(result, runtime.router_state, regime)
-    assert len(forward_handoff.what_is_known) == 3
+    assert len(forward_handoff.what_is_known) == 1
 
 
 def test_forward_handoff_is_deterministic():
@@ -424,3 +424,122 @@ def test_artifact_summary_in_second_stage_prompt(monkeypatch):
     )
     assert "Prior artifact summary:" in prompt
     assert captured[0].prior_artifact_summary in prompt
+
+
+def _execution_result_for_handoff(stage: Stage, artifact: dict, failure_signal: str = "") -> RegimeExecutionResult:
+    payload = {
+        "completion_signal": "done",
+        "failure_signal": failure_signal,
+        "recommended_next_regime": "operator",
+        "artifact": artifact,
+    }
+    return RegimeExecutionResult(
+        task="task",
+        model="fake",
+        regime_name=f"{stage.value}-core",
+        stage=stage,
+        system_prompt="",
+        user_prompt="",
+        raw_response=json.dumps(payload),
+        artifact_text=json.dumps(payload),
+        validation={"is_valid": True, "parsed": payload},
+    )
+
+
+def test_handoff_bottleneck_not_raw_task():
+    runtime = CognitiveRuntime()
+    decision = RoutingDecision(
+        bottleneck="prioritization under constrained weekly capacity",
+        primary_regime=Stage.OPERATOR,
+        runner_up_regime=Stage.EPISTEMIC,
+        why_primary_wins_now="test",
+        switch_trigger="test",
+    )
+    runtime.task_analyzer = _NoopAnalyzer(decision)
+    planned_decision, regime, _ = runtime.plan("Long raw task text that should never be copied as bottleneck.")
+    assert runtime.router_state is not None
+    result = _execution_result_for_handoff(regime.stage, {"decision": "Prioritize proposal first", "rationale": "Friday deadline"})
+    handoff = compute_forward_handoff(result, runtime.router_state, regime)
+    assert handoff.current_bottleneck != "Long raw task text that should never be copied as bottleneck."
+    assert handoff.current_bottleneck == planned_decision.bottleneck
+
+
+def test_handoff_no_system_boilerplate():
+    runtime = CognitiveRuntime()
+    runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.OPERATOR, Stage.EPISTEMIC))
+    _decision_used, regime, _ = runtime.plan("boilerplate check task")
+    assert runtime.router_state is not None
+    result = _execution_result_for_handoff(
+        regime.stage,
+        {"decision": "Do A", "rationale": "Deadline", "tradeoff_accepted": "Delay B"},
+    )
+    handoff = compute_forward_handoff(result, runtime.router_state, regime)
+    payload = " ".join(
+        [
+            handoff.current_bottleneck,
+            handoff.dominant_frame,
+            handoff.prior_artifact_summary,
+            *handoff.what_is_known,
+            *handoff.what_remains_uncertain,
+            *handoff.active_contradictions,
+            *handoff.assumptions_in_play,
+        ]
+    )
+    assert "dominant failure mode" not in payload
+    assert "Soft LLM behavior" not in payload
+    assert "bottleneck has been classified" not in payload
+    assert "Structural signals observed" not in payload
+
+
+def test_handoff_summary_under_500_chars():
+    runtime = CognitiveRuntime()
+    runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.OPERATOR, Stage.EPISTEMIC))
+    _decision_used, regime, _ = runtime.plan("summary size task")
+    assert runtime.router_state is not None
+    long_text = "x" * 1200
+    result = _execution_result_for_handoff(
+        regime.stage,
+        {"decision": long_text, "rationale": long_text, "tradeoff_accepted": long_text},
+    )
+    handoff = compute_forward_handoff(result, runtime.router_state, regime)
+    assert len(handoff.prior_artifact_summary) <= 500
+
+
+def test_handoff_knowns_max_five():
+    runtime = CognitiveRuntime()
+    runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.OPERATOR, Stage.EPISTEMIC))
+    _decision_used, regime, _ = runtime.plan("knowns cap task")
+    assert runtime.router_state is not None
+    result = _execution_result_for_handoff(
+        regime.stage,
+        {
+            "decision": "Do A",
+            "rationale": "Reason A",
+            "tradeoff_accepted": "Delay B",
+            "next_actions": ["Step 1", "Step 2"],
+            "fallback_trigger": "If blocked",
+            "failure_signal": "extra field ignored",
+        },
+    )
+    handoff = compute_forward_handoff(result, runtime.router_state, regime)
+    assert len(handoff.what_is_known) <= 5
+
+
+def test_handoff_knowns_not_field_dumps():
+    runtime = CognitiveRuntime()
+    runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.OPERATOR, Stage.EPISTEMIC))
+    _decision_used, regime, _ = runtime.plan("known formatting task")
+    assert runtime.router_state is not None
+    result = _execution_result_for_handoff(
+        regime.stage,
+        {
+            "decision": "Prioritize Friday proposal",
+            "rationale": "Hard external deadline",
+            "tradeoff_accepted": "Delay internal tooling",
+            "next_actions": ["Draft proposal"],
+            "fallback_trigger": "No response by Thursday",
+        },
+    )
+    handoff = compute_forward_handoff(result, runtime.router_state, regime)
+    blocked_prefixes = ("decision:", "rationale:", "tradeoff_accepted:", "next_actions:", "fallback_trigger:")
+    assert not any(item.lower().startswith(blocked_prefixes) for item in handoff.what_is_known)

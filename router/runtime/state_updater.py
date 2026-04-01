@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Set, Tuple
 import hashlib
+import re
 
 from ..models import ARTIFACT_FIELDS, ARTIFACT_HINTS, CANONICAL_FAILURE_IF_OVERUSED, Regime, RegimeExecutionResult, RoutingDecision, Stage
 from ..routing import RegimeComposer
@@ -34,7 +35,7 @@ def build_router_state(
     return RouterState(
         task_id=f"task-{task_hash}",
         task_summary=bottleneck[:180],
-        current_bottleneck=bottleneck,
+        current_bottleneck=decision.bottleneck or bottleneck,
         current_regime=regime,
         runner_up_regime=runner_up_regime,
         regime_confidence=decision.confidence,
@@ -177,6 +178,40 @@ def _determine_next_stage(result: RegimeExecutionResult, state: RouterState) -> 
     return None
 
 
+def _first_sentence(text: str) -> str:
+    compact = re.sub(r"\s+", " ", text).strip()
+    if not compact:
+        return ""
+    parts = re.split(r"(?<=[.!?])\s+", compact, maxsplit=1)
+    sentence = parts[0].strip()
+    if sentence and sentence[-1] not in ".!?":
+        sentence += "."
+    return sentence
+
+
+def _normalize_field_value(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        parts = [str(v).strip() for v in value if str(v).strip()]
+        return "; ".join(parts)
+    return ""
+
+
+def _finding_from_field(field: str, normalized: str) -> str:
+    templates = {
+        "decision": "The priority decision is {}",
+        "central_claim": "The central claim is {}",
+        "rationale": "{}",
+        "tradeoff_accepted": "The accepted tradeoff is {}",
+        "next_actions": "Immediate next actions are {}",
+        "fallback_trigger": "A fallback is triggered if {}",
+    }
+    template = templates.get(field)
+    text = template.format(normalized) if template else normalized
+    return _first_sentence(text)
+
+
 def _extract_key_findings(result: RegimeExecutionResult) -> Tuple[List[str], str]:
     parsed = result.validation.get("parsed", {})
     if not isinstance(parsed, dict):
@@ -189,20 +224,87 @@ def _extract_key_findings(result: RegimeExecutionResult) -> Tuple[List[str], str
     findings: List[str] = []
     summary_bits: List[str] = []
     for field in top_fields:
-        value = artifact.get(field)
-        if isinstance(value, str):
-            normalized = value.strip()
-        elif isinstance(value, list):
-            normalized = "; ".join(str(v).strip() for v in value if str(v).strip())
-        else:
-            normalized = ""
+        normalized = _normalize_field_value(artifact.get(field))
         if not normalized:
             continue
-        findings.append(f"{field}: {normalized}")
-        summary_bits.append(f"{field}={normalized}")
+        finding = _finding_from_field(field, normalized)
+        if finding:
+            findings.append(finding)
+            summary_bits.append(finding)
         if len(findings) >= 5:
             break
-    return findings, "; ".join(summary_bits)
+    return findings, " ".join(summary_bits)
+
+
+def _extract_uncertainties(parsed: object) -> List[str]:
+    if not isinstance(parsed, dict):
+        return []
+    out: List[str] = []
+    artifact = parsed.get("artifact", {})
+    if isinstance(artifact, dict):
+        for field in ("plausible_but_unproven", "unresolved_axes", "open_questions"):
+            value = artifact.get(field)
+            if isinstance(value, list):
+                out.extend(_first_sentence(str(v)) for v in value if str(v).strip())
+            elif isinstance(value, str) and value.strip():
+                out.append(_first_sentence(value))
+    failure_signal = parsed.get("failure_signal")
+    if isinstance(failure_signal, str) and failure_signal.strip():
+        out.append(_first_sentence(f"Potential failure signal: {failure_signal.strip()}"))
+    return _unique_preserve([item for item in out if item])
+
+
+def _extract_contradictions(parsed: object) -> List[str]:
+    if not isinstance(parsed, dict):
+        return []
+    artifact = parsed.get("artifact", {})
+    out: List[str] = []
+    if isinstance(artifact, dict):
+        contradictions = artifact.get("contradictions")
+        if isinstance(contradictions, list):
+            out.extend(_first_sentence(str(v)) for v in contradictions if str(v).strip())
+        tradeoff = artifact.get("tradeoff_accepted")
+        if isinstance(tradeoff, str) and tradeoff.strip():
+            out.append(_first_sentence(f"Active tradeoff tension: {tradeoff.strip()}"))
+    return _unique_preserve([item for item in out if item])
+
+
+def _extract_assumptions(parsed: object) -> List[str]:
+    if not isinstance(parsed, dict):
+        return []
+    artifact = parsed.get("artifact", {})
+    if not isinstance(artifact, dict):
+        return []
+    out: List[str] = []
+    for field in ("rationale", "tradeoff_accepted", "fallback_trigger"):
+        value = _normalize_field_value(artifact.get(field))
+        if not value:
+            continue
+        out.append(_first_sentence(f"This plan assumes {value[0].lower() + value[1:]}" if len(value) > 1 else value))
+    return _unique_preserve([item for item in out if item])
+
+
+def _build_artifact_summary(result: RegimeExecutionResult, findings_summary: str) -> str:
+    parsed = result.validation.get("parsed", {})
+    if not isinstance(parsed, dict):
+        return ""
+    artifact = parsed.get("artifact", {})
+    if not isinstance(artifact, dict):
+        return ""
+    decision = _normalize_field_value(artifact.get("decision") or artifact.get("central_claim"))
+    rationale = _normalize_field_value(artifact.get("rationale"))
+    tradeoff = _normalize_field_value(artifact.get("tradeoff_accepted"))
+    sentences: List[str] = []
+    if decision:
+        sentences.append(_first_sentence(f"The {result.stage.value} stage decided that {decision}"))
+    elif findings_summary:
+        sentences.append(_first_sentence(f"The {result.stage.value} stage established that {findings_summary}"))
+    if rationale:
+        sentences.append(_first_sentence(f"This was driven by {rationale}"))
+    if tradeoff:
+        sentences.append(_first_sentence(f"The accepted tradeoff is {tradeoff}"))
+    summary = " ".join(sentences[:3]).strip()
+    return summary[:500]
 
 
 def _minimum_useful_artifact(next_stage: Optional[Stage], state: RouterState) -> str:
@@ -218,26 +320,11 @@ def _minimum_useful_artifact(next_stage: Optional[Stage], state: RouterState) ->
 
 def compute_forward_handoff(result: RegimeExecutionResult, router_state: RouterState, regime: Regime) -> Handoff:
     parsed = result.validation.get("parsed", {})
-    completion_signal = ""
-    failure_signal = ""
-    artifact_contradictions: List[str] = []
-    uncertainties_update: List[str] = []
-    if isinstance(parsed, dict):
-        completion_signal = str(parsed.get("completion_signal", "")).strip()
-        failure_signal = str(parsed.get("failure_signal", "")).strip()
-        artifact = parsed.get("artifact", {})
-        if isinstance(artifact, dict):
-            contradictions_value = artifact.get("contradictions")
-            if isinstance(contradictions_value, list):
-                artifact_contradictions = [str(v) for v in contradictions_value if str(v).strip()]
-            uncertain_value = artifact.get("plausible_but_unproven") or artifact.get("unresolved_axes")
-            if isinstance(uncertain_value, list):
-                uncertainties_update = [str(v) for v in uncertain_value if str(v).strip()]
-
     key_findings, findings_summary = _extract_key_findings(result)
-    knowns = _unique_preserve(router_state.knowns + key_findings)
-    uncertainties = _unique_preserve(router_state.uncertainties + uncertainties_update)
-    contradictions = _unique_preserve(router_state.contradictions + artifact_contradictions)
+    knowns = _unique_preserve(key_findings)[:5]
+    uncertainties = _extract_uncertainties(parsed)
+    contradictions = _extract_contradictions(parsed)
+    assumptions = _extract_assumptions(parsed)
     next_stage = _determine_next_stage(result, router_state)
     next_regime = resolve_next_regime(router_state, next_stage, RegimeComposer()) if next_stage is not None else None
     dominant_frame = router_state.dominant_frame or regime.name
@@ -249,22 +336,17 @@ def compute_forward_handoff(result: RegimeExecutionResult, router_state: RouterS
                 if isinstance(value, str) and value.strip():
                     dominant_frame = value.strip()
                     break
-    summary_sentence_1 = f"The {regime.stage.value} stage produced a validated '{ARTIFACT_HINTS[result.stage]}' artifact."
-    summary_sentence_2 = f"Key fields captured: {findings_summary or 'no high-signal fields were populated.'}"
-    summary_sentence_3 = (
-        f"Control signals: completion='{completion_signal or 'none'}', failure='{failure_signal or 'none'}', "
-        f"recommended_next='{next_stage.value if next_stage else 'none'}'."
-    )
+    artifact_summary = _build_artifact_summary(result, findings_summary)
     return Handoff(
         current_bottleneck=router_state.current_bottleneck,
         dominant_frame=dominant_frame,
         what_is_known=knowns,
         what_remains_uncertain=uncertainties,
         active_contradictions=contradictions,
-        assumptions_in_play=list(router_state.assumptions),
+        assumptions_in_play=assumptions,
         main_risk_if_continue=router_state.risks[-1] if router_state.risks else "",
         recommended_next_regime=next_stage,
         minimum_useful_artifact=_minimum_useful_artifact(next_stage, router_state),
-        prior_artifact_summary=f"{summary_sentence_1} {summary_sentence_2} {summary_sentence_3}",
+        prior_artifact_summary=artifact_summary,
         recommended_next_regime_full=next_regime,
     )
