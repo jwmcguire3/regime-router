@@ -12,6 +12,7 @@ from .models import (
     Regime,
     Stage,
 )
+from .state import Handoff
 from .routing import extract_structural_signals
 
 
@@ -114,10 +115,50 @@ class PromptBuilder:
         ).strip()
 
     @staticmethod
-    def build_user_prompt(task: str, regime: Regime, task_signals: Optional[List[str]] = None, risk_profile: Optional[Set[str]] = None) -> str:
+    def build_user_prompt(
+        task: str,
+        regime: Regime,
+        task_signals: Optional[List[str]] = None,
+        risk_profile: Optional[Set[str]] = None,
+        prior_handoff: Optional[Handoff] = None,
+    ) -> str:
         artifact_name = ARTIFACT_HINTS[regime.stage]
         signals = ", ".join(task_signals or []) or "none"
         risks = ", ".join(sorted(risk_profile or set())) or "none"
+        prior_handoff_section = ""
+        if prior_handoff is not None:
+            previous_regime = (
+                prior_handoff.recommended_next_regime_full.name
+                if prior_handoff.recommended_next_regime_full is not None
+                else "unknown"
+            )
+
+            def _bullet_list(items: List[str]) -> str:
+                if not items:
+                    return "- none"
+                return "\n".join(f"- {item}" for item in items)
+
+            prior_handoff_section = textwrap.dedent(
+                f"""
+
+                ## Prior Stage Context
+                The previous regime ({previous_regime}) produced the following assessment:
+
+                Dominant frame: {prior_handoff.dominant_frame}
+                What is known:
+                {_bullet_list(prior_handoff.what_is_known)}
+                What remains uncertain:
+                {_bullet_list(prior_handoff.what_remains_uncertain)}
+                Active contradictions:
+                {_bullet_list(prior_handoff.active_contradictions)}
+                Assumptions in play:
+                {_bullet_list(prior_handoff.assumptions_in_play)}
+                Main risk if continuing: {prior_handoff.main_risk_if_continue}
+                Minimum useful artifact: {prior_handoff.minimum_useful_artifact}
+
+                Build on this context. Do not re-derive what is already established.
+                """
+            ).rstrip()
         return textwrap.dedent(
             f"""
             Task:
@@ -128,6 +169,7 @@ class PromptBuilder:
 
             Risk profile:
             {risks}
+            {prior_handoff_section}
 
           Return one JSON object with exactly these top-level keys:
           regime, purpose, artifact_type, artifact, completion_signal, failure_signal, recommended_next_regime

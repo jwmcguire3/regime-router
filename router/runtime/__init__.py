@@ -220,6 +220,7 @@ class CognitiveRouterRuntime:
             max_switches=max_switches,
             execute_regime_once=self._execute_regime_once,
             update_state_from_execution=self._update_router_state_from_execution,
+            handoff_from_state=self._handoff_from_state,
         )
         return result
 
@@ -249,6 +250,7 @@ class CognitiveRouterRuntime:
         regime: Regime,
         task_signals: List[str],
         risk_profile: Set[str],
+        prior_handoff: Optional[Handoff] = None,
     ) -> RegimeExecutionResult:
         return self.executor.execute_once(
             task=task,
@@ -256,6 +258,7 @@ class CognitiveRouterRuntime:
             regime=regime,
             task_signals=task_signals,
             risk_profile=risk_profile,
+            prior_handoff=prior_handoff,
         )
 
     def _select_repair_mode(self, validation: Dict[str, object]) -> str:
