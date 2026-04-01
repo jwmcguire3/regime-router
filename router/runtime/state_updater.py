@@ -35,7 +35,7 @@ def build_router_state(
     return RouterState(
         task_id=f"task-{task_hash}",
         task_summary=bottleneck[:180],
-        current_bottleneck=decision.bottleneck or bottleneck,
+        current_bottleneck=bottleneck,
         current_regime=regime,
         runner_up_regime=runner_up_regime,
         regime_confidence=decision.confidence,

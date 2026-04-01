@@ -46,9 +46,27 @@ class StopPolicy:
         endpoint = self._endpoint_stage(router_state, routing_decision)
         at_or_past_endpoint = _STAGE_RANK[current_stage] >= _STAGE_RANK[endpoint]
         operator_default = endpoint == Stage.OPERATOR and current_stage == Stage.OPERATOR
+        if self._should_defer_stop_for_forward_recommendation(router_state, current_stage, endpoint):
+            return StopDecision(should_stop=False, reason="forward_progress_recommended")
         if (artifact_complete and at_or_past_endpoint) or (artifact_complete and operator_default):
             return StopDecision(should_stop=True, reason=f"artifact_complete_at_or_past_endpoint:{endpoint.value}")
         return StopDecision(should_stop=False, reason="endpoint_not_reached")
+
+    def _should_defer_stop_for_forward_recommendation(
+        self,
+        state: RouterState,
+        current_stage: Stage,
+        endpoint: Stage,
+    ) -> bool:
+        next_regime = state.recommended_next_regime
+        if next_regime is None:
+            return False
+        next_stage = next_regime.stage
+        if next_stage == current_stage:
+            return False
+        if _STAGE_RANK[next_stage] <= _STAGE_RANK[current_stage]:
+            return False
+        return _STAGE_RANK[next_stage] <= _STAGE_RANK[endpoint]
 
     def _builder_blocked(self, state: RouterState) -> bool:
         if state.current_regime.stage != Stage.OPERATOR:
