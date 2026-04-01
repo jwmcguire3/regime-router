@@ -2,6 +2,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from router.cli import main
@@ -105,7 +107,10 @@ def test_settings_defaults_show(tmp_path, capsys):
 
     payload = json.loads(out)
     assert rc == 0
+    assert payload["settings"]["provider"] == "ollama"
     assert payload["settings"]["model"] == "dolphin29:latest"
+    assert payload["settings"]["openai_base_url"] == "https://api.openai.com/v1"
+    assert payload["settings"]["openai_api_key_env"] == "OPENAI_API_KEY"
     assert payload["settings"]["use_task_analyzer"] is True
     assert payload["settings"]["task_analyzer_model"] == "dolphin29:latest"
     assert payload["settings"]["debug_routing"] is False
@@ -140,10 +145,62 @@ def test_settings_set_and_reset(tmp_path, capsys):
     rc_reset = main(["--settings-file", str(settings_file), "settings", "reset"])
     reset_payload = json.loads(capsys.readouterr().out)
     assert rc_reset == 0
+    assert reset_payload["settings"]["provider"] == "ollama"
     assert reset_payload["settings"]["model"] == "dolphin29:latest"
     assert reset_payload["settings"]["bounded_orchestration"] is True
     assert reset_payload["settings"]["max_switches"] == 2
     assert reset_payload["settings"]["debug_routing"] is False
+
+
+def test_settings_provider_openai_persists_and_uses_openai_defaults(tmp_path, capsys):
+    settings_file = tmp_path / "settings.json"
+
+    rc_set = main(
+        [
+            "--settings-file",
+            str(settings_file),
+            "settings",
+            "set",
+            "--provider",
+            "openai",
+            "--openai-base-url",
+            "https://api.openai.com/v1",
+            "--openai-api-key-env",
+            "MY_OPENAI_KEY",
+        ]
+    )
+    set_payload = json.loads(capsys.readouterr().out)
+    assert rc_set == 0
+    assert set_payload["settings"]["provider"] == "openai"
+    assert set_payload["settings"]["model"] == "gpt-5.4-mini"
+    assert set_payload["settings"]["task_analyzer_model"] == "gpt-5.4-mini"
+    assert set_payload["settings"]["openai_base_url"] == "https://api.openai.com/v1"
+    assert set_payload["settings"]["openai_api_key_env"] == "MY_OPENAI_KEY"
+
+
+def test_settings_provider_ollama_persists_and_uses_ollama_defaults(tmp_path, capsys):
+    settings_file = tmp_path / "settings.json"
+
+    main(["--settings-file", str(settings_file), "settings", "set", "--provider", "openai"])
+    capsys.readouterr()
+    rc_set = main(["--settings-file", str(settings_file), "settings", "set", "--provider", "ollama"])
+    set_payload = json.loads(capsys.readouterr().out)
+
+    assert rc_set == 0
+    assert set_payload["settings"]["provider"] == "ollama"
+    assert set_payload["settings"]["model"] == "dolphin29:latest"
+    assert set_payload["settings"]["task_analyzer_model"] == "dolphin29:latest"
+
+
+def test_cli_help_text_is_provider_aware(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["--help"])
+    out = capsys.readouterr().out
+
+    assert exc.value.code == 0
+    assert "provider-aware LLM execution" in out
+    assert "--provider" in out
+    assert "--openai-base-url" in out
 
 
 def test_run_and_plan_use_persisted_defaults(monkeypatch, tmp_path, capsys):

@@ -6,11 +6,26 @@ from pathlib import Path
 from typing import Any, Dict
 
 
+DEFAULT_OLLAMA_MODEL = "dolphin29:latest"
+DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
+DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
+
+
+def default_model_for_provider(provider: str) -> str:
+    if provider == "openai":
+        return DEFAULT_OPENAI_MODEL
+    return DEFAULT_OLLAMA_MODEL
+
+
 @dataclass
 class UserSettings:
-    model: str = "dolphin29:latest"
+    provider: str = "ollama"
+    model: str = DEFAULT_OLLAMA_MODEL
+    openai_base_url: str = DEFAULT_OPENAI_BASE_URL
+    openai_api_key_env: str = DEFAULT_OPENAI_API_KEY_ENV
     use_task_analyzer: bool = True
-    task_analyzer_model: str = "dolphin29:latest"
+    task_analyzer_model: str = DEFAULT_OLLAMA_MODEL
     debug_routing: bool = False
     bounded_orchestration: bool = True
     max_switches: int = 2
@@ -18,10 +33,19 @@ class UserSettings:
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "UserSettings":
         defaults = cls()
+        provider = str(raw.get("provider", defaults.provider)).strip().lower()
+        if provider not in {"ollama", "openai"}:
+            provider = defaults.provider
+        default_model = default_model_for_provider(provider)
+        model_raw = raw.get("model", None)
+        task_analyzer_model_raw = raw.get("task_analyzer_model", None)
         data = {
-            "model": str(raw.get("model", defaults.model)),
+            "provider": provider,
+            "model": default_model if model_raw is None else str(model_raw),
+            "openai_base_url": str(raw.get("openai_base_url", defaults.openai_base_url)),
+            "openai_api_key_env": str(raw.get("openai_api_key_env", defaults.openai_api_key_env)),
             "use_task_analyzer": bool(raw.get("use_task_analyzer", defaults.use_task_analyzer)),
-            "task_analyzer_model": str(raw.get("task_analyzer_model", defaults.task_analyzer_model)),
+            "task_analyzer_model": default_model if task_analyzer_model_raw is None else str(task_analyzer_model_raw),
             "debug_routing": bool(raw.get("debug_routing", defaults.debug_routing)),
             "bounded_orchestration": bool(raw.get("bounded_orchestration", defaults.bounded_orchestration)),
             "max_switches": int(raw.get("max_switches", defaults.max_switches)),

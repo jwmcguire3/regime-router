@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Set
 from .models import RoutingDecision, RoutingFeatures
 from .routing import extract_routing_features, infer_risk_profile
 from .runtime import CognitiveRouterRuntime
-from .settings import CliSettings, CliSettingsStore
+from .settings import CliSettings, CliSettingsStore, default_model_for_provider
 from .state import Handoff, make_record
 from .storage import SessionStore
 
@@ -143,11 +143,26 @@ def _resolved_cli_settings(args: argparse.Namespace) -> CliSettings:
     user = stored.user
     model_controls = stored.model_controls
 
+    resolved_provider = str(_resolve_setting(getattr(args, "provider", None), user.provider)).strip().lower()
+    model_override = getattr(args, "model", None)
+    task_analyzer_model_override = getattr(args, "task_analyzer_model", None)
+    resolved_model = str(_resolve_setting(model_override, user.model))
+    resolved_task_analyzer_model = str(_resolve_setting(task_analyzer_model_override, user.task_analyzer_model))
+    if resolved_provider != user.provider:
+        old_default = default_model_for_provider(user.provider)
+        if model_override is None and user.model == old_default:
+            resolved_model = default_model_for_provider(resolved_provider)
+        if task_analyzer_model_override is None and user.task_analyzer_model == old_default:
+            resolved_task_analyzer_model = default_model_for_provider(resolved_provider)
+
     updated = CliSettings(
         user=type(user)(
-            model=str(_resolve_setting(getattr(args, "model", None), user.model)),
+            provider=resolved_provider,
+            model=resolved_model,
+            openai_base_url=str(_resolve_setting(getattr(args, "openai_base_url", None), user.openai_base_url)),
+            openai_api_key_env=str(_resolve_setting(getattr(args, "openai_api_key_env", None), user.openai_api_key_env)),
             use_task_analyzer=bool(_resolve_setting(getattr(args, "use_task_analyzer", None), user.use_task_analyzer)),
-            task_analyzer_model=str(_resolve_setting(getattr(args, "task_analyzer_model", None), user.task_analyzer_model)),
+            task_analyzer_model=resolved_task_analyzer_model,
             debug_routing=bool(_resolve_setting(getattr(args, "debug_routing", None), user.debug_routing)),
             bounded_orchestration=bool(_resolve_setting(getattr(args, "bounded_orchestration", None), user.bounded_orchestration)),
             max_switches=int(_resolve_setting(getattr(args, "max_switches", None), user.max_switches)),
@@ -159,6 +174,8 @@ def _resolved_cli_settings(args: argparse.Namespace) -> CliSettings:
 
     if updated.user.max_switches < 0:
         raise ValueError("--max-switches must be >= 0")
+    if updated.user.provider not in {"ollama", "openai"}:
+        raise ValueError("--provider must be one of: ollama, openai")
     if updated.model_controls.model_profile not in {"strict", "balanced", "lenient", "off"}:
         raise ValueError("--model-profile must be one of: strict, balanced, lenient, off")
     return updated
@@ -282,11 +299,24 @@ def cmd_settings_show(args: argparse.Namespace) -> int:
 def cmd_settings_set(args: argparse.Namespace) -> int:
     store = CliSettingsStore(path=args.settings_file)
     current = store.load()
+    resolved_provider = str(_resolve_setting(args.provider, current.user.provider)).strip().lower()
+    resolved_model = str(_resolve_setting(args.model, current.user.model))
+    resolved_task_analyzer_model = str(_resolve_setting(args.task_analyzer_model, current.user.task_analyzer_model))
+    if resolved_provider != current.user.provider:
+        old_default = default_model_for_provider(current.user.provider)
+        if args.model is None and current.user.model == old_default:
+            resolved_model = default_model_for_provider(resolved_provider)
+        if args.task_analyzer_model is None and current.user.task_analyzer_model == old_default:
+            resolved_task_analyzer_model = default_model_for_provider(resolved_provider)
+
     updated = CliSettings(
         user=type(current.user)(
-            model=str(_resolve_setting(args.model, current.user.model)),
+            provider=resolved_provider,
+            model=resolved_model,
+            openai_base_url=str(_resolve_setting(args.openai_base_url, current.user.openai_base_url)),
+            openai_api_key_env=str(_resolve_setting(args.openai_api_key_env, current.user.openai_api_key_env)),
             use_task_analyzer=bool(_resolve_setting(args.use_task_analyzer, current.user.use_task_analyzer)),
-            task_analyzer_model=str(_resolve_setting(args.task_analyzer_model, current.user.task_analyzer_model)),
+            task_analyzer_model=resolved_task_analyzer_model,
             debug_routing=bool(_resolve_setting(args.debug_routing, current.user.debug_routing)),
             bounded_orchestration=bool(_resolve_setting(args.bounded_orchestration, current.user.bounded_orchestration)),
             max_switches=int(_resolve_setting(args.max_switches, current.user.max_switches)),
@@ -297,6 +327,8 @@ def cmd_settings_set(args: argparse.Namespace) -> int:
     )
     if updated.user.max_switches < 0:
         raise ValueError("--max-switches must be >= 0")
+    if updated.user.provider not in {"ollama", "openai"}:
+        raise ValueError("--provider must be one of: ollama, openai")
     if updated.model_controls.model_profile not in {"strict", "balanced", "lenient", "off"}:
         raise ValueError("--model-profile must be one of: strict, balanced, lenient, off")
 
@@ -366,18 +398,22 @@ def cmd_settings_model_reset(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Cognitive router prototype with Ollama-backed execution and JSON persistence."
+        description="Cognitive router prototype with provider-aware LLM execution and JSON persistence."
     )
     parser.add_argument("--base-url", default="http://localhost:11434", help="Ollama base URL")
+    parser.add_argument("--provider", default=None, choices=["ollama", "openai"], help="LLM provider override")
+    parser.add_argument("--openai-base-url", default=None, help="OpenAI-compatible base URL override")
     parser.add_argument("--out-dir", default="runs", help="Directory for saved JSON runs")
     parser.add_argument("--settings-file", default=".router_settings.json", help="Path to persisted CLI settings JSON")
     parser.add_argument("--output", choices=["verbose", "compact"], default="verbose", help="Console output style")
 
     sub = parser.add_subparsers(dest="command", required=True)
 
-    run_p = sub.add_parser("run", help="Route + compose + execute against Ollama + save JSON")
+    run_p = sub.add_parser("run", help="Route + compose + execute against configured provider + save JSON")
     run_p.add_argument("--task", required=True, help="Task or bottleneck description")
-    run_p.add_argument("--model", default=None, help="Ollama model name")
+    run_p.add_argument("--provider", default=None, choices=["ollama", "openai"], help="LLM provider override")
+    run_p.add_argument("--model", default=None, help="Model name")
+    run_p.add_argument("--openai-base-url", default=None, help="OpenAI-compatible base URL override")
     run_p.add_argument("--risks", default="", help="Comma-separated risk profile tags")
     run_p.add_argument("--save-as", default=None, help="Optional output JSON filename")
     run_p.add_argument("--no-handoff", action="store_true", help="Disable handoff line")
@@ -389,8 +425,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--model-profile", default=None, choices=["strict", "balanced", "lenient", "off"], help="Model-control profile")
     run_p.set_defaults(func=cmd_run)
 
-    plan_p = sub.add_parser("plan", help="Route + compose without calling Ollama")
+    plan_p = sub.add_parser("plan", help="Route + compose without model execution")
     plan_p.add_argument("--task", required=True, help="Task or bottleneck description")
+    plan_p.add_argument("--provider", default=None, choices=["ollama", "openai"], help="LLM provider override")
+    plan_p.add_argument("--openai-base-url", default=None, help="OpenAI-compatible base URL override")
     plan_p.add_argument("--risks", default="", help="Comma-separated risk profile tags")
     plan_p.add_argument("--no-handoff", action="store_true", help="Disable handoff line")
     plan_p.add_argument("--use-task-analyzer", default=None, action=argparse.BooleanOptionalAction, help="Analyzer toggle")
@@ -409,7 +447,7 @@ def build_parser() -> argparse.ArgumentParser:
     show_p.add_argument("filename", help="Filename inside the runs directory")
     show_p.set_defaults(func=cmd_show_run)
 
-    models_p = sub.add_parser("models", help="List models from local Ollama")
+    models_p = sub.add_parser("models", help="List models from configured runtime client")
     models_p.set_defaults(func=cmd_models)
 
     settings_p = sub.add_parser("settings", help="Show/update/reset persisted CLI defaults")
@@ -419,7 +457,10 @@ def build_parser() -> argparse.ArgumentParser:
     settings_show_p.set_defaults(func=cmd_settings_show)
 
     settings_set_p = settings_sub.add_parser("set", help="Update user settings (+ optional model_profile)")
-    settings_set_p.add_argument("--model", default=None, help="Default Ollama model")
+    settings_set_p.add_argument("--provider", default=None, choices=["ollama", "openai"], help="Default provider")
+    settings_set_p.add_argument("--model", default=None, help="Default model")
+    settings_set_p.add_argument("--openai-base-url", default=None, help="Default OpenAI-compatible base URL")
+    settings_set_p.add_argument("--openai-api-key-env", default=None, help="Environment variable name for OpenAI API key")
     settings_set_p.add_argument("--use-task-analyzer", default=None, action=argparse.BooleanOptionalAction, help="Default analyzer toggle")
     settings_set_p.add_argument("--task-analyzer-model", default=None, help="Default analyzer model")
     settings_set_p.add_argument("--debug-routing", default=None, action=argparse.BooleanOptionalAction, help="Default debug routing")
