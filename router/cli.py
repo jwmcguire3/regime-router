@@ -136,6 +136,31 @@ def _resolve_setting(override: Optional[object], stored: object) -> object:
     return stored if override is None else override
 
 
+def _resolve_models_for_provider_transition(
+    *,
+    current_provider: str,
+    target_provider: str,
+    current_model: str,
+    current_task_analyzer_model: str,
+    model_override: Optional[object],
+    task_analyzer_model_override: Optional[object],
+) -> tuple[str, str]:
+    resolved_model = str(_resolve_setting(model_override, current_model))
+    resolved_task_analyzer_model = str(_resolve_setting(task_analyzer_model_override, current_task_analyzer_model))
+    if target_provider != current_provider:
+        old_default = default_model_for_provider(current_provider)
+        if model_override is None and current_model == old_default:
+            resolved_model = default_model_for_provider(target_provider)
+        if task_analyzer_model_override is None and current_task_analyzer_model == old_default:
+            resolved_task_analyzer_model = default_model_for_provider(target_provider)
+    return resolved_model, resolved_task_analyzer_model
+
+
+def _validate_model_value(name: str, value: str) -> None:
+    if not value.strip():
+        raise ValueError(f"{name} must be a non-empty string")
+
+
 def _resolved_cli_settings(args: argparse.Namespace) -> CliSettings:
     store = CliSettingsStore(path=args.settings_file)
     stored = store.load()
@@ -146,14 +171,14 @@ def _resolved_cli_settings(args: argparse.Namespace) -> CliSettings:
     resolved_provider = str(_resolve_setting(getattr(args, "provider", None), user.provider)).strip().lower()
     model_override = getattr(args, "model", None)
     task_analyzer_model_override = getattr(args, "task_analyzer_model", None)
-    resolved_model = str(_resolve_setting(model_override, user.model))
-    resolved_task_analyzer_model = str(_resolve_setting(task_analyzer_model_override, user.task_analyzer_model))
-    if resolved_provider != user.provider:
-        old_default = default_model_for_provider(user.provider)
-        if model_override is None and user.model == old_default:
-            resolved_model = default_model_for_provider(resolved_provider)
-        if task_analyzer_model_override is None and user.task_analyzer_model == old_default:
-            resolved_task_analyzer_model = default_model_for_provider(resolved_provider)
+    resolved_model, resolved_task_analyzer_model = _resolve_models_for_provider_transition(
+        current_provider=user.provider,
+        target_provider=resolved_provider,
+        current_model=user.model,
+        current_task_analyzer_model=user.task_analyzer_model,
+        model_override=model_override,
+        task_analyzer_model_override=task_analyzer_model_override,
+    )
 
     updated = CliSettings(
         user=type(user)(
@@ -176,6 +201,8 @@ def _resolved_cli_settings(args: argparse.Namespace) -> CliSettings:
         raise ValueError("--max-switches must be >= 0")
     if updated.user.provider not in {"ollama", "openai"}:
         raise ValueError("--provider must be one of: ollama, openai")
+    _validate_model_value("--model", updated.user.model)
+    _validate_model_value("--task-analyzer-model", updated.user.task_analyzer_model)
     if updated.model_controls.model_profile not in {"strict", "balanced", "lenient", "off"}:
         raise ValueError("--model-profile must be one of: strict, balanced, lenient, off")
     return updated
@@ -314,14 +341,14 @@ def cmd_settings_set(args: argparse.Namespace) -> int:
     store = CliSettingsStore(path=args.settings_file)
     current = store.load()
     resolved_provider = str(_resolve_setting(args.provider, current.user.provider)).strip().lower()
-    resolved_model = str(_resolve_setting(args.model, current.user.model))
-    resolved_task_analyzer_model = str(_resolve_setting(args.task_analyzer_model, current.user.task_analyzer_model))
-    if resolved_provider != current.user.provider:
-        old_default = default_model_for_provider(current.user.provider)
-        if args.model is None and current.user.model == old_default:
-            resolved_model = default_model_for_provider(resolved_provider)
-        if args.task_analyzer_model is None and current.user.task_analyzer_model == old_default:
-            resolved_task_analyzer_model = default_model_for_provider(resolved_provider)
+    resolved_model, resolved_task_analyzer_model = _resolve_models_for_provider_transition(
+        current_provider=current.user.provider,
+        target_provider=resolved_provider,
+        current_model=current.user.model,
+        current_task_analyzer_model=current.user.task_analyzer_model,
+        model_override=args.model,
+        task_analyzer_model_override=args.task_analyzer_model,
+    )
 
     updated = CliSettings(
         user=type(current.user)(
@@ -343,6 +370,8 @@ def cmd_settings_set(args: argparse.Namespace) -> int:
         raise ValueError("--max-switches must be >= 0")
     if updated.user.provider not in {"ollama", "openai"}:
         raise ValueError("--provider must be one of: ollama, openai")
+    _validate_model_value("--model", updated.user.model)
+    _validate_model_value("--task-analyzer-model", updated.user.task_analyzer_model)
     if updated.model_controls.model_profile not in {"strict", "balanced", "lenient", "off"}:
         raise ValueError("--model-profile must be one of: strict, balanced, lenient, off")
 

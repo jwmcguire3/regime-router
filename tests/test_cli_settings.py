@@ -99,6 +99,34 @@ class FakeRuntime:
         return decision, regime, handoff
 
 
+class ProviderAwareModelsRuntime:
+    init_calls = []
+
+    def __init__(
+        self,
+        ollama_base_url: str,
+        provider: str,
+        openai_base_url: str,
+        openai_api_key_env: str,
+        use_task_analyzer: bool,
+        task_analyzer_model: str,
+    ):
+        ProviderAwareModelsRuntime.init_calls.append(
+            {
+                "provider": provider,
+                "ollama_base_url": ollama_base_url,
+                "openai_base_url": openai_base_url,
+                "openai_api_key_env": openai_api_key_env,
+                "use_task_analyzer": use_task_analyzer,
+                "task_analyzer_model": task_analyzer_model,
+            }
+        )
+        self.provider = provider
+
+    def list_models(self):
+        return {"provider": self.provider, "models": ["m1", "m2"]}
+
+
 def test_settings_defaults_show(tmp_path, capsys):
     settings_file = tmp_path / "settings.json"
 
@@ -289,6 +317,98 @@ def test_explicit_run_flags_override_stored_defaults(monkeypatch, tmp_path, caps
     assert FakeRuntime.execute_calls[0]["model"] == "dolphin29:latest"
     assert FakeRuntime.execute_calls[0]["bounded_orchestration"] is False
     assert FakeRuntime.execute_calls[0]["max_switches"] == 1
+
+
+def test_models_command_routes_to_active_provider(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("router.cli.CognitiveRouterRuntime", ProviderAwareModelsRuntime)
+    settings_file = tmp_path / "settings.json"
+
+    main(["--settings-file", str(settings_file), "settings", "set", "--provider", "openai"])
+    capsys.readouterr()
+
+    rc = main(["--settings-file", str(settings_file), "models"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["provider"] == "openai"
+    assert ProviderAwareModelsRuntime.init_calls[-1]["provider"] == "openai"
+
+
+def test_provider_openai_without_explicit_model_uses_openai_default(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("router.cli.CognitiveRouterRuntime", FakeRuntime)
+    FakeRuntime.reset()
+    settings_file = tmp_path / "settings.json"
+
+    rc = main(
+        [
+            "--settings-file",
+            str(settings_file),
+            "--out-dir",
+            str(tmp_path),
+            "run",
+            "--provider",
+            "openai",
+            "--task",
+            "Choose a direction",
+        ]
+    )
+    capsys.readouterr()
+
+    assert rc == 0
+    assert FakeRuntime.execute_calls[-1]["model"] == "gpt-5.4-mini"
+
+
+def test_provider_ollama_without_explicit_model_uses_ollama_default(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("router.cli.CognitiveRouterRuntime", FakeRuntime)
+    FakeRuntime.reset()
+    settings_file = tmp_path / "settings.json"
+
+    main(["--settings-file", str(settings_file), "settings", "set", "--provider", "openai"])
+    capsys.readouterr()
+
+    rc = main(
+        [
+            "--settings-file",
+            str(settings_file),
+            "--out-dir",
+            str(tmp_path),
+            "run",
+            "--provider",
+            "ollama",
+            "--task",
+            "Choose a direction",
+        ]
+    )
+    capsys.readouterr()
+
+    assert rc == 0
+    assert FakeRuntime.execute_calls[-1]["model"] == "dolphin29:latest"
+
+
+def test_explicit_model_overrides_provider_default(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("router.cli.CognitiveRouterRuntime", FakeRuntime)
+    FakeRuntime.reset()
+    settings_file = tmp_path / "settings.json"
+
+    rc = main(
+        [
+            "--settings-file",
+            str(settings_file),
+            "--out-dir",
+            str(tmp_path),
+            "run",
+            "--provider",
+            "openai",
+            "--model",
+            "gpt-custom-preview",
+            "--task",
+            "Choose a direction",
+        ]
+    )
+    capsys.readouterr()
+
+    assert rc == 0
+    assert FakeRuntime.execute_calls[-1]["model"] == "gpt-custom-preview"
 
 
 def test_plan_output_sections_compact_mode(monkeypatch, capsys):
