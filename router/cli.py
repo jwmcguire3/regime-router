@@ -186,16 +186,29 @@ def _make_runtime(args: argparse.Namespace, settings: CliSettings) -> CognitiveR
     try:
         return CognitiveRouterRuntime(
             ollama_base_url=args.base_url,
+            provider=settings.user.provider,
+            openai_base_url=settings.user.openai_base_url,
+            openai_api_key_env=settings.user.openai_api_key_env,
             use_task_analyzer=settings.user.use_task_analyzer,
             task_analyzer_model=settings.user.task_analyzer_model,
             model_profile=settings.model_controls.model_profile,  # type: ignore[arg-type]
         )
     except TypeError:
-        return CognitiveRouterRuntime(
-            ollama_base_url=args.base_url,
-            use_task_analyzer=settings.user.use_task_analyzer,
-            task_analyzer_model=settings.user.task_analyzer_model,
-        )
+        try:
+            return CognitiveRouterRuntime(
+                ollama_base_url=args.base_url,
+                provider=settings.user.provider,
+                openai_base_url=settings.user.openai_base_url,
+                openai_api_key_env=settings.user.openai_api_key_env,
+                use_task_analyzer=settings.user.use_task_analyzer,
+                task_analyzer_model=settings.user.task_analyzer_model,
+            )
+        except TypeError:
+            return CognitiveRouterRuntime(
+                ollama_base_url=args.base_url,
+                use_task_analyzer=settings.user.use_task_analyzer,
+                task_analyzer_model=settings.user.task_analyzer_model,
+            )
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -276,7 +289,8 @@ def cmd_show_run(args: argparse.Namespace) -> int:
 
 
 def cmd_models(args: argparse.Namespace) -> int:
-    runtime = CognitiveRouterRuntime(ollama_base_url=args.base_url)
+    settings = _resolved_cli_settings(args)
+    runtime = _make_runtime(args, settings)
     models = runtime.list_models()
     print(json.dumps(models, indent=2, ensure_ascii=False))
     return 0
