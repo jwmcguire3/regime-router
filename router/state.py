@@ -60,6 +60,7 @@ class RouterState:
     switch_history: List[SwitchDecisionRecord] = field(default_factory=list)
     escalation_debug: Dict[str, object] = field(default_factory=dict)
     task_classification: Optional[Dict[str, object]] = None
+    latest_forward_handoff: Optional["Handoff"] = None
 
     def record_regime_step(
         self,
@@ -142,6 +143,7 @@ class Handoff:
     main_risk_if_continue: str
     recommended_next_regime: Optional[Stage]
     minimum_useful_artifact: str
+    prior_artifact_summary: str = ""
     recommended_next_regime_full: Optional[Regime] = None
 
 
@@ -414,4 +416,5 @@ def router_state_from_jsonable(payload: object, resolve_stage: Callable[[Stage],
         task_classification=(
             payload.get("task_classification") if isinstance(payload.get("task_classification"), Mapping) else None
         ),
+        latest_forward_handoff=None,
     )

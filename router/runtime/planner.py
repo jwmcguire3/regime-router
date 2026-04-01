@@ -130,6 +130,8 @@ class RuntimePlanner:
             "route_type": classification.route_type,
             "confidence": classification.confidence,
             "reason": classification.reason,
+            "likely_endpoint_regime": decision.likely_endpoint_regime,
+            "endpoint_confidence": decision.endpoint_confidence,
         }
         handoff = handoff_from_state(state)
         return decision, regime, handoff, state, classification
@@ -164,6 +166,8 @@ class RuntimePlanner:
             "route_type": classification.route_type,
             "confidence": classification.confidence,
             "reason": classification.reason,
+            "likely_endpoint_regime": decision.likely_endpoint_regime,
+            "endpoint_confidence": decision.endpoint_confidence,
         }
         handoff = handoff_from_state(state)
         return decision, regime, handoff, state
