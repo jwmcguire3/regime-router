@@ -1,9 +1,9 @@
 {
   "summary": {
-    "total": 297,
-    "outcome": 71,
-    "mechanics": 67,
-    "infrastructure": 159
+    "total": 193,
+    "outcome": 22,
+    "mechanics": 6,
+    "infrastructure": 165
   },
   "files": {
     "tests/test_classifier.py": {
@@ -17,39 +17,19 @@
       "test_classifies_fix_bug_as_direct": "OUTCOME",
       "test_classifies_architecture_fragility_why_question_as_regime": "OUTCOME"
     },
-    "tests/test_classifier_harness.py": {
-      "test_pattern_only_direct_cases": "OUTCOME",
-      "test_pattern_only_regime_cases": "OUTCOME",
-      "test_pattern_only_edge_inputs_are_handled": "OUTCOME",
-      "test_pattern_only_mixed_signal_resolves_to_direct": "OUTCOME",
-      "test_dual_path_direct_pattern_cases": "OUTCOME",
-      "test_dual_path_regime_cases": "OUTCOME",
-      "test_dual_path_edge_inputs_are_handled": "OUTCOME",
-      "test_dual_path_mixed_signal_resolves_to_direct": "OUTCOME",
-      "test_dual_path_embedding_rejection_summarize_meeting": "OUTCOME",
-      "test_dual_path_embedding_rejection_non_regime_task": "OUTCOME"
-    },
-    "tests/test_classifier_with_embeddings.py": {
-      "test_classifies_write_breakout_game_python_code_as_direct_from_pattern": "OUTCOME",
-      "test_classifies_summarize_meeting_as_direct_from_embedding_rejection": "OUTCOME",
-      "test_classifies_stress_test_frame_as_regime_when_embedding_affinity_is_high": "OUTCOME",
-      "test_classifies_fragments_spine_statement_as_regime_with_synthesis_affinity": "OUTCOME"
-    },
     "tests/test_cli_settings.py": {
       "test_settings_defaults_show": "INFRASTRUCTURE",
       "test_settings_set_and_reset": "INFRASTRUCTURE",
+      "test_settings_provider_openai_persists_and_uses_openai_defaults": "INFRASTRUCTURE",
+      "test_settings_provider_ollama_persists_and_uses_ollama_defaults": "INFRASTRUCTURE",
+      "test_cli_help_text_is_provider_aware": "INFRASTRUCTURE",
       "test_run_and_plan_use_persisted_defaults": "INFRASTRUCTURE",
       "test_explicit_run_flags_override_stored_defaults": "INFRASTRUCTURE",
+      "test_models_command_routes_to_active_provider": "INFRASTRUCTURE",
+      "test_provider_openai_without_explicit_model_uses_openai_default": "INFRASTRUCTURE",
+      "test_provider_ollama_without_explicit_model_uses_ollama_default": "INFRASTRUCTURE",
+      "test_explicit_model_overrides_provider_default": "INFRASTRUCTURE",
       "test_plan_output_sections_compact_mode": "INFRASTRUCTURE"
-    },
-    "tests/test_embedding_router.py": {
-      "test_embedding_router_adversarial_highest_for_stress_test_phrase": "MECHANICS",
-      "test_embedding_router_marks_non_regime_task_below_threshold": "MECHANICS",
-      "test_embedding_router_exploration_highest_for_structural_options": "MECHANICS",
-      "test_embedding_router_operator_highest_for_concrete_decision": "MECHANICS",
-      "test_embedding_router_scores_are_bounded": "MECHANICS",
-      "test_router_works_without_embedding_router": "MECHANICS",
-      "test_runtime_can_disable_embedding_router": "MECHANICS"
     },
     "tests/test_escalation_harness.py": {
       "test_stricter_from_high_fragility_pressure": "INFRASTRUCTURE",
@@ -76,23 +56,6 @@
       "test_select_suppressions_never_returns_incompatible_lines_with_dominant": "INFRASTRUCTURE",
       "test_select_shapes_respects_max_two_and_stage_matching": "INFRASTRUCTURE",
       "test_select_tail_returns_transfer_when_handoff_expected_for_exploration": "INFRASTRUCTURE"
-    },
-    "tests/test_feature_extraction_harness.py": {
-      "test_structural_signal_expansion_when_defined_present": "MECHANICS",
-      "test_structural_signal_concrete_versions_feel_too_small_present": "MECHANICS",
-      "test_structural_signal_fragments_understood_spine_missed_present": "MECHANICS",
-      "test_structural_signals_empty_when_no_pattern_matches": "MECHANICS",
-      "test_pressure_scores_detect_expected_dimensions": "MECHANICS",
-      "test_pressure_scores_all_zero_when_no_pressure_words_present": "MECHANICS",
-      "test_marker_detection_negated_closure_preference": "MECHANICS",
-      "test_marker_detection_anti_convergence_preference": "MECHANICS",
-      "test_marker_detection_uncertainty_characterization": "MECHANICS",
-      "test_marker_detection_uncertainty_evidence_demand": "MECHANICS",
-      "test_word_boundary_breakout_does_not_match_break": "MECHANICS",
-      "test_word_boundary_break_matches_when_standalone": "MECHANICS",
-      "test_word_boundary_known_does_not_match_now": "MECHANICS",
-      "test_word_boundary_now_matches_when_standalone": "MECHANICS",
-      "test_negated_closure_suppresses_decision_and_boosts_possibility": "MECHANICS"
     },
     "tests/test_grammar_composer.py": {
       "test_exploration_default_dominant": "INFRASTRUCTURE",
@@ -151,6 +114,18 @@
       "test_builder_healthy_and_failing_pairs": "INFRASTRUCTURE",
       "test_assumption_collapse_triggers_exploration_fallback": "INFRASTRUCTURE"
     },
+    "tests/test_openai_client.py": {
+      "test_generate_constructs_correct_request_payload": "INFRASTRUCTURE",
+      "test_generate_maps_response_to_ollama_style": "INFRASTRUCTURE",
+      "test_generate_wraps_http_error": "INFRASTRUCTURE",
+      "test_list_models_calls_correct_endpoint": "INFRASTRUCTURE"
+    },
+    "tests/test_orchestration_fixes.py": {
+      "test_regime_field_mismatch_triggers_misrouting_detection": "INFRASTRUCTURE",
+      "test_control_failure_regime_mismatch_identifies_pattern": "INFRASTRUCTURE",
+      "test_switch_orchestrator_routes_operator_to_epistemic_on_regime_mismatch_control_failure": "INFRASTRUCTURE",
+      "test_non_mismatch_cases_unchanged": "INFRASTRUCTURE"
+    },
     "tests/test_orchestrator_harness.py": {
       "test_allowed_pathways_harness": "INFRASTRUCTURE",
       "test_blocked_pathways_harness": "INFRASTRUCTURE",
@@ -169,6 +144,20 @@
       "test_missing_recommended_next_regime_fails": "INFRASTRUCTURE",
       "test_existing_artifact_payload_still_validates_inside_wrapper": "INFRASTRUCTURE"
     },
+    "tests/test_proposer.py": {
+      "test_propose_route_returns_exploration_fallback_when_analyzer_fails": "MECHANICS",
+      "test_propose_route_ranks_stages_from_analyzer_output": "MECHANICS",
+      "test_operator_demoted_when_decision_pressure_is_zero": "MECHANICS",
+      "test_builder_demoted_when_recurrence_potential_is_zero": "MECHANICS",
+      "test_high_confidence_threshold_works": "MECHANICS",
+      "test_analyzer_summary_is_populated": "MECHANICS"
+    },
+    "tests/test_provider_integration.py": {
+      "test_models_with_openai_provider_uses_openai_client": "INFRASTRUCTURE",
+      "test_models_with_ollama_provider_uses_ollama_client": "INFRASTRUCTURE",
+      "test_models_command_routes_to_active_provider": "INFRASTRUCTURE",
+      "test_openai_provider_without_key_fails_with_clear_error": "INFRASTRUCTURE"
+    },
     "tests/test_regime_field_validation.py": {
       "test_regime_matches_operator_stage_is_valid": "INFRASTRUCTURE",
       "test_regime_mismatch_operator_stage_adds_control_failure": "INFRASTRUCTURE",
@@ -177,104 +166,20 @@
       "test_descriptive_regime_name_containing_stage_is_valid": "INFRASTRUCTURE"
     },
     "tests/test_router_integration.py": {
-      "test_routing_strongest_interpretation_routes_synthesis_then_adversarial": "OUTCOME",
-      "test_routing_strongest_interpretation_plus_break_prompt_keeps_adversarial_runner_up": "OUTCOME",
-      "test_routing_strongest_interpretation_plus_evidence_missing_allows_epistemic_runner_up": "OUTCOME",
-      "test_routing_strongest_interpretation_plus_verify_supported_allows_epistemic_runner_up": "OUTCOME",
-      "test_routing_uncertainty_seeking_can_route_epistemic_when_rigor_language_present": "OUTCOME",
-      "test_routing_stress_test_routes_adversarial": "OUTCOME",
-      "test_routing_weakest_points_routes_adversarial": "OUTCOME",
-      "test_routing_strongest_objections_routes_adversarial": "OUTCOME",
-      "test_routing_evidence_support_stays_epistemic_not_adversarial": "OUTCOME",
-      "test_routing_break_this_frame_routes_adversarial": "OUTCOME",
-      "test_routing_choose_between_options_routes_operator_not_exploration": "OUTCOME",
-      "test_routing_unknown_or_unclear_routes_epistemic_not_exploration": "OUTCOME",
-      "test_routing_parts_whole_spine_gap_routes_synthesis_not_exploration": "OUTCOME",
-      "test_routing_options_plus_decision_prefers_operator": "OUTCOME",
-      "test_mixed_exploration_then_choose_best_option_now_routes_operator_with_medium_or_higher_confidence": "OUTCOME",
-      "test_brainstorm_some_options_routes_exploration": "OUTCOME",
-      "test_choose_between_close_options_routes_operator": "OUTCOME",
-      "test_explore_several_frames_before_selecting_one_is_consistent_with_confidence_logic": "OUTCOME",
-      "test_explore_several_frames_before_inflected_closure_is_mixed_intent": "OUTCOME",
-      "test_mixed_prompt_debug_contributions_show_operator_precedence_reason": "MECHANICS",
-      "test_open_space_multi_frame_prompt_routes_exploration": "OUTCOME",
-      "test_immediate_decision_prompt_routes_operator": "OUTCOME",
-      "test_mixed_with_immediate_decision_still_routes_operator": "OUTCOME",
-      "test_mixed_perspectives_with_recommendation_now_routes_operator": "OUTCOME",
-      "test_mixed_perspectives_with_negated_decision_routes_exploration": "OUTCOME",
-      "test_mixed_perspectives_then_decide_routes_operator": "OUTCOME",
-      "test_negated_recommendation_map_options_first_routes_exploration": "OUTCOME",
-      "test_recommend_now_routes_operator": "OUTCOME",
-      "test_map_options_and_make_a_call_routes_operator": "OUTCOME",
-      "test_mixed_with_explicit_keep_open_routes_exploration": "OUTCOME",
-      "test_map_space_with_explicit_anti_convergence_prefers_exploration": "OUTCOME",
-      "test_routing_vague_pattern_with_uncertainty_does_not_trigger_builder": "OUTCOME",
-      "test_escalation_trust_deployment_prompt_biases_stricter": "MECHANICS",
-      "test_escalation_contradiction_heavy_prompt_biases_stricter": "MECHANICS",
-      "test_escalation_certainty_seeking_prompt_biases_stricter": "MECHANICS",
-      "test_escalation_underformed_brainstorm_prompt_biases_looser": "MECHANICS",
-      "test_escalation_premature_narrowing_prompt_biases_looser": "MECHANICS",
-      "test_escalation_does_not_override_hard_deterministic_signal": "OUTCOME",
-      "test_routing_reusable_pattern_with_template_triggers_builder": "OUTCOME",
-      "test_routing_repeatable_workflow_triggers_builder": "OUTCOME",
-      "test_routing_uncertainty_characterization_boosts_epistemic": "MECHANICS",
-      "test_routing_structural_signals_can_drive_synthesis_precedence": "OUTCOME",
-      "test_extract_routing_features_returns_typed_inspectable_feature_object": "MECHANICS",
-      "test_router_can_consume_precomputed_routing_features": "MECHANICS",
-      "test_confidence_is_high_for_mixed_prompt_with_clear_score_gap": "MECHANICS",
-      "test_extract_routing_features_treats_plural_unknowns_as_epistemic_evidence_signal": "MECHANICS",
-      "test_confidence_brainstorm_prompt_calibrates_to_high_for_clean_single_regime_signal": "MECHANICS",
-      "test_confidence_mixed_interpretation_and_evidence_prompt_remains_medium": "MECHANICS",
-      "test_interpretation_shortcut_stays_synthesis_but_mixed_evidence_prompt_prefers_epistemic": "OUTCOME",
-      "test_confidence_vague_help_prompt_remains_low": "MECHANICS",
-      "test_explicit_high_confidence_prompts_route_deterministically": "MECHANICS",
-      "test_confidence_is_low_for_weak_underspecified_prompt": "MECHANICS",
-      "test_structural_signals_and_risk_profile_plumbed_into_prompts_and_synthesis_suppressions": "MECHANICS",
+      "test_outcome_routes_match_expected_stage": "OUTCOME",
       "test_synthesis_prompt_contains_anchor_contract_and_role_guidance": "INFRASTRUCTURE",
       "test_validator_accepts_grounded_synthesis_artifact": "INFRASTRUCTURE",
       "test_validator_rejects_polished_but_generic_synthesis_artifact": "INFRASTRUCTURE",
       "test_validator_rejects_pressure_points_as_execution_risks": "INFRASTRUCTURE",
-      "test_repair_dispatch_selects_expected_mode": "MECHANICS",
       "test_smoke_main_plan_entrypoint_runs_without_crashing": "INFRASTRUCTURE",
-      "test_task_analyzer_validator_returns_typed_output": "MECHANICS",
-      "test_task_analyzer_invalid_output_falls_back_to_deterministic_routing": "MECHANICS",
-      "test_task_analyzer_parsing_fallbacks_accept_fenced_or_commentary_wrapped_json": "MECHANICS",
-      "test_task_analyzer_malformed_json_still_fails_with_summary": "MECHANICS",
-      "test_task_analyzer_valid_json_passes_without_repair_call": "MECHANICS",
-      "test_task_analyzer_missing_rationale_attempts_missing_field_repair": "MECHANICS",
-      "test_task_analyzer_missing_stage_scores_attempts_missing_field_repair": "MECHANICS",
-      "test_task_analyzer_missing_confidence_attempts_missing_field_repair": "MECHANICS",
-      "test_task_analyzer_missing_field_repair_can_still_fail_validation": "MECHANICS",
-      "test_task_analyzer_non_object_json_does_not_enter_missing_field_repair": "MECHANICS",
-      "test_task_analyzer_can_be_disabled_even_when_flag_model_data_exists": "MECHANICS",
-      "test_high_confidence_routing_skips_task_analyzer_cost": "MECHANICS",
-      "test_low_confidence_routing_uses_analyzer_and_can_update_primary": "MECHANICS",
-      "test_zero_score_fallback_rejects_broad_generic_analyzer_override": "MECHANICS",
-      "test_zero_score_fallback_rejects_operator_without_decision_evidence": "MECHANICS",
-      "test_runtime_plan_zero_score_fallback_rejects_broad_all_regime_analyzer_output": "MECHANICS",
-      "test_runtime_plan_analyzer_missing_field_repair_can_succeed": "MECHANICS",
-      "test_runtime_plan_malformed_analyzer_output_fails_safe_and_keeps_deterministic_route": "MECHANICS",
-      "test_analyzer_disabled_fallback_keeps_deterministic_behavior": "MECHANICS",
-      "test_precedence_collision_operator_beats_epistemic_on_tie": "MECHANICS",
-      "test_exploration_fallback_only_when_no_nontrivial_scores": "MECHANICS",
       "test_plan_debug_routing_flag_prints_observability_details": "INFRASTRUCTURE",
-      "test_plan_populates_router_state": "INFRASTRUCTURE",
-      "test_execute_populates_router_state_and_prior_regimes": "INFRASTRUCTURE",
-      "test_router_state_serializes_in_saved_runs": "INFRASTRUCTURE",
-      "test_router_state_prior_regimes_helper_updates_correctly": "INFRASTRUCTURE",
-      "test_contradictions_and_assumptions_persist_across_simple_transition": "INFRASTRUCTURE",
-      "test_handoff_remains_router_state_backed": "INFRASTRUCTURE"
+      "test_router_state_prior_regimes_helper_updates_correctly": "INFRASTRUCTURE"
     },
     "tests/test_router_state.py": {
-      "test_plan_populates_router_state_core_fields": "INFRASTRUCTURE",
-      "test_execute_populates_router_state_and_mutation_helpers": "INFRASTRUCTURE"
+      "test_plan_populates_router_state_core_fields": "INFRASTRUCTURE"
     },
     "tests/test_router_state_integration.py": {
-      "test_handoff_fields_are_router_state_backed_after_plan": "INFRASTRUCTURE",
-      "test_handoff_recommended_next_regime_remains_stage_shaped_after_execute": "INFRASTRUCTURE",
-      "test_execute_overrides_recommended_next_regime_from_validated_output": "INFRASTRUCTURE",
-      "test_execute_records_completion_and_failure_signals_in_prior_regime_summary": "INFRASTRUCTURE",
-      "test_invalid_structural_output_does_not_override_recommended_next_regime_or_handoff": "INFRASTRUCTURE"
+      "test_handoff_fields_are_router_state_backed_after_plan": "INFRASTRUCTURE"
     },
     "tests/test_router_wrapper.py": {
       "test_wrapper_settings_show_set_reset": "INFRASTRUCTURE",
@@ -294,11 +199,13 @@
       "test_zero_score_fallback_cases": "OUTCOME",
       "test_negated_closure_cases": "OUTCOME"
     },
+    "tests/test_runtime_model_client_factory.py": {
+      "test_create_model_client_openai_uses_openai_client_and_base_url": "INFRASTRUCTURE",
+      "test_create_model_client_ollama_uses_ollama_client": "INFRASTRUCTURE",
+      "test_create_model_client_openai_missing_env_var_fails_with_clear_message": "INFRASTRUCTURE"
+    },
     "tests/test_storage_serialization.py": {
-      "test_to_jsonable_and_saved_record_include_router_state_structure": "INFRASTRUCTURE",
       "test_session_store_load_backfills_missing_router_state_for_legacy_runs": "INFRASTRUCTURE",
-      "test_runtime_can_restore_router_state_with_full_regime_payload": "INFRASTRUCTURE",
-      "test_saved_record_includes_switch_denied_and_switch_exhausted_metadata": "INFRASTRUCTURE",
       "test_load_router_state_adapts_legacy_stage_only_regimes": "INFRASTRUCTURE"
     },
     "tests/test_switch_orchestrator.py": {
@@ -313,10 +220,7 @@
       "test_max_step_bound_is_enforced": "INFRASTRUCTURE",
       "test_runtime_bounded_mode_updates_prior_regimes_without_infinite_loop": "INFRASTRUCTURE",
       "test_runtime_single_step_mode_preserves_old_behavior": "INFRASTRUCTURE",
-      "test_runtime_prevents_stage_loops_in_bounded_mode": "INFRASTRUCTURE",
-      "test_runtime_failed_operator_switches_to_epistemic_in_bounded_mode": "INFRASTRUCTURE",
-      "test_runtime_semantically_invalid_operator_switches_to_epistemic_in_bounded_mode": "INFRASTRUCTURE",
-      "test_runtime_denied_loop_switch_keeps_parsed_recommendation_in_state_and_handoff": "INFRASTRUCTURE"
+      "test_runtime_prevents_stage_loops_in_bounded_mode": "INFRASTRUCTURE"
     },
     "tests/test_validation_harness.py": {
       "test_valid_output_for_each_stage_is_valid": "INFRASTRUCTURE",
@@ -344,14 +248,6 @@
       "test_strict_synthesis_supporting_structure_too_thin": "INFRASTRUCTURE",
       "test_strict_fails_but_off_passes_for_generic_filler_and_forbidden_nouns": "INFRASTRUCTURE",
       "test_strict_fails_but_lenient_passes_for_generic_filler_and_forbidden_nouns": "INFRASTRUCTURE"
-    },
-    "tests/test_word_boundary.py": {
-      "test_breakout_game_does_not_match_break_single_word": "MECHANICS",
-      "test_break_under_pressure_matches_multi_word_phrase": "MECHANICS",
-      "test_known_facts_does_not_match_now_single_word": "MECHANICS",
-      "test_decide_now_matches_both_single_word_phrases": "MECHANICS",
-      "test_stress_test_matches_multi_word_phrase": "MECHANICS",
-      "test_breakfast_meeting_does_not_match_break_single_word": "MECHANICS"
     }
   }
 }
