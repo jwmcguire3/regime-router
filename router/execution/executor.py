@@ -46,8 +46,10 @@ class RegimeExecutor:
         )
 
         repaired = False
-        repair_mode = PromptBuilder.REPAIR_MODE_SEMANTIC
+        repair_attempted = False
+        repair_mode: str | None = None
         if not validation.get("is_valid", False):
+            repair_attempted = True
             repair_mode = select_repair_mode(validation)
             repair_prompt = self.prompt_builder.build_repair_prompt(
                 task,
@@ -73,6 +75,12 @@ class RegimeExecutor:
                 response = repair_response
                 repaired = True
 
+        validation_payload = dict(validation)
+        validation_payload["repair_attempted"] = repair_attempted
+        if repair_attempted:
+            validation_payload["repair_succeeded"] = repaired
+            validation_payload["repair_mode"] = repair_mode
+
         return RegimeExecutionResult(
             task=task,
             model=model,
@@ -82,11 +90,6 @@ class RegimeExecutor:
             user_prompt=user_prompt,
             raw_response=raw_text,
             artifact_text=raw_text,
-            validation={
-                **validation,
-                "repair_attempted": True,
-                "repair_succeeded": repaired,
-                "repair_mode": repair_mode,
-            },
+            validation=validation_payload,
             ollama_meta={k: v for k, v in response.items() if k != "response"},
         )
