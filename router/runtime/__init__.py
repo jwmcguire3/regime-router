@@ -48,7 +48,7 @@ class CognitiveRouterRuntime:
         use_task_analyzer: bool = True,
         task_analyzer_model: str = "dolphin29:latest",
     ) -> None:
-        self.router = Router(embedding_router=None)
+        self.router = Router()
         self.composer = RegimeComposer()
         self.validator = OutputValidator()
         self.prompt_builder = PromptBuilder()
