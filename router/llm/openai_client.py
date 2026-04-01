@@ -30,7 +30,7 @@ class OpenAIModelClient:
         payload = {
             "model": model,
             "temperature": temperature,
-            "max_tokens": num_predict,
+            "max_completion_tokens": num_predict,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
