@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Dict, List, Optional, Set, Tuple
 
 from ..analyzer import TaskAnalyzer
@@ -10,7 +11,7 @@ from ..prompts import PromptBuilder
 from ..routing import RegimeComposer, Router, extract_routing_features, extract_structural_signals, infer_risk_profile
 from ..state import Handoff, RouterState
 from ..validation import OutputValidator
-from ..llm import ModelClient, OllamaModelClient
+from ..llm import ModelClient, OllamaModelClient, OpenAIModelClient
 from ..execution.direct_execution import execute_direct_task
 from ..execution.executor import RegimeExecutor
 from ..execution.repair_policy import select_repair_mode
@@ -20,10 +21,30 @@ from .session_runtime import SessionRuntime
 from .state_updater import handoff_from_state, update_router_state_from_execution
 
 
+def create_model_client(
+    *,
+    provider: str,
+    ollama_base_url: str,
+    openai_base_url: str,
+    openai_api_key_env: str,
+) -> ModelClient:
+    if provider == "openai":
+        api_key = os.getenv(openai_api_key_env, "").strip()
+        if not api_key:
+            raise RuntimeError(
+                f"OpenAI provider requires environment variable '{openai_api_key_env}' to be set and non-empty."
+            )
+        return OpenAIModelClient(api_key=api_key, base_url=openai_base_url)
+    return OllamaModelClient(base_url=ollama_base_url)
+
+
 class CognitiveRouterRuntime:
     def __init__(
         self,
         ollama_base_url: str = "http://localhost:11434",
+        provider: str = "ollama",
+        openai_base_url: str = "https://api.openai.com/v1",
+        openai_api_key_env: str = "OPENAI_API_KEY",
         use_task_analyzer: bool = True,
         task_analyzer_model: str = "dolphin29:latest",
     ) -> None:
@@ -35,7 +56,12 @@ class CognitiveRouterRuntime:
         self.misrouting_detector = MisroutingDetector()
         self.escalation_policy = EscalationPolicy()
         self.switch_orchestrator = SwitchOrchestrator()
-        self.model_client: ModelClient = OllamaModelClient(base_url=ollama_base_url)
+        self.model_client: ModelClient = create_model_client(
+            provider=provider,
+            ollama_base_url=ollama_base_url,
+            openai_base_url=openai_base_url,
+            openai_api_key_env=openai_api_key_env,
+        )
         self.use_task_analyzer = use_task_analyzer
         self.task_analyzer = TaskAnalyzer(self.model_client, model=task_analyzer_model)
         self.task_classifier = TaskClassifier()
