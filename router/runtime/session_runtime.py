@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import List, Set
+from typing import List, Optional, Set
 
 from ..control import EscalationPolicy, MisroutingDetector, RegimeOutputContract, SwitchOrchestrator
-from ..models import RegimeExecutionResult, RoutingFeatures
+from ..models import RegimeExecutionResult, RoutingDecision, RoutingFeatures
+from ..orchestration.stop_policy import StopPolicy
 from ..state import Handoff, RouterState
 
 
@@ -14,10 +15,12 @@ class SessionRuntime:
         misrouting_detector: MisroutingDetector,
         escalation_policy: EscalationPolicy,
         switch_orchestrator: SwitchOrchestrator,
+        stop_policy: StopPolicy,
     ) -> None:
         self.misrouting_detector = misrouting_detector
         self.escalation_policy = escalation_policy
         self.switch_orchestrator = switch_orchestrator
+        self.stop_policy = stop_policy
 
     def run_orchestration_loop(
         self,
@@ -30,6 +33,7 @@ class SessionRuntime:
         risk_profile: Set[str],
         routing_features: RoutingFeatures,
         max_switches: int,
+        routing_decision: Optional[RoutingDecision],
         execute_regime_once,
         update_state_from_execution,
         handoff_from_state,
@@ -38,6 +42,15 @@ class SessionRuntime:
         current_result = initial_result
         prior_handoff: Handoff = handoff_from_state(state)
         while True:
+            stop_decision = self.stop_policy.should_stop(
+                router_state=state,
+                validation_result=current_result.validation,
+                routing_decision=routing_decision,
+                current_stage=state.current_regime.stage,
+            )
+            if stop_decision.should_stop:
+                state.orchestration_stop_reason = stop_decision.reason
+                break
             state.switches_attempted += 1
             switch_index = state.switches_attempted
             if state.switches_executed >= max_switches:
@@ -83,6 +96,24 @@ class SessionRuntime:
                 escalation=escalation,
             )
             state = orchestrated.updated_state
+            builder_gate_decision = self.stop_policy.should_stop(
+                router_state=state,
+                validation_result=current_result.validation,
+                routing_decision=routing_decision,
+                current_stage=state.current_regime.stage,
+            )
+            if builder_gate_decision.should_stop and builder_gate_decision.reason.startswith("Builder blocked:"):
+                state.record_switch_decision(
+                    switch_index=switch_index,
+                    from_stage=state.current_regime.stage,
+                    to_stage=orchestrated.next_regime.stage if orchestrated.next_regime else None,
+                    switch_recommended=orchestrated.switch_recommended_now,
+                    switch_executed=False,
+                    reason=builder_gate_decision.reason,
+                    switch_trigger=state.switch_trigger,
+                )
+                state.orchestration_stop_reason = builder_gate_decision.reason
+                break
             if not orchestrated.switch_recommended_now or orchestrated.next_regime is None:
                 state.record_switch_decision(
                     switch_index=switch_index,

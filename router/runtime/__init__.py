@@ -15,6 +15,7 @@ from ..llm import ModelClient, OllamaModelClient, OpenAIModelClient
 from ..execution.direct_execution import execute_direct_task
 from ..execution.executor import RegimeExecutor
 from ..execution.repair_policy import select_repair_mode
+from ..orchestration.stop_policy import StopPolicy
 from .planner import RuntimePlanner
 from .restore import restore_router_state
 from .session_runtime import SessionRuntime
@@ -56,6 +57,7 @@ class CognitiveRouterRuntime:
         self.misrouting_detector = MisroutingDetector()
         self.escalation_policy = EscalationPolicy()
         self.switch_orchestrator = SwitchOrchestrator()
+        self.stop_policy = StopPolicy()
         self.model_client: ModelClient = create_model_client(
             provider=provider,
             ollama_base_url=ollama_base_url,
@@ -82,6 +84,7 @@ class CognitiveRouterRuntime:
             misrouting_detector=self.misrouting_detector,
             escalation_policy=self.escalation_policy,
             switch_orchestrator=self.switch_orchestrator,
+            stop_policy=self.stop_policy,
         )
 
     @property
@@ -188,6 +191,7 @@ class CognitiveRouterRuntime:
                 risk_profile=inferred_risks,
                 routing_features=routing_features,
                 max_switches=max_switches,
+                routing_decision=decision,
             )
         elif self.router_state is not None:
             self.router_state.orchestration_stop_reason = "single_step_mode"
@@ -208,6 +212,7 @@ class CognitiveRouterRuntime:
         risk_profile: Set[str],
         routing_features: RoutingFeatures,
         max_switches: int,
+        routing_decision: Optional[RoutingDecision],
     ) -> RegimeExecutionResult:
         if self.router_state is None:
             return initial_result
@@ -220,6 +225,7 @@ class CognitiveRouterRuntime:
             risk_profile=risk_profile,
             routing_features=routing_features,
             max_switches=max_switches,
+            routing_decision=routing_decision,
             execute_regime_once=self._execute_regime_once,
             update_state_from_execution=self._update_router_state_from_execution,
             handoff_from_state=self._handoff_from_state,
