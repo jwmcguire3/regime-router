@@ -18,7 +18,7 @@ from ..execution.repair_policy import select_repair_mode
 from .planner import RuntimePlanner
 from .restore import restore_router_state
 from .session_runtime import SessionRuntime
-from .state_updater import handoff_from_state, update_router_state_from_execution
+from .state_updater import compute_forward_handoff, handoff_from_state, update_router_state_from_execution
 
 
 def create_model_client(
@@ -176,6 +176,8 @@ class CognitiveRouterRuntime:
             self.router_state.executed_regime_stages = []
             self.router_state.switch_history = []
         self._update_router_state_from_execution(self.router_state, result, reason_entered=decision.why_primary_wins_now)
+        if self.router_state is not None:
+            self.router_state.latest_forward_handoff = compute_forward_handoff(result, self.router_state, regime)
 
         if bounded_orchestration and self.router_state is not None:
             result = self._run_orchestration_loop(
@@ -221,6 +223,7 @@ class CognitiveRouterRuntime:
             execute_regime_once=self._execute_regime_once,
             update_state_from_execution=self._update_router_state_from_execution,
             handoff_from_state=self._handoff_from_state,
+            compute_forward_handoff=self._compute_forward_handoff,
         )
         return result
 
@@ -280,6 +283,9 @@ class CognitiveRouterRuntime:
 
     def _handoff_from_state(self, state: Optional[RouterState]) -> Handoff:
         return handoff_from_state(state)
+
+    def _compute_forward_handoff(self, result: RegimeExecutionResult, state: RouterState, regime: Regime) -> Handoff:
+        return compute_forward_handoff(result, state, regime)
 
     def restore_router_state(self, payload: object) -> Optional[RouterState]:
         self.router_state = restore_router_state(payload, composer=self.composer)

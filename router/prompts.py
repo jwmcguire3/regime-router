@@ -155,6 +155,7 @@ class PromptBuilder:
                 {_bullet_list(prior_handoff.assumptions_in_play)}
                 Main risk if continuing: {prior_handoff.main_risk_if_continue}
                 Minimum useful artifact: {prior_handoff.minimum_useful_artifact}
+                {f"Prior artifact summary: {prior_handoff.prior_artifact_summary}" if prior_handoff.prior_artifact_summary else ""}
 
                 Build on this context. Do not re-derive what is already established.
                 """

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Tuple
 import hashlib
 
-from ..models import CANONICAL_FAILURE_IF_OVERUSED, Regime, RegimeExecutionResult, RoutingDecision, Stage
+from ..models import ARTIFACT_FIELDS, ARTIFACT_HINTS, CANONICAL_FAILURE_IF_OVERUSED, Regime, RegimeExecutionResult, RoutingDecision, Stage
 from ..routing import RegimeComposer
 from ..state import Handoff, RouterState
 
@@ -132,8 +132,11 @@ def handoff_from_state(state: Optional[RouterState]) -> Handoff:
             main_risk_if_continue="",
             recommended_next_regime=None,
             minimum_useful_artifact="",
+            prior_artifact_summary="",
             recommended_next_regime_full=None,
         )
+    if state.latest_forward_handoff is not None:
+        return state.latest_forward_handoff
     return Handoff(
         current_bottleneck=state.current_bottleneck,
         dominant_frame=state.dominant_frame or "",
@@ -144,5 +147,124 @@ def handoff_from_state(state: Optional[RouterState]) -> Handoff:
         main_risk_if_continue=state.risks[-1] if state.risks else "",
         recommended_next_regime=state.recommended_next_regime.stage if state.recommended_next_regime else None,
         minimum_useful_artifact=state.stage_goal,
+        prior_artifact_summary="",
         recommended_next_regime_full=state.recommended_next_regime,
+    )
+
+
+def _unique_preserve(items: List[str]) -> List[str]:
+    seen = set()
+    out: List[str] = []
+    for item in items:
+        cleaned = item.strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        out.append(cleaned)
+    return out
+
+
+def _determine_next_stage(result: RegimeExecutionResult, state: RouterState) -> Optional[Stage]:
+    parsed = result.validation.get("parsed", {})
+    if isinstance(parsed, dict):
+        candidate = parsed.get("recommended_next_regime")
+        if isinstance(candidate, str):
+            normalized = candidate.strip().lower()
+            if normalized in Stage._value2member_map_:
+                return Stage(normalized)
+    if state.recommended_next_regime is not None:
+        return state.recommended_next_regime.stage
+    return None
+
+
+def _extract_key_findings(result: RegimeExecutionResult) -> Tuple[List[str], str]:
+    parsed = result.validation.get("parsed", {})
+    if not isinstance(parsed, dict):
+        return [], ""
+    artifact = parsed.get("artifact", {})
+    if not isinstance(artifact, dict):
+        return [], ""
+    field_names = ARTIFACT_FIELDS.get(result.stage, [])
+    top_fields = field_names[:5]
+    findings: List[str] = []
+    summary_bits: List[str] = []
+    for field in top_fields:
+        value = artifact.get(field)
+        if isinstance(value, str):
+            normalized = value.strip()
+        elif isinstance(value, list):
+            normalized = "; ".join(str(v).strip() for v in value if str(v).strip())
+        else:
+            normalized = ""
+        if not normalized:
+            continue
+        findings.append(f"{field}: {normalized}")
+        summary_bits.append(f"{field}={normalized}")
+        if len(findings) >= 5:
+            break
+    return findings, "; ".join(summary_bits)
+
+
+def _minimum_useful_artifact(next_stage: Optional[Stage], state: RouterState) -> str:
+    next_artifact = ARTIFACT_HINTS.get(next_stage) if next_stage is not None else None
+    endpoint = None
+    if state.task_classification and isinstance(state.task_classification.get("likely_endpoint_regime"), str):
+        endpoint = state.task_classification.get("likely_endpoint_regime")
+    endpoint = endpoint or "operator"
+    if next_artifact:
+        return f"Progress toward endpoint '{endpoint}' by delivering a valid '{next_artifact}' artifact."
+    return f"Progress toward endpoint '{endpoint}' with the minimum useful typed artifact."
+
+
+def compute_forward_handoff(result: RegimeExecutionResult, router_state: RouterState, regime: Regime) -> Handoff:
+    parsed = result.validation.get("parsed", {})
+    completion_signal = ""
+    failure_signal = ""
+    artifact_contradictions: List[str] = []
+    uncertainties_update: List[str] = []
+    if isinstance(parsed, dict):
+        completion_signal = str(parsed.get("completion_signal", "")).strip()
+        failure_signal = str(parsed.get("failure_signal", "")).strip()
+        artifact = parsed.get("artifact", {})
+        if isinstance(artifact, dict):
+            contradictions_value = artifact.get("contradictions")
+            if isinstance(contradictions_value, list):
+                artifact_contradictions = [str(v) for v in contradictions_value if str(v).strip()]
+            uncertain_value = artifact.get("plausible_but_unproven") or artifact.get("unresolved_axes")
+            if isinstance(uncertain_value, list):
+                uncertainties_update = [str(v) for v in uncertain_value if str(v).strip()]
+
+    key_findings, findings_summary = _extract_key_findings(result)
+    knowns = _unique_preserve(router_state.knowns + key_findings)
+    uncertainties = _unique_preserve(router_state.uncertainties + uncertainties_update)
+    contradictions = _unique_preserve(router_state.contradictions + artifact_contradictions)
+    next_stage = _determine_next_stage(result, router_state)
+    next_regime = resolve_next_regime(router_state, next_stage, RegimeComposer()) if next_stage is not None else None
+    dominant_frame = router_state.dominant_frame or regime.name
+    if isinstance(parsed, dict):
+        artifact = parsed.get("artifact", {})
+        if isinstance(artifact, dict):
+            for candidate in ("central_claim", "decision", "reusable_pattern"):
+                value = artifact.get(candidate)
+                if isinstance(value, str) and value.strip():
+                    dominant_frame = value.strip()
+                    break
+    summary_sentence_1 = f"The {regime.stage.value} stage produced a validated '{ARTIFACT_HINTS[result.stage]}' artifact."
+    summary_sentence_2 = f"Key fields captured: {findings_summary or 'no high-signal fields were populated.'}"
+    summary_sentence_3 = (
+        f"Control signals: completion='{completion_signal or 'none'}', failure='{failure_signal or 'none'}', "
+        f"recommended_next='{next_stage.value if next_stage else 'none'}'."
+    )
+    return Handoff(
+        current_bottleneck=router_state.current_bottleneck,
+        dominant_frame=dominant_frame,
+        what_is_known=knowns,
+        what_remains_uncertain=uncertainties,
+        active_contradictions=contradictions,
+        assumptions_in_play=list(router_state.assumptions),
+        main_risk_if_continue=router_state.risks[-1] if router_state.risks else "",
+        recommended_next_regime=next_stage,
+        minimum_useful_artifact=_minimum_useful_artifact(next_stage, router_state),
+        prior_artifact_summary=f"{summary_sentence_1} {summary_sentence_2} {summary_sentence_3}",
+        recommended_next_regime_full=next_regime,
     )

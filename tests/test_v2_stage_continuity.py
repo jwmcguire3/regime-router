@@ -8,6 +8,7 @@ from router.models import RegimeExecutionResult, RoutingDecision, Stage
 from router.prompts import PromptBuilder
 from router.routing import RegimeComposer
 from router.runtime import CognitiveRuntime
+from router.runtime.state_updater import compute_forward_handoff
 from router.state import Handoff
 
 
@@ -274,3 +275,152 @@ def test_handoff_fields_appear_in_prompt():
     assert "Assumption 1" in prompt
     assert "Risk 1" in prompt
     assert "Artifact 1" in prompt
+
+
+def test_forward_handoff_includes_artifact_summary(monkeypatch):
+    runtime = CognitiveRuntime()
+    runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.EPISTEMIC, Stage.OPERATOR))
+
+    def fake_execute_once(self, **kwargs):
+        regime = kwargs["regime"]
+        payload = {
+            "completion_signal": "evidence_state_decision_ready",
+            "failure_signal": "",
+            "recommended_next_regime": "operator",
+            "artifact": {
+                "supported_claims": ["Known claim"],
+                "plausible_but_unproven": ["Unknown claim"],
+                "contradictions": ["Contradiction A"],
+            },
+        }
+        return RegimeExecutionResult(
+            task="task",
+            model="fake",
+            regime_name=f"{regime.stage.value}-core",
+            stage=regime.stage,
+            system_prompt="",
+            user_prompt="",
+            raw_response=json.dumps(payload),
+            artifact_text=json.dumps(payload),
+            validation={"is_valid": True, "parsed": payload},
+        )
+
+    monkeypatch.setattr(CognitiveRuntime, "_execute_regime_once", fake_execute_once)
+    decision, regime, _result, handoff = runtime.execute(task="forward handoff summary", model="fake", bounded_orchestration=False)
+
+    assert decision.primary_regime == regime.stage
+    assert handoff.prior_artifact_summary.strip()
+
+
+def test_forward_handoff_accumulates_knowns():
+    runtime = CognitiveRuntime()
+    runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.EPISTEMIC, Stage.OPERATOR))
+    decision, regime, _ = runtime.plan("knowns accumulation task")
+    assert decision.primary_regime == regime.stage
+    assert runtime.router_state is not None
+    runtime.router_state.knowns = ["Known A", "Known B"]
+
+    payload = {
+        "completion_signal": "evidence_state_decision_ready",
+        "failure_signal": "",
+        "recommended_next_regime": "operator",
+        "artifact": {
+            "supported_claims": ["Claim C"],
+            "plausible_but_unproven": [],
+            "contradictions": [],
+        },
+    }
+    result = RegimeExecutionResult(
+        task="task",
+        model="fake",
+        regime_name=f"{regime.stage.value}-core",
+        stage=regime.stage,
+        system_prompt="",
+        user_prompt="",
+        raw_response=json.dumps(payload),
+        artifact_text=json.dumps(payload),
+        validation={"is_valid": True, "parsed": payload},
+    )
+    forward_handoff = compute_forward_handoff(result, runtime.router_state, regime)
+    assert len(forward_handoff.what_is_known) == 3
+
+
+def test_forward_handoff_is_deterministic():
+    runtime = CognitiveRuntime()
+    runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.EPISTEMIC, Stage.OPERATOR))
+    decision, regime, _ = runtime.plan("deterministic handoff task")
+    assert decision.primary_regime == regime.stage
+    assert runtime.router_state is not None
+
+    payload = {
+        "completion_signal": "evidence_state_decision_ready",
+        "failure_signal": "",
+        "recommended_next_regime": "operator",
+        "artifact": {
+            "supported_claims": ["Claim 1"],
+            "plausible_but_unproven": ["Unknown 1"],
+            "contradictions": ["Contra 1"],
+        },
+    }
+    result = RegimeExecutionResult(
+        task="task",
+        model="fake",
+        regime_name=f"{regime.stage.value}-core",
+        stage=regime.stage,
+        system_prompt="",
+        user_prompt="",
+        raw_response=json.dumps(payload),
+        artifact_text=json.dumps(payload),
+        validation={"is_valid": True, "parsed": payload},
+    )
+    assert compute_forward_handoff(result, runtime.router_state, regime) == compute_forward_handoff(
+        result,
+        runtime.router_state,
+        regime,
+    )
+
+
+def test_artifact_summary_in_second_stage_prompt(monkeypatch):
+    runtime = CognitiveRuntime()
+    runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.EPISTEMIC, Stage.OPERATOR))
+    captured = []
+
+    def fake_execute_once(self, **kwargs):
+        regime = kwargs["regime"]
+        if kwargs.get("prior_handoff") is not None:
+            captured.append(kwargs["prior_handoff"])
+        payload = {
+            "completion_signal": "evidence_state_decision_ready",
+            "failure_signal": "",
+            "recommended_next_regime": "operator",
+            "artifact": {
+                "supported_claims": ["Known claim"],
+                "plausible_but_unproven": ["Unknown claim"],
+                "contradictions": ["Contradiction A"],
+                "decision_relevant_conclusions": ["Action now"],
+            },
+        }
+        if regime.stage == Stage.OPERATOR:
+            payload["artifact"] = {"decision": "Ship now"}
+        return RegimeExecutionResult(
+            task="task",
+            model="fake",
+            regime_name=f"{regime.stage.value}-core",
+            stage=regime.stage,
+            system_prompt="",
+            user_prompt="",
+            raw_response=json.dumps(payload),
+            artifact_text=json.dumps(payload),
+            validation={"is_valid": True, "parsed": payload},
+        )
+
+    monkeypatch.setattr(CognitiveRuntime, "_execute_regime_once", fake_execute_once)
+    runtime.execute(task="summary into second prompt", model="fake", bounded_orchestration=True, max_switches=1)
+    assert captured
+    prompt = PromptBuilder.build_user_prompt(
+        "task",
+        runtime.composer.compose(Stage.OPERATOR),
+        prior_handoff=captured[0],
+    )
+    assert "Prior artifact summary:" in prompt
+    assert captured[0].prior_artifact_summary in prompt

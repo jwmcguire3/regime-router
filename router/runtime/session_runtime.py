@@ -33,8 +33,10 @@ class SessionRuntime:
         execute_regime_once,
         update_state_from_execution,
         handoff_from_state,
+        compute_forward_handoff,
     ) -> RegimeExecutionResult:
         current_result = initial_result
+        prior_handoff: Handoff = handoff_from_state(state)
         while True:
             state.switches_attempted += 1
             switch_index = state.switches_attempted
@@ -129,7 +131,6 @@ class SessionRuntime:
                 switch_trigger=state.switch_trigger,
             )
             state.switches_executed += 1
-            prior_handoff: Handoff = handoff_from_state(state)
             state.current_regime = orchestrated.next_regime
             current_result = execute_regime_once(
                 task=task,
@@ -140,4 +141,6 @@ class SessionRuntime:
                 prior_handoff=prior_handoff,
             )
             update_state_from_execution(state, current_result, reason_entered=orchestrated.reason_for_switch)
+            prior_handoff = compute_forward_handoff(current_result, state, orchestrated.next_regime)
+            state.latest_forward_handoff = prior_handoff
         return current_result
