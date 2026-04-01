@@ -65,8 +65,8 @@ def infer_risk_profile(task: str, risk_profile: Optional[Set[str]]) -> Set[str]:
 
 
 class Router:
-    def __init__(self, embedding_router: Optional[object] = None) -> None:
-        _ = embedding_router
+    def __init__(self) -> None:
+        pass
 
 
     def route(
