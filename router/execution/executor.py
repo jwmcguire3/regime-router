@@ -5,6 +5,7 @@ from typing import List, Set
 from ..llm import ModelClient
 from ..models import Regime, RegimeExecutionResult
 from ..prompts import PromptBuilder
+from ..state import Handoff
 from ..validation import OutputValidator
 from .repair_policy import select_repair_mode
 
@@ -23,9 +24,16 @@ class RegimeExecutor:
         regime: Regime,
         task_signals: List[str],
         risk_profile: Set[str],
+        prior_handoff: Handoff | None = None,
     ) -> RegimeExecutionResult:
         system_prompt = self.prompt_builder.build_system_prompt(regime, task_signals=task_signals, risk_profile=risk_profile)
-        user_prompt = self.prompt_builder.build_user_prompt(task, regime, task_signals=task_signals, risk_profile=risk_profile)
+        user_prompt = self.prompt_builder.build_user_prompt(
+            task,
+            regime,
+            task_signals=task_signals,
+            risk_profile=risk_profile,
+            prior_handoff=prior_handoff,
+        )
 
         response = self.model_client.generate(model=model, system=system_prompt, prompt=user_prompt, stream=False)
         raw_text = str(response.get("response", "")).strip()

@@ -4,7 +4,7 @@ from typing import List, Set
 
 from ..control import EscalationPolicy, MisroutingDetector, RegimeOutputContract, SwitchOrchestrator
 from ..models import RegimeExecutionResult, RoutingFeatures
-from ..state import RouterState
+from ..state import Handoff, RouterState
 
 
 class SessionRuntime:
@@ -32,6 +32,7 @@ class SessionRuntime:
         max_switches: int,
         execute_regime_once,
         update_state_from_execution,
+        handoff_from_state,
     ) -> RegimeExecutionResult:
         current_result = initial_result
         while True:
@@ -128,6 +129,7 @@ class SessionRuntime:
                 switch_trigger=state.switch_trigger,
             )
             state.switches_executed += 1
+            prior_handoff: Handoff = handoff_from_state(state)
             state.current_regime = orchestrated.next_regime
             current_result = execute_regime_once(
                 task=task,
@@ -135,6 +137,7 @@ class SessionRuntime:
                 regime=orchestrated.next_regime,
                 task_signals=task_signals,
                 risk_profile=risk_profile,
+                prior_handoff=prior_handoff,
             )
             update_state_from_execution(state, current_result, reason_entered=orchestrated.reason_for_switch)
         return current_result
