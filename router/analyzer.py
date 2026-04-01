@@ -21,12 +21,13 @@ class TaskAnalyzer:
         routing_features: RoutingFeatures,
         task_signals: List[str],
         risk_profile: Set[str],
+        classifier_signal: Optional[Dict[str, object]] = None,
     ) -> Optional[TaskAnalyzerOutput]:
         self.last_error_summary = None
         response = self.model_client.generate(
             model=self.model,
             system=self._build_system_prompt(),
-            prompt=self._build_user_prompt(task, routing_features, task_signals, risk_profile),
+            prompt=self._build_user_prompt(task, routing_features, task_signals, risk_profile, classifier_signal),
             stream=False,
             temperature=0.0,
             num_predict=500,
@@ -96,8 +97,22 @@ class TaskAnalyzer:
         routing_features: RoutingFeatures,
         task_signals: List[str],
         risk_profile: Set[str],
+        classifier_signal: Optional[Dict[str, object]] = None,
     ) -> RoutingDecision:
-        analyzer_result = self.analyze(task, routing_features, task_signals, risk_profile)
+        analyzer_result = self.analyze(task, routing_features, task_signals, risk_profile, classifier_signal)
+        return self.decision_from_analysis(
+            task=task,
+            analyzer_result=analyzer_result,
+            routing_features=routing_features,
+        )
+
+    def decision_from_analysis(
+        self,
+        *,
+        task: str,
+        analyzer_result: Optional[TaskAnalyzerOutput],
+        routing_features: RoutingFeatures,
+    ) -> RoutingDecision:
         if analyzer_result is None:
             summary = self.last_error_summary or "Analyzer failed without a detailed error summary."
             return RoutingDecision(
@@ -217,7 +232,17 @@ class TaskAnalyzer:
         routing_features: RoutingFeatures,
         task_signals: List[str],
         risk_profile: Set[str],
+        classifier_signal: Optional[Dict[str, object]] = None,
     ) -> str:
+        classifier_route_type = "unknown"
+        classifier_confidence = "n/a"
+        classifier_source = "n/a"
+        if classifier_signal is not None:
+            classifier_route_type = str(classifier_signal.get("route_type", classifier_route_type))
+            confidence = classifier_signal.get("confidence")
+            classifier_confidence = f"{confidence}" if confidence is not None else classifier_confidence
+            classifier_source = str(classifier_signal.get("classification_source", classifier_source))
+
         feature_blob = {
             "structural_signals": routing_features.structural_signals,
             "decision_pressure": routing_features.decision_pressure,
@@ -235,6 +260,8 @@ class TaskAnalyzer:
 
             task:
             {task}
+
+            Classifier assessment: {classifier_route_type}, confidence: {classifier_confidence}, source: {classifier_source}
 
             deterministic_features:
             {json.dumps(feature_blob, ensure_ascii=False)}
