@@ -571,9 +571,9 @@ function Show-Menu {
     while ($true) {
         Write-Section "Router menu"
         Write-Host "1. Plan task (default settings)"
-        Write-Host "2. Run task against Ollama (default settings)"
+        Write-Host "2. Run task with configured provider (default settings)"
         Write-Host "3. Plan task (advanced override for this run)"
-        Write-Host "4. Run task against Ollama (advanced override for this run)"
+        Write-Host "4. Run task with configured provider (advanced override for this run)"
         Write-Host "5. Show current settings"
         Write-Host "6. Update settings"
         Write-Host "7. Reset ALL settings to defaults"
