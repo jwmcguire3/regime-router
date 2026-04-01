@@ -294,13 +294,21 @@ function Ensure-SettingsInitialized {
     $argList = @(
         "--settings-file", $SettingsFile,
         "settings", "set",
-        "--model", "dolphin29:latest",
         "--use-task-analyzer",
         "--bounded-orchestration",
         "--no-debug-routing",
         "--max-switches", "2",
         "--model-profile", "strict"
     )
+
+    if ($Provider) {
+        $argList += @("--provider", $Provider)
+        switch ($Provider) {
+            "openai" { $argList += @("--model", "gpt-5.4-mini") }
+            "ollama" { $argList += @("--model", "dolphin29:latest") }
+        }
+    }
+
     Invoke-RouterPython -ArgList $argList | Out-Null
     Write-Verbose "Persisted defaults initialized."
 }
