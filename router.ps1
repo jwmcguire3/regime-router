@@ -12,8 +12,12 @@ param(
     [string]$Task = "",
 
     [string]$Model = "",
+    [ValidateSet("ollama", "openai")]
+    [string]$Provider = "",
     [string]$Risks = "",
     [string]$BaseUrl = "http://localhost:11434",
+    [string]$OpenAIBaseUrl = "",
+    [string]$OpenAIApiKeyEnv = "OPENAI_API_KEY",
     [string]$OutDir = "runs",
     [string]$SettingsFile = ".router_settings.json",
     [string]$SaveAs = "",
@@ -227,6 +231,15 @@ function Invoke-SettingsSet {
     $argList = @("--settings-file", $SettingsFile, "settings", "set")
     if ($Model) {
         $argList += @("--model", $Model)
+    }
+    if ($Provider) {
+        $argList += @("--provider", $Provider)
+    }
+    if ($OpenAIBaseUrl) {
+        $argList += @("--openai-base-url", $OpenAIBaseUrl)
+    }
+    if ($PSBoundParameters.ContainsKey("OpenAIApiKeyEnv")) {
+        $argList += @("--openai-api-key-env", $OpenAIApiKeyEnv)
     }
     if ($UseTaskAnalyzer) {
         $argList += "--use-task-analyzer"
@@ -469,6 +482,16 @@ function Get-AdvancedOverrideArgs {
         $extraArgs += @("--model", $modelText.Trim())
     }
 
+    $providerText = Read-Host "Override provider ollama|openai (blank = persisted/default)"
+    if (-not [string]::IsNullOrWhiteSpace($providerText)) {
+        $extraArgs += @("--provider", $providerText.Trim().ToLowerInvariant())
+    }
+
+    $openAiBaseUrlText = Read-Host "Override OpenAI base URL (blank = persisted/default)"
+    if (-not [string]::IsNullOrWhiteSpace($openAiBaseUrlText)) {
+        $extraArgs += @("--openai-base-url", $openAiBaseUrlText.Trim())
+    }
+
     $riskText = Read-Host "Override risks (comma-separated, optional)"
     if (-not [string]::IsNullOrWhiteSpace($riskText)) {
         $extraArgs += @("--risks", $riskText.Trim())
@@ -528,6 +551,21 @@ function Update-SettingsInteractive {
         $argList += @("--model", $modelText.Trim())
     }
 
+    $providerText = Read-Host "Provider ollama|openai (blank = leave unchanged)"
+    if (-not [string]::IsNullOrWhiteSpace($providerText)) {
+        $argList += @("--provider", $providerText.Trim().ToLowerInvariant())
+    }
+
+    $openAiBaseUrlText = Read-Host "OpenAI base URL (blank = leave unchanged)"
+    if (-not [string]::IsNullOrWhiteSpace($openAiBaseUrlText)) {
+        $argList += @("--openai-base-url", $openAiBaseUrlText.Trim())
+    }
+
+    $openAiApiKeyEnvText = Read-Host "OpenAI API key env var name (blank = leave unchanged)"
+    if (-not [string]::IsNullOrWhiteSpace($openAiApiKeyEnvText)) {
+        $argList += @("--openai-api-key-env", $openAiApiKeyEnvText.Trim())
+    }
+
     $analyzerChoice = Read-TriStateChoice -Prompt "Set task analyzer default"
     if ($analyzerChoice -eq "true") {
         $argList += "--use-task-analyzer"
@@ -571,11 +609,11 @@ function Show-Menu {
     while ($true) {
         Write-Section "Router menu"
         Write-Host "1. Plan task (default settings)"
-        Write-Host "2. Run task with configured provider (default settings)"
-        Write-Host "3. Plan task (advanced override for this run)"
-        Write-Host "4. Run task with configured provider (advanced override for this run)"
+        Write-Host "2. Run task with current provider (default settings)"
+        Write-Host "3. Plan task (advanced per-run overrides: model/provider/OpenAI)"
+        Write-Host "4. Run task (advanced per-run overrides: model/provider/OpenAI)"
         Write-Host "5. Show current settings"
-        Write-Host "6. Update settings"
+        Write-Host "6. Update settings (including provider/OpenAI)"
         Write-Host "7. Reset ALL settings to defaults"
         Write-Host "8. Show model-control settings"
         Write-Host "9. Set model-control profile"
