@@ -145,6 +145,9 @@ class Handoff:
     minimum_useful_artifact: str
     prior_artifact_summary: str = ""
     recommended_next_regime_full: Optional[Regime] = None
+    source_stage: Optional[Stage] = None
+    source_regime_name: str = ""
+    created_from: str = ""  # one of: "initial_run", "switch", "repair", "fallback"
 
 
 @dataclass
