@@ -18,6 +18,7 @@ HANDOFF_PRIORITY_FIELDS: Dict[Stage, List[str]] = {
     Stage.OPERATOR: ["decision", "tradeoff_accepted", "fallback_trigger", "next_actions"],
     Stage.BUILDER: ["reusable_pattern", "modules", "implementation_sequence"],
 }
+DOMINANT_FRAME_PRIORITY_FIELDS: Tuple[str, ...] = ("central_claim", "decision", "reusable_pattern")
 
 
 def resolve_next_regime(state: RouterState, stage: Stage, composer: "RegimeComposer") -> Regime:
@@ -99,11 +100,13 @@ def update_router_state_from_execution(
         failure_signal = str(parsed.get("failure_signal", "")).strip()
 
         if structurally_trustworthy:
-            artifact = parsed.get("artifact", {})
-            if isinstance(artifact, dict):
-                central_claim = artifact.get("central_claim")
-                if isinstance(central_claim, str) and central_claim.strip():
-                    state.apply_dominant_frame(central_claim.strip())
+            state.apply_dominant_frame(
+                _resolve_dominant_frame(
+                    parsed=parsed,
+                    fallback_dominant_frame=state.dominant_frame or "",
+                    fallback_regime_name=state.current_regime.name,
+                )
+            )
             recommended_next = parsed.get("recommended_next_regime")
             if isinstance(recommended_next, str):
                 normalized_stage = recommended_next.strip().lower()
@@ -221,6 +224,22 @@ def _normalize_field_value(value: object) -> str:
         parts = [str(v).strip() for v in value if str(v).strip()]
         return "; ".join(parts)
     return ""
+
+
+def _resolve_dominant_frame(
+    *,
+    parsed: object,
+    fallback_dominant_frame: str,
+    fallback_regime_name: str,
+) -> str:
+    if isinstance(parsed, dict):
+        artifact = parsed.get("artifact", {})
+        if isinstance(artifact, dict):
+            for field in DOMINANT_FRAME_PRIORITY_FIELDS:
+                value = artifact.get(field)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+    return fallback_dominant_frame or fallback_regime_name
 
 
 def _finding_from_field(field: str, normalized: str) -> str:
@@ -410,15 +429,11 @@ def compute_forward_handoff(
     else:
         effective_composer = composer
     next_regime = resolve_next_regime(router_state, next_stage, effective_composer) if next_stage is not None else None
-    dominant_frame = router_state.dominant_frame or regime.name
-    if isinstance(parsed, dict):
-        artifact = parsed.get("artifact", {})
-        if isinstance(artifact, dict):
-            for candidate in ("central_claim", "decision", "reusable_pattern"):
-                value = artifact.get(candidate)
-                if isinstance(value, str) and value.strip():
-                    dominant_frame = value.strip()
-                    break
+    dominant_frame = _resolve_dominant_frame(
+        parsed=parsed,
+        fallback_dominant_frame=router_state.dominant_frame or "",
+        fallback_regime_name=regime.name,
+    )
     artifact_summary = _build_artifact_summary(result, findings_summary)
     stable, tentative, broken, do_not_relitigate = _classify_elements(result)
     return Handoff(
