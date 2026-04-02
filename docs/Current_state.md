@@ -1,6 +1,6 @@
 # Cognitive Router — Current State Detailed Standalone
 
-Last updated: April 1, 2026
+Last updated: April 2, 2026
 
 ## 1. What this system is
 
@@ -42,9 +42,9 @@ A normal run currently follows this shape:
 3. extract deterministic structural features from the task,
 4. call the analyzer with task text, structural features, task signals, risk profile, and classifier signal,
 5. convert analyzer output into a `RoutingDecision`, including start-stage and likely endpoint inference,
-6. decide whether direct fast-path execution is allowed,
-7. if direct fast-path is allowed, execute through the direct path,
-8. otherwise compose a regime from typed primitives for the selected stage,
+6. decide whether direct fast-path planning is allowed,
+7. if direct fast-path planning is allowed, compose a direct passthrough regime,
+8. execute the selected regime through the regime executor,
 9. build system and user prompts for that regime,
 10. execute the model call,
 11. validate the output against the stage contract,
@@ -57,12 +57,12 @@ A normal run currently follows this shape:
 18. continue until stop policy ends the run, a hard orchestration ceiling is reached, or no switch is justified,
 19. serialize session output for inspection or persistence.
 
-Two execution paths exist inside this model:
+The codebase currently has both:
 
-- a **direct execution path** for tasks that satisfy the runtime’s direct fast-path gate,
-- a **regime execution path** for staged routed execution.
+- a direct execution helper (`router/execution/direct_execution.py`), and
+- the staged regime execution path (`router/execution/executor.py`).
 
-Even when the direct path is taken, the analyzer still participates in planning. Direct execution is a runtime decision made after analysis, not a classifier-only bypass.
+At runtime, `CognitiveRouterRuntime.execute(...)` currently routes execution through the regime executor path (including direct passthrough regimes) rather than calling the direct helper from the main execute loop.
 
 ---
 
@@ -210,6 +210,8 @@ The settings layer currently defines:
 - default model-control profile: `strict`
 
 The system supports provider-aware model listing and provider-aware model defaulting through runtime settings and the CLI surface.
+
+Note on defaults: CLI/user settings default `bounded_orchestration=True`, while `CognitiveRouterRuntime.execute(...)` has a method-parameter default of `bounded_orchestration=False`.
 
 ---
 
