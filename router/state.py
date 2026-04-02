@@ -27,7 +27,9 @@ class SwitchDecisionRecord:
     switch_recommended: bool
     switch_executed: bool
     reason: str
-    switch_trigger: Optional[str]
+    planned_switch_condition: Optional[str]
+    observed_switch_cause: Optional[str]
+    switch_trigger: Optional[str]  # legacy alias for observed_switch_cause
 
 
 @dataclass
@@ -45,11 +47,13 @@ class RouterState:
     assumptions: List[str]
     risks: List[str]
     stage_goal: str
-    switch_trigger: Optional[str]
-    recommended_next_regime: Optional[Regime]
-    decision_pressure: float
-    evidence_quality: float
-    recurrence_potential: float
+    planned_switch_condition: Optional[str] = None
+    observed_switch_cause: Optional[str] = None
+    switch_trigger: Optional[str] = None  # legacy alias for observed_switch_cause
+    recommended_next_regime: Optional[Regime] = None
+    decision_pressure: float = 0.0
+    evidence_quality: float = 0.0
+    recurrence_potential: float = 0.0
     prior_regimes: List[RegimeStep] = field(default_factory=list)
     orchestration_enabled: bool = False
     max_switches: int = 0
@@ -91,7 +95,8 @@ class RouterState:
         switch_recommended: bool,
         switch_executed: bool,
         reason: str,
-        switch_trigger: Optional[str],
+        planned_switch_condition: Optional[str],
+        observed_switch_cause: Optional[str],
     ) -> None:
         self.switch_history.append(
             SwitchDecisionRecord(
@@ -101,7 +106,9 @@ class RouterState:
                 switch_recommended=switch_recommended,
                 switch_executed=switch_executed,
                 reason=reason,
-                switch_trigger=switch_trigger,
+                planned_switch_condition=planned_switch_condition,
+                observed_switch_cause=observed_switch_cause,
+                switch_trigger=observed_switch_cause,
             )
         )
 
@@ -387,7 +394,29 @@ def router_state_from_jsonable(payload: object, resolve_stage: Callable[[Stage],
                 switch_recommended=bool(item.get("switch_recommended", False)),
                 switch_executed=bool(item.get("switch_executed", False)),
                 reason=str(item.get("reason", "")),
-                switch_trigger=str(item.get("switch_trigger")) if item.get("switch_trigger") is not None else None,
+                planned_switch_condition=(
+                    str(item.get("planned_switch_condition"))
+                    if item.get("planned_switch_condition") is not None
+                    else str(payload.get("planned_switch_condition"))
+                    if payload.get("planned_switch_condition") is not None
+                    else str(payload.get("switch_trigger"))
+                    if payload.get("switch_trigger") is not None
+                    else None
+                ),
+                observed_switch_cause=(
+                    str(item.get("observed_switch_cause"))
+                    if item.get("observed_switch_cause") is not None
+                    else str(item.get("switch_trigger"))
+                    if item.get("switch_trigger") is not None
+                    else None
+                ),
+                switch_trigger=(
+                    str(item.get("switch_trigger"))
+                    if item.get("switch_trigger") is not None
+                    else str(item.get("observed_switch_cause"))
+                    if item.get("observed_switch_cause") is not None
+                    else None
+                ),
             )
         )
 
@@ -405,6 +434,20 @@ def router_state_from_jsonable(payload: object, resolve_stage: Callable[[Stage],
         assumptions=[str(v) for v in payload.get("assumptions", []) if isinstance(v, str)],
         risks=[str(v) for v in payload.get("risks", []) if isinstance(v, str)],
         stage_goal=str(payload.get("stage_goal", "")),
+        planned_switch_condition=(
+            str(payload.get("planned_switch_condition"))
+            if payload.get("planned_switch_condition") is not None
+            else str(payload.get("switch_trigger"))
+            if payload.get("switch_trigger") is not None
+            else None
+        ),
+        observed_switch_cause=(
+            str(payload.get("observed_switch_cause"))
+            if payload.get("observed_switch_cause") is not None
+            else str(payload.get("switch_trigger"))
+            if payload.get("switch_trigger") is not None
+            else None
+        ),
         switch_trigger=str(payload.get("switch_trigger")) if payload.get("switch_trigger") is not None else None,
         recommended_next_regime=recommended_next_regime,
         decision_pressure=float(payload.get("decision_pressure", 0.0)),

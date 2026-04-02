@@ -29,6 +29,8 @@ def _state_for(stage: Stage, *, recurrence_potential: float = 0.0, assumptions=N
         assumptions=list(assumptions or []),
         risks=["baseline risk"],
         stage_goal="goal",
+        planned_switch_condition="planned_switch_from_router",
+        observed_switch_cause=None,
         switch_trigger="trigger",
         recommended_next_regime=runner_up,
         decision_pressure=1.0,
@@ -454,7 +456,8 @@ def test_runtime_prevents_stage_loops_in_bounded_mode(monkeypatch):
     assert runtime.router_state.switches_executed == 1
     assert runtime.router_state.orchestration_stop_reason == "loop_prevented_prior_stage"
     assert runtime.router_state.switch_history[-1].switch_executed is False
+    assert runtime.router_state.switch_history[-1].planned_switch_condition == runtime.router_state.planned_switch_condition
+    assert runtime.router_state.switch_history[-1].observed_switch_cause == "assumption_or_frame_collapse"
     assert runtime.router_state.recommended_next_regime is not None
     assert runtime.router_state.recommended_next_regime.stage == Stage.SYNTHESIS
-
 

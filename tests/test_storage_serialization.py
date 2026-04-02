@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from router.models import Stage
 from router.runtime import CognitiveRuntime
-from router.state import make_record, to_jsonable
+from router.state import make_record, router_state_from_jsonable, to_jsonable
 from router.storage import SessionStore
 
 
@@ -131,3 +131,47 @@ def test_load_router_state_adapts_legacy_stage_only_regimes(tmp_path):
     assert restored.recommended_next_regime is not None
     assert restored.recommended_next_regime.stage.value == "adversarial"
     assert restored.prior_regimes[0].regime.stage.value == "operator"
+    assert restored.planned_switch_condition is None
+    assert restored.observed_switch_cause is None
+
+
+def test_router_state_round_trip_preserves_planned_and_observed_switch_fields():
+    runtime = CognitiveRuntime()
+    restored = router_state_from_jsonable(
+        {
+            "task_id": "task-roundtrip",
+            "task_summary": "roundtrip",
+            "current_bottleneck": "test bottleneck",
+            "current_regime": "operator",
+            "runner_up_regime": "epistemic",
+            "regime_confidence": {"level": "low"},
+            "knowns": [],
+            "uncertainties": [],
+            "contradictions": [],
+            "assumptions": [],
+            "risks": [],
+            "stage_goal": "goal",
+            "planned_switch_condition": "switch when tradeoff is decision-relevant",
+            "observed_switch_cause": "failure_signal",
+            "switch_trigger": "failure_signal",
+            "recommended_next_regime": "epistemic",
+            "switch_history": [
+                {
+                    "switch_index": 1,
+                    "from_stage": "operator",
+                    "to_stage": "epistemic",
+                    "switch_recommended": True,
+                    "switch_executed": True,
+                    "reason": "test",
+                    "planned_switch_condition": "switch when tradeoff is decision-relevant",
+                    "observed_switch_cause": "failure_signal",
+                }
+            ],
+        },
+        runtime.composer.compose,
+    )
+    assert restored is not None
+    assert restored.planned_switch_condition == "switch when tradeoff is decision-relevant"
+    assert restored.observed_switch_cause == "failure_signal"
+    assert restored.switch_history[0].planned_switch_condition == "switch when tradeoff is decision-relevant"
+    assert restored.switch_history[0].observed_switch_cause == "failure_signal"
