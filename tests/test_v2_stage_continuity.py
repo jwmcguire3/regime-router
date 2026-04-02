@@ -488,7 +488,7 @@ def test_handoff_no_system_boilerplate():
     assert "dominant failure mode" not in payload
     assert "Soft LLM behavior" not in payload
     assert "bottleneck has been classified" not in payload
-    assert "Structural signals observed" not in payload
+    assert "This plan assumes" not in payload
 
 
 def test_handoff_summary_under_500_chars():
@@ -543,3 +543,113 @@ def test_handoff_knowns_not_field_dumps():
     handoff = compute_forward_handoff(result, runtime.router_state, regime)
     blocked_prefixes = ("decision:", "rationale:", "tradeoff_accepted:", "next_actions:", "fallback_trigger:")
     assert not any(item.lower().startswith(blocked_prefixes) for item in handoff.what_is_known)
+
+
+def test_operator_tradeoff_not_reclassified_as_contradiction():
+    runtime = CognitiveRuntime()
+    runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.OPERATOR, Stage.EPISTEMIC))
+    _decision_used, regime, _ = runtime.plan("tradeoff contradiction hygiene")
+    assert runtime.router_state is not None
+    runtime.router_state.contradictions = ["Carry-forward contradiction"]
+
+    result = _execution_result_for_handoff(
+        regime.stage,
+        {"decision": "Do A", "tradeoff_accepted": "Delay B"},
+    )
+    handoff = compute_forward_handoff(result, runtime.router_state, regime)
+
+    assert handoff.active_contradictions == ["Carry-forward contradiction"]
+    assert any("accepted tradeoff" in finding.lower() for finding in handoff.what_is_known)
+
+
+def test_operator_rationale_and_fallback_do_not_become_assumptions():
+    runtime = CognitiveRuntime()
+    runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.OPERATOR, Stage.EPISTEMIC))
+    _decision_used, regime, _ = runtime.plan("assumption hygiene from prose")
+    assert runtime.router_state is not None
+    runtime.router_state.assumptions = ["Carry-forward assumption"]
+
+    result = _execution_result_for_handoff(
+        regime.stage,
+        {
+            "decision": "Do A",
+            "rationale": "Deadline pressure",
+            "fallback_trigger": "If blocked",
+            "tradeoff_accepted": "Delay B",
+        },
+    )
+    handoff = compute_forward_handoff(result, runtime.router_state, regime)
+
+    assert handoff.assumptions_in_play == ["Carry-forward assumption"]
+
+
+def test_explicit_contradictions_override_state_fallback():
+    runtime = CognitiveRuntime()
+    runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.EPISTEMIC, Stage.OPERATOR))
+    _decision_used, regime, _ = runtime.plan("explicit contradiction passthrough")
+    assert runtime.router_state is not None
+    runtime.router_state.contradictions = ["Carry-forward contradiction"]
+
+    result = _execution_result_for_handoff(
+        regime.stage,
+        {
+            "supported_claims": ["Claim"],
+            "plausible_but_unproven": ["Unknown"],
+            "contradictions": ["Explicit contradiction"],
+            "decision_relevant_conclusions": ["Conclusion"],
+        },
+    )
+    handoff = compute_forward_handoff(result, runtime.router_state, regime)
+
+    assert handoff.active_contradictions == ["Explicit contradiction."]
+
+
+def test_contradictions_fallback_when_no_explicit_content():
+    runtime = CognitiveRuntime()
+    runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.OPERATOR, Stage.EPISTEMIC))
+    _decision_used, regime, _ = runtime.plan("contradiction fallback")
+    assert runtime.router_state is not None
+    runtime.router_state.contradictions = ["Carry-forward contradiction"]
+
+    result = _execution_result_for_handoff(regime.stage, {"decision": "Do A"})
+    handoff = compute_forward_handoff(result, runtime.router_state, regime)
+
+    assert handoff.active_contradictions == ["Carry-forward contradiction"]
+
+
+def test_assumptions_fallback_when_no_explicit_assumption_content():
+    runtime = CognitiveRuntime()
+    runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.OPERATOR, Stage.EPISTEMIC))
+    _decision_used, regime, _ = runtime.plan("assumption fallback")
+    assert runtime.router_state is not None
+    runtime.router_state.assumptions = ["Carry-forward assumption"]
+
+    result = _execution_result_for_handoff(
+        regime.stage,
+        {"decision": "Do A", "rationale": "Reason", "fallback_trigger": "If blocked"},
+    )
+    handoff = compute_forward_handoff(result, runtime.router_state, regime)
+
+    assert handoff.assumptions_in_play == ["Carry-forward assumption"]
+
+
+def test_explicit_hidden_assumptions_override_state_fallback():
+    runtime = CognitiveRuntime()
+    runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.ADVERSARIAL, Stage.OPERATOR))
+    _decision_used, regime, _ = runtime.plan("explicit hidden assumptions")
+    assert runtime.router_state is not None
+    runtime.router_state.assumptions = ["Carry-forward assumption"]
+
+    result = _execution_result_for_handoff(
+        regime.stage,
+        {
+            "top_destabilizers": ["D1"],
+            "hidden_assumptions": ["Explicit hidden assumption"],
+            "break_conditions": ["B1"],
+            "survivable_revisions": ["R1"],
+            "residual_risks": ["Risk"],
+        },
+    )
+    handoff = compute_forward_handoff(result, runtime.router_state, regime)
+
+    assert handoff.assumptions_in_play == ["Explicit hidden assumption."]

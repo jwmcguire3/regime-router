@@ -283,14 +283,15 @@ def _extract_contradictions(parsed: object) -> List[str]:
     if not isinstance(parsed, dict):
         return []
     artifact = parsed.get("artifact", {})
+    if not isinstance(artifact, dict):
+        return []
+
+    contradictions = artifact.get("contradictions")
     out: List[str] = []
-    if isinstance(artifact, dict):
-        contradictions = artifact.get("contradictions")
-        if isinstance(contradictions, list):
-            out.extend(_first_sentence(str(v)) for v in contradictions if str(v).strip())
-        tradeoff = artifact.get("tradeoff_accepted")
-        if isinstance(tradeoff, str) and tradeoff.strip():
-            out.append(_first_sentence(f"Active tradeoff tension: {tradeoff.strip()}"))
+    if isinstance(contradictions, list):
+        out.extend(_first_sentence(str(v)) for v in contradictions if str(v).strip())
+    elif isinstance(contradictions, str) and contradictions.strip():
+        out.append(_first_sentence(contradictions.strip()))
     return _unique_preserve([item for item in out if item])
 
 
@@ -300,12 +301,14 @@ def _extract_assumptions(parsed: object) -> List[str]:
     artifact = parsed.get("artifact", {})
     if not isinstance(artifact, dict):
         return []
+
     out: List[str] = []
-    for field in ("rationale", "tradeoff_accepted", "fallback_trigger"):
-        value = _normalize_field_value(artifact.get(field))
-        if not value:
-            continue
-        out.append(_first_sentence(f"This plan assumes {value[0].lower() + value[1:]}" if len(value) > 1 else value))
+    for field in ("hidden_assumptions", "assumptions"):
+        value = artifact.get(field)
+        if isinstance(value, list):
+            out.extend(_first_sentence(str(v)) for v in value if str(v).strip())
+        elif isinstance(value, str) and value.strip():
+            out.append(_first_sentence(value.strip()))
     return _unique_preserve([item for item in out if item])
 
 
@@ -395,8 +398,10 @@ def compute_forward_handoff(
     key_findings, findings_summary = _extract_key_findings(result)
     knowns = _unique_preserve(key_findings)[:5]
     uncertainties = _extract_uncertainties(parsed)
-    contradictions = _extract_contradictions(parsed)
-    assumptions = _extract_assumptions(parsed)
+    explicit_contradictions = _extract_contradictions(parsed)
+    explicit_assumptions = _extract_assumptions(parsed)
+    contradictions = explicit_contradictions if explicit_contradictions else list(router_state.contradictions)
+    assumptions = explicit_assumptions if explicit_assumptions else list(router_state.assumptions)
     next_stage = _determine_next_stage(result, router_state)
     if composer is None:
         from ..routing import RegimeComposer
