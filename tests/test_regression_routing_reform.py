@@ -315,4 +315,10 @@ def test_no_independent_stage_reruns(runtime_factory, monkeypatch):
     second_prompt = client.calls[-1]["prompt"]
     assert original_task in second_prompt
     assert "## Prior Stage Context" in second_prompt
-    assert "Build on this context. Do not re-derive what is already established." in second_prompt
+    assert (
+        "Stable (build on these, do not re-derive):" in second_prompt
+        or "Tentative (retest if relevant):" in second_prompt
+        or "Broken (reopen these):" in second_prompt
+        or "Do not relitigate unless broken:" in second_prompt
+        or "Build on this context. Do not re-derive what is already established." in second_prompt
+    )

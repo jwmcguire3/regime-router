@@ -127,22 +127,41 @@ class PromptBuilder:
         risks = ", ".join(sorted(risk_profile or set())) or "none"
         prior_handoff_section = ""
         if prior_handoff is not None:
-            previous_regime = (
-                prior_handoff.recommended_next_regime_full.name
-                if prior_handoff.recommended_next_regime_full is not None
-                else "unknown"
-            )
+            previous_regime = prior_handoff.source_regime_name or "unknown"
+            source_stage_label = prior_handoff.source_stage.value if prior_handoff.source_stage else "unknown"
 
             def _bullet_list(items: List[str]) -> str:
                 if not items:
                     return "- none"
                 return "\n".join(f"- {item}" for item in items)
 
+            element_instructions = []
+            if prior_handoff.stable_elements:
+                element_instructions.append(
+                    f"Stable (build on these, do not re-derive):\n{_bullet_list(prior_handoff.stable_elements)}"
+                )
+            if prior_handoff.tentative_elements:
+                element_instructions.append(
+                    f"Tentative (retest if relevant):\n{_bullet_list(prior_handoff.tentative_elements)}"
+                )
+            if prior_handoff.broken_elements:
+                element_instructions.append(
+                    f"Broken (reopen these):\n{_bullet_list(prior_handoff.broken_elements)}"
+                )
+            if prior_handoff.do_not_relitigate:
+                element_instructions.append(
+                    f"Do not relitigate unless broken: {', '.join(prior_handoff.do_not_relitigate)}"
+                )
+            if not element_instructions:
+                element_instructions = ["Build on this context. Do not re-derive what is already established."]
+
+            element_section = "\n\n".join(element_instructions)
+
             prior_handoff_section = textwrap.dedent(
                 f"""
 
                 ## Prior Stage Context
-                The previous regime ({previous_regime}) produced the following assessment:
+                The previous regime ({previous_regime}, stage: {source_stage_label}) produced the following assessment:
 
                 Dominant frame: {prior_handoff.dominant_frame}
                 What is known:
@@ -157,7 +176,7 @@ class PromptBuilder:
                 Minimum useful artifact: {prior_handoff.minimum_useful_artifact}
                 {f"Prior artifact summary: {prior_handoff.prior_artifact_summary}" if prior_handoff.prior_artifact_summary else ""}
 
-                Build on this context. Do not re-derive what is already established.
+                {element_section}
                 """
             ).rstrip()
         return textwrap.dedent(
