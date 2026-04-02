@@ -1,12 +1,21 @@
 from __future__ import annotations
 
-from typing import List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 import hashlib
 import re
 
 from ..models import ARTIFACT_FIELDS, ARTIFACT_HINTS, CANONICAL_FAILURE_IF_OVERUSED, Regime, RegimeExecutionResult, RoutingDecision, Stage
 from ..routing import RegimeComposer
 from ..state import Handoff, RouterState
+
+HANDOFF_PRIORITY_FIELDS: Dict[Stage, List[str]] = {
+    Stage.EXPLORATION: ["candidate_frames", "selection_criteria", "unresolved_axes"],
+    Stage.SYNTHESIS: ["central_claim", "key_tensions", "pressure_points"],
+    Stage.EPISTEMIC: ["supported_claims", "contradictions", "decision_relevant_conclusions"],
+    Stage.ADVERSARIAL: ["top_destabilizers", "break_conditions", "survivable_revisions"],
+    Stage.OPERATOR: ["decision", "tradeoff_accepted", "fallback_trigger", "next_actions"],
+    Stage.BUILDER: ["reusable_pattern", "modules", "implementation_sequence"],
+}
 
 
 def resolve_next_regime(state: RouterState, stage: Stage, composer: RegimeComposer) -> Regime:
@@ -220,7 +229,7 @@ def _extract_key_findings(result: RegimeExecutionResult) -> Tuple[List[str], str
     if not isinstance(artifact, dict):
         return [], ""
     field_names = ARTIFACT_FIELDS.get(result.stage, [])
-    top_fields = field_names[:5]
+    top_fields = HANDOFF_PRIORITY_FIELDS.get(result.stage, field_names[:5])
     findings: List[str] = []
     summary_bits: List[str] = []
     for field in top_fields:
