@@ -180,7 +180,12 @@ class CognitiveRouterRuntime:
             self.router_state.switch_history = []
         self._update_router_state_from_execution(self.router_state, result, reason_entered=decision.why_primary_wins_now)
         if self.router_state is not None:
-            self.router_state.latest_forward_handoff = compute_forward_handoff(result, self.router_state, regime)
+            self.router_state.latest_forward_handoff = compute_forward_handoff(
+                result,
+                self.router_state,
+                regime,
+                composer=self.composer,
+            )
 
         if bounded_orchestration and self.router_state is not None:
             result = self._run_orchestration_loop(
@@ -291,7 +296,7 @@ class CognitiveRouterRuntime:
         return handoff_from_state(state)
 
     def _compute_forward_handoff(self, result: RegimeExecutionResult, state: RouterState, regime: Regime) -> Handoff:
-        return compute_forward_handoff(result, state, regime)
+        return compute_forward_handoff(result, state, regime, composer=self.composer)
 
     def restore_router_state(self, payload: object) -> Optional[RouterState]:
         self.router_state = restore_router_state(payload, composer=self.composer)
