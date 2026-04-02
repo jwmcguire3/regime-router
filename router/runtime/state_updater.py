@@ -65,6 +65,8 @@ def build_router_state(
         assumptions=[f"Structural signals observed: {', '.join(signals) if signals else 'none'}"],
         risks=sorted(risks) + [primary_failure],
         stage_goal=stage_goal,
+        planned_switch_condition=decision.switch_trigger,
+        observed_switch_cause=None,
         switch_trigger=decision.switch_trigger,
         recommended_next_regime=runner_up_regime,
         decision_pressure=float(getattr(features, "decision_pressure", 0)),

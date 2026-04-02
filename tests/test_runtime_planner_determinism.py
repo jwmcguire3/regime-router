@@ -112,6 +112,8 @@ def test_planner_deterministic() -> None:
     assert first_regime == second_regime
     assert first_handoff == second_handoff
     assert first_state == second_state
+    assert first_state.planned_switch_condition == "deterministic switch"
+    assert first_state.observed_switch_cause is None
 
 
 def test_planner_no_model_calls() -> None:

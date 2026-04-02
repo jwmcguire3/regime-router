@@ -45,7 +45,8 @@ class SwitchOrchestrator:
         bounded = switches_used >= max_switches
 
         if bounded:
-            state.switch_trigger = "switch_bound_reached"
+            state.observed_switch_cause = "switch_bound_reached"
+            state.switch_trigger = state.observed_switch_cause
             return SwitchOrchestrationResult(
                 next_regime=None,
                 switch_recommended_now=False,
@@ -56,7 +57,8 @@ class SwitchOrchestrator:
         if assumption_or_frame_collapse(state, failure_signal):
             next_regime = self._resolve_stage(state, Stage.EXPLORATION)
             state.recommended_next_regime = next_regime
-            state.switch_trigger = "assumption_or_frame_collapse"
+            state.observed_switch_cause = "assumption_or_frame_collapse"
+            state.switch_trigger = state.observed_switch_cause
             return SwitchOrchestrationResult(
                 next_regime=next_regime,
                 switch_recommended_now=True,
@@ -65,6 +67,8 @@ class SwitchOrchestrator:
             )
 
         if not completion_signal and not failure_signal and not detection.misrouting_detected:
+            state.observed_switch_cause = None
+            state.switch_trigger = None
             return SwitchOrchestrationResult(
                 next_regime=None,
                 switch_recommended_now=False,
@@ -91,11 +95,12 @@ class SwitchOrchestrator:
 
         next_regime = self._resolve_stage(state, resolved_next_stage)
         state.recommended_next_regime = next_regime
-        state.switch_trigger = (
+        state.observed_switch_cause = (
             "semantic_validation_failed_in_operator"
             if semantic_failure
             else failure_signal or completion_signal or "misrouting_detected"
         )
+        state.switch_trigger = state.observed_switch_cause
         return SwitchOrchestrationResult(
             next_regime=next_regime,
             switch_recommended_now=True,

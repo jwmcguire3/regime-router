@@ -34,6 +34,8 @@ def make_state(
         assumptions=list(assumptions or []),
         risks=["risk"],
         stage_goal="goal",
+        planned_switch_condition="planned_condition",
+        observed_switch_cause=None,
         switch_trigger=None,
         recommended_next_regime=None,
         decision_pressure=1.0,
@@ -123,7 +125,8 @@ def test_allowed_pathways_harness():
         assert result.switch_recommended_now is True
         assert result.next_regime is not None
         assert result.next_regime.stage == expected_next
-        assert result.updated_state.switch_trigger == expected_trigger
+        assert result.updated_state.observed_switch_cause == expected_trigger
+        assert result.updated_state.planned_switch_condition == "planned_condition"
 
     builder_state = make_state(Stage.BUILDER)
     builder_result = orchestrator.orchestrate(
@@ -188,7 +191,7 @@ def test_switch_cap_harness():
     assert result_can_switch.switch_recommended_now is True
     assert result_can_switch.next_regime is not None
     assert result_can_switch.next_regime.stage == Stage.SYNTHESIS
-    assert result_can_switch.updated_state.switch_trigger == "done"
+    assert result_can_switch.updated_state.observed_switch_cause == "done"
 
     zero_cap_state = make_state(Stage.EXPLORATION)
     zero_cap_result = orchestrator.orchestrate(
@@ -227,7 +230,7 @@ def test_assumption_or_frame_collapse_harness():
     assert assumption_collapse_result.switch_recommended_now is True
     assert assumption_collapse_result.next_regime is not None
     assert assumption_collapse_result.next_regime.stage == Stage.EXPLORATION
-    assert assumption_collapse_result.updated_state.switch_trigger == "assumption_or_frame_collapse"
+    assert assumption_collapse_result.updated_state.observed_switch_cause == "assumption_or_frame_collapse"
 
     frame_collapse_result = orchestrator.orchestrate(
         make_state(Stage.SYNTHESIS, assumptions=["a1"], contradictions=["c1"]),
@@ -239,7 +242,7 @@ def test_assumption_or_frame_collapse_harness():
     assert frame_collapse_result.switch_recommended_now is True
     assert frame_collapse_result.next_regime is not None
     assert frame_collapse_result.next_regime.stage == Stage.EXPLORATION
-    assert frame_collapse_result.updated_state.switch_trigger == "assumption_or_frame_collapse"
+    assert frame_collapse_result.updated_state.observed_switch_cause == "assumption_or_frame_collapse"
 
 
 def test_escalation_damping_harness():

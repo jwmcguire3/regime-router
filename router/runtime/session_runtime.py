@@ -61,7 +61,8 @@ class SessionRuntime:
                     switch_recommended=False,
                     switch_executed=False,
                     reason=f"Switch limit reached; max_switches={max_switches}.",
-                    switch_trigger=state.switch_trigger,
+                    planned_switch_condition=state.planned_switch_condition,
+                    observed_switch_cause=state.observed_switch_cause or state.switch_trigger,
                 )
                 state.orchestration_stop_reason = "switch_limit_reached"
                 break
@@ -110,7 +111,8 @@ class SessionRuntime:
                     switch_recommended=orchestrated.switch_recommended_now,
                     switch_executed=False,
                     reason=builder_gate_decision.reason,
-                    switch_trigger=state.switch_trigger,
+                    planned_switch_condition=state.planned_switch_condition,
+                    observed_switch_cause=state.observed_switch_cause or state.switch_trigger,
                 )
                 state.orchestration_stop_reason = builder_gate_decision.reason
                 break
@@ -122,7 +124,8 @@ class SessionRuntime:
                     switch_recommended=False,
                     switch_executed=False,
                     reason=orchestrated.reason_for_switch,
-                    switch_trigger=state.switch_trigger,
+                    planned_switch_condition=state.planned_switch_condition,
+                    observed_switch_cause=state.observed_switch_cause or state.switch_trigger,
                 )
                 state.orchestration_stop_reason = "switch_not_recommended"
                 break
@@ -135,7 +138,8 @@ class SessionRuntime:
                     switch_recommended=True,
                     switch_executed=False,
                     reason="Switch denied to avoid same-stage loop.",
-                    switch_trigger=state.switch_trigger,
+                    planned_switch_condition=state.planned_switch_condition,
+                    observed_switch_cause=state.observed_switch_cause or state.switch_trigger,
                 )
                 state.orchestration_stop_reason = "loop_prevented_same_stage"
                 break
@@ -148,7 +152,8 @@ class SessionRuntime:
                     switch_recommended=True,
                     switch_executed=False,
                     reason="Switch denied to avoid re-entering a previously executed stage.",
-                    switch_trigger=state.switch_trigger,
+                    planned_switch_condition=state.planned_switch_condition,
+                    observed_switch_cause=state.observed_switch_cause or state.switch_trigger,
                 )
                 state.orchestration_stop_reason = "loop_prevented_prior_stage"
                 break
@@ -159,7 +164,8 @@ class SessionRuntime:
                 switch_recommended=True,
                 switch_executed=True,
                 reason=orchestrated.reason_for_switch,
-                switch_trigger=state.switch_trigger,
+                planned_switch_condition=state.planned_switch_condition,
+                observed_switch_cause=state.observed_switch_cause or state.switch_trigger,
             )
             state.switches_executed += 1
             state.current_regime = orchestrated.next_regime
