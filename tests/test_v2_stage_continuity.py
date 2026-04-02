@@ -8,7 +8,7 @@ from router.models import RegimeExecutionResult, RoutingDecision, Stage
 from router.prompts import PromptBuilder
 from router.routing import RegimeComposer
 from router.runtime import CognitiveRuntime
-from router.runtime.state_updater import compute_forward_handoff
+from router.runtime.state_updater import compute_forward_handoff, update_router_state_from_execution
 from router.state import Handoff
 
 
@@ -444,6 +444,100 @@ def _execution_result_for_handoff(stage: Stage, artifact: dict, failure_signal: 
         artifact_text=json.dumps(payload),
         validation={"is_valid": True, "parsed": payload},
     )
+
+
+def _execution_result_for_state_update(stage: Stage, artifact: dict) -> RegimeExecutionResult:
+    payload = {
+        "completion_signal": "done",
+        "failure_signal": "",
+        "recommended_next_regime": "operator",
+        "artifact": artifact,
+    }
+    return RegimeExecutionResult(
+        task="task",
+        model="fake",
+        regime_name=f"{stage.value}-core",
+        stage=stage,
+        system_prompt="",
+        user_prompt="",
+        raw_response=json.dumps(payload),
+        artifact_text=json.dumps(payload),
+        validation={
+            "is_valid": True,
+            "valid_json": True,
+            "required_keys_present": True,
+            "artifact_fields_present": True,
+            "artifact_type_matches": True,
+            "contract_controls_valid": True,
+            "parsed": payload,
+        },
+    )
+
+
+def test_state_dominant_frame_updates_from_synthesis_central_claim():
+    runtime = CognitiveRuntime()
+    runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.SYNTHESIS, Stage.OPERATOR))
+    _planned_decision, regime, _ = runtime.plan("synthesis frame update")
+    assert runtime.router_state is not None
+    result = _execution_result_for_state_update(
+        regime.stage,
+        {"central_claim": "A tighter synthesis truth."},
+    )
+
+    update_router_state_from_execution(
+        runtime.router_state,
+        result,
+        reason_entered="test",
+        composer=runtime.composer,
+    )
+    handoff = compute_forward_handoff(result, runtime.router_state, regime)
+
+    assert runtime.router_state.dominant_frame == "A tighter synthesis truth."
+    assert handoff.dominant_frame == runtime.router_state.dominant_frame
+
+
+def test_state_dominant_frame_updates_from_operator_decision():
+    runtime = CognitiveRuntime()
+    runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.OPERATOR, Stage.EPISTEMIC))
+    _planned_decision, regime, _ = runtime.plan("operator frame update")
+    assert runtime.router_state is not None
+    result = _execution_result_for_state_update(
+        regime.stage,
+        {"decision": "Commit to option A now."},
+    )
+
+    update_router_state_from_execution(
+        runtime.router_state,
+        result,
+        reason_entered="test",
+        composer=runtime.composer,
+    )
+    handoff = compute_forward_handoff(result, runtime.router_state, regime)
+
+    assert runtime.router_state.dominant_frame == "Commit to option A now."
+    assert handoff.dominant_frame == runtime.router_state.dominant_frame
+
+
+def test_state_dominant_frame_updates_from_builder_reusable_pattern():
+    runtime = CognitiveRuntime()
+    runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.BUILDER, Stage.OPERATOR))
+    _planned_decision, regime, _ = runtime.plan("builder frame update")
+    assert runtime.router_state is not None
+    result = _execution_result_for_state_update(
+        regime.stage,
+        {"reusable_pattern": "Codify rollout checklist as a reusable template."},
+    )
+
+    update_router_state_from_execution(
+        runtime.router_state,
+        result,
+        reason_entered="test",
+        composer=runtime.composer,
+    )
+    handoff = compute_forward_handoff(result, runtime.router_state, regime)
+
+    assert runtime.router_state.dominant_frame == "Codify rollout checklist as a reusable template."
+    assert handoff.dominant_frame == runtime.router_state.dominant_frame
 
 
 def test_handoff_bottleneck_not_raw_task():
