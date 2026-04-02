@@ -24,6 +24,7 @@ def build_router_state(
     composer: RegimeComposer,
 ) -> RouterState:
     task_hash = hashlib.sha1(bottleneck.encode("utf-8")).hexdigest()[:12]
+    normalized_bottleneck = decision.bottleneck.strip() if isinstance(decision.bottleneck, str) and decision.bottleneck.strip() else bottleneck
     stage_goal = regime.tail_line.text if regime.tail_line else "Produce the minimum useful typed artifact for this regime."
     runner_up_regime = composer.compose(decision.runner_up_regime, risk_profile=risks) if decision.runner_up_regime else None
     primary_name = decision.primary_regime.value if decision.primary_regime else "direct"
@@ -35,7 +36,7 @@ def build_router_state(
     return RouterState(
         task_id=f"task-{task_hash}",
         task_summary=bottleneck[:180],
-        current_bottleneck=bottleneck,
+        current_bottleneck=normalized_bottleneck,
         current_regime=regime,
         runner_up_regime=runner_up_regime,
         regime_confidence=decision.confidence,
@@ -135,6 +136,9 @@ def handoff_from_state(state: Optional[RouterState]) -> Handoff:
             minimum_useful_artifact="",
             prior_artifact_summary="",
             recommended_next_regime_full=None,
+            source_stage=None,
+            source_regime_name="",
+            created_from="fallback",
         )
     if state.latest_forward_handoff is not None:
         return state.latest_forward_handoff
@@ -150,6 +154,9 @@ def handoff_from_state(state: Optional[RouterState]) -> Handoff:
         minimum_useful_artifact=state.stage_goal,
         prior_artifact_summary="",
         recommended_next_regime_full=state.recommended_next_regime,
+        source_stage=state.current_regime.stage if state else None,
+        source_regime_name=state.current_regime.name if state else "",
+        created_from="fallback",
     )
 
 
@@ -349,4 +356,7 @@ def compute_forward_handoff(result: RegimeExecutionResult, router_state: RouterS
         minimum_useful_artifact=_minimum_useful_artifact(next_stage, router_state),
         prior_artifact_summary=artifact_summary,
         recommended_next_regime_full=next_regime,
+        source_stage=regime.stage,
+        source_regime_name=regime.name,
+        created_from="switch" if router_state.switches_executed > 0 else "initial_run",
     )
