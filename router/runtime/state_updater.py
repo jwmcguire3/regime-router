@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 import hashlib
 import re
 
 from ..models import ARTIFACT_FIELDS, ARTIFACT_HINTS, CANONICAL_FAILURE_IF_OVERUSED, Regime, RegimeExecutionResult, RoutingDecision, Stage
-from ..routing import RegimeComposer
 from ..state import Handoff, RouterState
+
+if TYPE_CHECKING:
+    from ..routing import RegimeComposer
 
 HANDOFF_PRIORITY_FIELDS: Dict[Stage, List[str]] = {
     Stage.EXPLORATION: ["candidate_frames", "selection_criteria", "unresolved_axes"],
@@ -18,7 +20,7 @@ HANDOFF_PRIORITY_FIELDS: Dict[Stage, List[str]] = {
 }
 
 
-def resolve_next_regime(state: RouterState, stage: Stage, composer: RegimeComposer) -> Regime:
+def resolve_next_regime(state: RouterState, stage: Stage, composer: "RegimeComposer") -> Regime:
     return state.resolve_regime(stage, composer.compose)
 
 
@@ -30,7 +32,7 @@ def build_router_state(
     signals: List[str],
     risks: Set[str],
     features: object,
-    composer: RegimeComposer,
+    composer: "RegimeComposer",
 ) -> RouterState:
     task_hash = hashlib.sha1(bottleneck.encode("utf-8")).hexdigest()[:12]
     normalized_bottleneck = decision.bottleneck.strip() if isinstance(decision.bottleneck, str) and decision.bottleneck.strip() else bottleneck
@@ -79,7 +81,7 @@ def update_router_state_from_execution(
     result: RegimeExecutionResult,
     *,
     reason_entered: str,
-    composer: RegimeComposer,
+    composer: "RegimeComposer",
 ) -> None:
     if state is None:
         return
@@ -334,7 +336,12 @@ def _minimum_useful_artifact(next_stage: Optional[Stage], state: RouterState) ->
     return f"Progress toward endpoint '{endpoint}' with the minimum useful typed artifact."
 
 
-def compute_forward_handoff(result: RegimeExecutionResult, router_state: RouterState, regime: Regime) -> Handoff:
+def compute_forward_handoff(
+    result: RegimeExecutionResult,
+    router_state: RouterState,
+    regime: Regime,
+    composer: Optional["RegimeComposer"] = None,
+) -> Handoff:
     parsed = result.validation.get("parsed", {})
     key_findings, findings_summary = _extract_key_findings(result)
     knowns = _unique_preserve(key_findings)[:5]
@@ -342,7 +349,13 @@ def compute_forward_handoff(result: RegimeExecutionResult, router_state: RouterS
     contradictions = _extract_contradictions(parsed)
     assumptions = _extract_assumptions(parsed)
     next_stage = _determine_next_stage(result, router_state)
-    next_regime = resolve_next_regime(router_state, next_stage, RegimeComposer()) if next_stage is not None else None
+    if composer is None:
+        from ..routing import RegimeComposer
+
+        effective_composer = RegimeComposer()
+    else:
+        effective_composer = composer
+    next_regime = resolve_next_regime(router_state, next_stage, effective_composer) if next_stage is not None else None
     dominant_frame = router_state.dominant_frame or regime.name
     if isinstance(parsed, dict):
         artifact = parsed.get("artifact", {})
