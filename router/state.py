@@ -148,6 +148,10 @@ class Handoff:
     source_stage: Optional[Stage] = None
     source_regime_name: str = ""
     created_from: str = ""  # one of: "initial_run", "switch", "repair", "fallback"
+    stable_elements: List[str] = field(default_factory=list)
+    tentative_elements: List[str] = field(default_factory=list)
+    broken_elements: List[str] = field(default_factory=list)
+    do_not_relitigate: List[str] = field(default_factory=list)
 
 
 @dataclass

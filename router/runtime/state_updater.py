@@ -150,6 +150,10 @@ def handoff_from_state(state: Optional[RouterState]) -> Handoff:
             source_stage=None,
             source_regime_name="",
             created_from="fallback",
+            stable_elements=[],
+            tentative_elements=[],
+            broken_elements=[],
+            do_not_relitigate=[],
         )
     if state.latest_forward_handoff is not None:
         return state.latest_forward_handoff
@@ -168,6 +172,10 @@ def handoff_from_state(state: Optional[RouterState]) -> Handoff:
         source_stage=state.current_regime.stage if state else None,
         source_regime_name=state.current_regime.name if state else "",
         created_from="fallback",
+        stable_elements=[],
+        tentative_elements=[],
+        broken_elements=[],
+        do_not_relitigate=[],
     )
 
 
@@ -325,6 +333,48 @@ def _build_artifact_summary(result: RegimeExecutionResult, findings_summary: str
     return summary[:500]
 
 
+def _classify_elements(result: RegimeExecutionResult) -> Tuple[List[str], List[str], List[str], List[str]]:
+    """Classify handoff elements by confidence level based on validation state."""
+    stable: List[str] = []
+    tentative: List[str] = []
+    broken: List[str] = []
+    do_not_relitigate: List[str] = []
+
+    is_valid = bool(result.validation.get("is_valid", False))
+    semantic_failures = [str(f) for f in result.validation.get("semantic_failures", [])]
+    failed_field_names = set()
+
+    parsed = result.validation.get("parsed", {})
+    artifact = parsed.get("artifact", {}) if isinstance(parsed, dict) else {}
+    if not isinstance(artifact, dict):
+        artifact = {}
+
+    priority_fields = HANDOFF_PRIORITY_FIELDS.get(result.stage, [])
+
+    for failure_msg in semantic_failures:
+        for field_name in priority_fields:
+            if failure_msg.startswith(f"{field_name} "):
+                failed_field_names.add(field_name)
+
+    for field_name in priority_fields:
+        value = artifact.get(field_name)
+        if not value:
+            continue
+        normalized = str(value).strip() if isinstance(value, str) else str(value)
+        if not normalized:
+            continue
+
+        if field_name in failed_field_names:
+            broken.append(f"{field_name}: {normalized[:120]}")
+        elif is_valid:
+            stable.append(f"{field_name}: {normalized[:120]}")
+            do_not_relitigate.append(field_name)
+        else:
+            tentative.append(f"{field_name}: {normalized[:120]}")
+
+    return stable, tentative, broken, do_not_relitigate
+
+
 def _minimum_useful_artifact(next_stage: Optional[Stage], state: RouterState) -> str:
     next_artifact = ARTIFACT_HINTS.get(next_stage) if next_stage is not None else None
     endpoint = None
@@ -366,6 +416,7 @@ def compute_forward_handoff(
                     dominant_frame = value.strip()
                     break
     artifact_summary = _build_artifact_summary(result, findings_summary)
+    stable, tentative, broken, do_not_relitigate = _classify_elements(result)
     return Handoff(
         current_bottleneck=router_state.current_bottleneck,
         dominant_frame=dominant_frame,
@@ -381,4 +432,8 @@ def compute_forward_handoff(
         source_stage=regime.stage,
         source_regime_name=regime.name,
         created_from="switch" if router_state.switches_executed > 0 else "initial_run",
+        stable_elements=stable,
+        tentative_elements=tentative,
+        broken_elements=broken,
+        do_not_relitigate=do_not_relitigate,
     )
