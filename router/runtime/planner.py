@@ -111,7 +111,7 @@ class RuntimePlanner:
 
         regime = self.composer.compose(decision.primary_regime, risk_profile=risks, handoff_expected=handoff_expected)
         state = build_router_state(
-            bottleneck=bottleneck,
+            bottleneck=decision.bottleneck,
             decision=decision,
             regime=regime,
             signals=signals,
