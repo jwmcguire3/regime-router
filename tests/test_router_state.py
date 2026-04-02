@@ -66,13 +66,14 @@ def test_plan_populates_router_state_core_fields():
     assert state.regime_confidence.level in {"low", "medium", "high"}
     assert state.stage_goal
     assert state.knowns
-    assert state.uncertainties
-    assert state.contradictions
-    assert state.assumptions
+    assert state.uncertainties == []
+    assert state.contradictions == []
+    assert state.assumptions == [
+        "Structural signals observed: expansion_when_defined, concrete_versions_feel_too_small, fragments_understood_spine_missed"
+    ]
     assert state.risks
     assert isinstance(state.decision_pressure, float)
     assert isinstance(state.evidence_quality, float)
     assert isinstance(state.recurrence_potential, float)
     assert state.prior_regimes == []
-
 
