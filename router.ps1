@@ -12,7 +12,7 @@ param(
     [string]$Task = "",
 
     [string]$Model = "",
-    [ValidateSet("ollama", "openai")]
+    [ValidateSet("ollama", "openai", "deepseek")]
     [string]$Provider = "",
     [string]$Risks = "",
     [string]$BaseUrl = "http://localhost:11434",

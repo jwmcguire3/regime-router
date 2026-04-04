@@ -496,3 +496,30 @@ def test_plan_output_sections_compact_mode(monkeypatch, capsys):
     assert "=== Regime output ===" in out
     assert "=== Handoff ===" in out
     assert "Confidence detail" not in out
+
+
+def test_settings_provider_switch_to_deepseek_replaces_openai_default_model(tmp_path, capsys):
+    settings_file = tmp_path / "settings.json"
+
+    main(["--settings-file", str(settings_file), "settings", "set", "--provider", "openai"])
+    capsys.readouterr()
+
+    rc = main(["--settings-file", str(settings_file), "settings", "set", "--provider", "deepseek"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["settings"]["provider"] == "deepseek"
+    assert payload["settings"]["model"] == "deepseek-reasoner"
+
+
+def test_settings_show_with_unknown_provider_in_file_defaults_to_deepseek_not_ollama(tmp_path, capsys):
+    settings_file = tmp_path / "settings.json"
+    settings_file.write_text('{"user": {"provider": "anthropic"}}', encoding="utf-8")
+
+    rc = main(["--settings-file", str(settings_file), "settings", "show"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["settings"]["provider"] == "deepseek"
+    assert payload["settings"]["model"] == "deepseek-reasoner"
+

@@ -72,8 +72,39 @@ def test_wrapper_settings_show_set_reset(tmp_path):
         text=True,
     )
     reset_payload = _load_json_stdout(reset_result.stdout)
-    assert reset_payload["settings"]["model"] == "dolphin29:latest"
+    assert reset_payload["settings"]["provider"] == "deepseek"
+    assert reset_payload["settings"]["model"] == "deepseek-reasoner"
 
+
+@pytest.mark.skipif(_pwsh() is None, reason="PowerShell is not available in this environment")
+def test_wrapper_settings_set_persists_deepseek_provider(tmp_path):
+    pwsh = _pwsh()
+    assert pwsh is not None
+    repo_root = Path(__file__).resolve().parents[1]
+    script = repo_root / "router.ps1"
+    settings_file = tmp_path / "wrapper-settings.json"
+
+    set_result = subprocess.run(
+        [
+            pwsh,
+            "-NoProfile",
+            "-File",
+            str(script),
+            "settings-set",
+            "-SettingsFile",
+            str(settings_file),
+            "-Provider",
+            "deepseek",
+        ],
+        check=True,
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = _load_json_stdout(set_result.stdout)
+    assert payload["settings"]["provider"] == "deepseek"
+    assert payload["settings"]["model"] == "deepseek-reasoner"
 
 @pytest.mark.skipif(_pwsh() is None, reason="PowerShell is not available in this environment")
 def test_wrapper_settings_set_does_not_override_existing_defaults_without_flags(tmp_path):
