@@ -135,12 +135,12 @@ def test_settings_defaults_show(tmp_path, capsys):
 
     payload = json.loads(out)
     assert rc == 0
-    assert payload["settings"]["provider"] == "ollama"
-    assert payload["settings"]["model"] == "dolphin29:latest"
-    assert payload["settings"]["openai_base_url"] == "https://api.openai.com/v1"
-    assert payload["settings"]["openai_api_key_env"] == "OPENAI_API_KEY"
+    assert payload["settings"]["provider"] == "deepseek"
+    assert payload["settings"]["model"] == "deepseek-reasoner"
+    assert payload["settings"]["openai_base_url"] == "https://api.deepseek.com"
+    assert payload["settings"]["openai_api_key_env"] == "DEEPSEEK_API_KEY"
     assert payload["settings"]["use_task_analyzer"] is True
-    assert payload["settings"]["task_analyzer_model"] == "dolphin29:latest"
+    assert payload["settings"]["task_analyzer_model"] == "deepseek-reasoner"
     assert payload["settings"]["debug_routing"] is False
     assert payload["settings"]["bounded_orchestration"] is True
     assert payload["settings"]["max_switches"] == 2
@@ -173,8 +173,8 @@ def test_settings_set_and_reset(tmp_path, capsys):
     rc_reset = main(["--settings-file", str(settings_file), "settings", "reset"])
     reset_payload = json.loads(capsys.readouterr().out)
     assert rc_reset == 0
-    assert reset_payload["settings"]["provider"] == "ollama"
-    assert reset_payload["settings"]["model"] == "dolphin29:latest"
+    assert reset_payload["settings"]["provider"] == "deepseek"
+    assert reset_payload["settings"]["model"] == "deepseek-reasoner"
     assert reset_payload["settings"]["bounded_orchestration"] is True
     assert reset_payload["settings"]["max_switches"] == 2
     assert reset_payload["settings"]["debug_routing"] is False
@@ -220,6 +220,18 @@ def test_settings_provider_ollama_persists_and_uses_ollama_defaults(tmp_path, ca
     assert set_payload["settings"]["task_analyzer_model"] == "dolphin29:latest"
 
 
+def test_settings_provider_deepseek_persists_and_uses_deepseek_defaults(tmp_path, capsys):
+    settings_file = tmp_path / "settings.json"
+
+    rc_set = main(["--settings-file", str(settings_file), "settings", "set", "--provider", "deepseek"])
+    set_payload = json.loads(capsys.readouterr().out)
+
+    assert rc_set == 0
+    assert set_payload["settings"]["provider"] == "deepseek"
+    assert set_payload["settings"]["model"] == "deepseek-reasoner"
+    assert set_payload["settings"]["task_analyzer_model"] == "deepseek-reasoner"
+
+
 def test_cli_help_text_is_provider_aware(capsys):
     with pytest.raises(SystemExit) as exc:
         main(["--help"])
@@ -229,6 +241,12 @@ def test_cli_help_text_is_provider_aware(capsys):
     assert "provider-aware LLM execution" in out
     assert "--provider" in out
     assert "--openai-base-url" in out
+
+    with pytest.raises(SystemExit) as settings_exc:
+        main(["settings", "set", "--help"])
+    settings_out = capsys.readouterr().out
+    assert settings_exc.value.code == 0
+    assert "OpenAI-compatible API" in settings_out
 
 
 def test_run_and_plan_use_persisted_defaults(monkeypatch, tmp_path, capsys):
@@ -385,6 +403,33 @@ def test_provider_ollama_without_explicit_model_uses_ollama_default(monkeypatch,
     assert FakeRuntime.execute_calls[-1]["model"] == "dolphin29:latest"
 
 
+def test_provider_deepseek_without_explicit_model_uses_deepseek_default(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("router.cli.CognitiveRouterRuntime", FakeRuntime)
+    FakeRuntime.reset()
+    settings_file = tmp_path / "settings.json"
+
+    main(["--settings-file", str(settings_file), "settings", "set", "--provider", "openai"])
+    capsys.readouterr()
+
+    rc = main(
+        [
+            "--settings-file",
+            str(settings_file),
+            "--out-dir",
+            str(tmp_path),
+            "run",
+            "--provider",
+            "deepseek",
+            "--task",
+            "Choose a direction",
+        ]
+    )
+    capsys.readouterr()
+
+    assert rc == 0
+    assert FakeRuntime.execute_calls[-1]["model"] == "deepseek-reasoner"
+
+
 def test_explicit_model_overrides_provider_default(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr("router.cli.CognitiveRouterRuntime", FakeRuntime)
     FakeRuntime.reset()
@@ -409,6 +454,34 @@ def test_explicit_model_overrides_provider_default(monkeypatch, tmp_path, capsys
 
     assert rc == 0
     assert FakeRuntime.execute_calls[-1]["model"] == "gpt-custom-preview"
+
+
+def test_provider_transition_preserves_custom_models(tmp_path, capsys):
+    settings_file = tmp_path / "settings.json"
+
+    main(
+        [
+            "--settings-file",
+            str(settings_file),
+            "settings",
+            "set",
+            "--provider",
+            "openai",
+            "--model",
+            "gpt-custom-preview",
+            "--task-analyzer-model",
+            "gpt-analyzer-custom",
+        ]
+    )
+    capsys.readouterr()
+
+    rc = main(["--settings-file", str(settings_file), "settings", "set", "--provider", "deepseek"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["settings"]["provider"] == "deepseek"
+    assert payload["settings"]["model"] == "gpt-custom-preview"
+    assert payload["settings"]["task_analyzer_model"] == "gpt-analyzer-custom"
 
 
 def test_plan_output_sections_compact_mode(monkeypatch, capsys):
