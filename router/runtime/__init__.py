@@ -9,6 +9,7 @@ from ..control import EscalationPolicy, EvolutionEngine, MisroutingDetector, Swi
 from ..models import Regime, RegimeExecutionResult, RoutingDecision, RoutingFeatures
 from ..prompts import PromptBuilder
 from ..routing import RegimeComposer, Router, extract_routing_features, extract_structural_signals, infer_risk_profile
+from ..settings import DEFAULT_DEEPSEEK_API_KEY_ENV, DEFAULT_DEEPSEEK_BASE_URL, DEFAULT_DEEPSEEK_MODEL
 from ..state import Handoff, RouterState
 from ..validation import OutputValidator
 from ..llm import ModelClient, OllamaModelClient, OpenAIModelClient
@@ -29,25 +30,33 @@ def create_model_client(
     openai_base_url: str,
     openai_api_key_env: str,
 ) -> ModelClient:
-    if provider == "openai":
+    if provider == "ollama":
+        return OllamaModelClient(base_url=ollama_base_url)
+
+    if provider in {"openai", "deepseek"}:
         api_key = os.getenv(openai_api_key_env, "").strip()
         if not api_key:
+            provider_label = "OpenAI" if provider == "openai" else "DeepSeek"
             raise RuntimeError(
-                f"OpenAI provider requires environment variable '{openai_api_key_env}' to be set and non-empty."
+                f"{provider_label} provider requires environment variable '{openai_api_key_env}' to be set and non-empty."
             )
         return OpenAIModelClient(api_key=api_key, base_url=openai_base_url)
-    return OllamaModelClient(base_url=ollama_base_url)
+
+    raise ValueError(
+        f"Unsupported provider '{provider}'. Expected one of: ollama, openai, deepseek."
+    )
 
 
 class CognitiveRouterRuntime:
     def __init__(
         self,
         ollama_base_url: str = "http://localhost:11434",
-        provider: str = "ollama",
-        openai_base_url: str = "https://api.openai.com/v1",
-        openai_api_key_env: str = "OPENAI_API_KEY",
+        # Runtime defaults mirror platform settings defaults for OpenAI-compatible providers.
+        provider: str = "deepseek",
+        openai_base_url: str = DEFAULT_DEEPSEEK_BASE_URL,
+        openai_api_key_env: str = DEFAULT_DEEPSEEK_API_KEY_ENV,
         use_task_analyzer: bool = True,
-        task_analyzer_model: str = "dolphin29:latest",
+        task_analyzer_model: str = DEFAULT_DEEPSEEK_MODEL,
     ) -> None:
         self.router = Router()
         self.composer = RegimeComposer()
