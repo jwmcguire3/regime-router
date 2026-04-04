@@ -12,6 +12,8 @@ from .settings import CliSettings, CliSettingsStore, default_model_for_provider
 from .state import Handoff, make_record
 from .storage import SessionStore
 
+VALID_PROVIDERS = ("ollama", "openai", "deepseek")
+
 
 def _format_stage_contributions(contributions: Dict[object, List[str]]) -> str:
     if not contributions:
@@ -199,8 +201,8 @@ def _resolved_cli_settings(args: argparse.Namespace) -> CliSettings:
 
     if updated.user.max_switches < 0:
         raise ValueError("--max-switches must be >= 0")
-    if updated.user.provider not in {"ollama", "openai"}:
-        raise ValueError("--provider must be one of: ollama, openai")
+    if updated.user.provider not in VALID_PROVIDERS:
+        raise ValueError("--provider must be one of: ollama, openai, deepseek")
     _validate_model_value("--model", updated.user.model)
     _validate_model_value("--task-analyzer-model", updated.user.task_analyzer_model)
     if updated.model_controls.model_profile not in {"strict", "balanced", "lenient", "off"}:
@@ -368,8 +370,8 @@ def cmd_settings_set(args: argparse.Namespace) -> int:
     )
     if updated.user.max_switches < 0:
         raise ValueError("--max-switches must be >= 0")
-    if updated.user.provider not in {"ollama", "openai"}:
-        raise ValueError("--provider must be one of: ollama, openai")
+    if updated.user.provider not in VALID_PROVIDERS:
+        raise ValueError("--provider must be one of: ollama, openai, deepseek")
     _validate_model_value("--model", updated.user.model)
     _validate_model_value("--task-analyzer-model", updated.user.task_analyzer_model)
     if updated.model_controls.model_profile not in {"strict", "balanced", "lenient", "off"}:
@@ -444,7 +446,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Cognitive router prototype with provider-aware LLM execution and JSON persistence."
     )
     parser.add_argument("--base-url", default="http://localhost:11434", help="Ollama base URL")
-    parser.add_argument("--provider", default=None, choices=["ollama", "openai"], help="LLM provider override")
+    parser.add_argument("--provider", default=None, choices=list(VALID_PROVIDERS), help="LLM provider override")
     parser.add_argument("--openai-base-url", default=None, help="OpenAI-compatible base URL override")
     parser.add_argument("--out-dir", default="runs", help="Directory for saved JSON runs")
     parser.add_argument("--settings-file", default=".router_settings.json", help="Path to persisted CLI settings JSON")
@@ -454,7 +456,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_p = sub.add_parser("run", help="Route + compose + execute against configured provider + save JSON")
     run_p.add_argument("--task", required=True, help="Task or bottleneck description")
-    run_p.add_argument("--provider", default=None, choices=["ollama", "openai"], help="LLM provider override")
+    run_p.add_argument("--provider", default=None, choices=list(VALID_PROVIDERS), help="LLM provider override")
     run_p.add_argument("--model", default=None, help="Model name")
     run_p.add_argument("--openai-base-url", default=None, help="OpenAI-compatible base URL override")
     run_p.add_argument("--risks", default="", help="Comma-separated risk profile tags")
@@ -470,7 +472,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     plan_p = sub.add_parser("plan", help="Route + compose without model execution")
     plan_p.add_argument("--task", required=True, help="Task or bottleneck description")
-    plan_p.add_argument("--provider", default=None, choices=["ollama", "openai"], help="LLM provider override")
+    plan_p.add_argument("--provider", default=None, choices=list(VALID_PROVIDERS), help="LLM provider override")
     plan_p.add_argument("--openai-base-url", default=None, help="OpenAI-compatible base URL override")
     plan_p.add_argument("--risks", default="", help="Comma-separated risk profile tags")
     plan_p.add_argument("--no-handoff", action="store_true", help="Disable handoff line")
@@ -500,10 +502,14 @@ def build_parser() -> argparse.ArgumentParser:
     settings_show_p.set_defaults(func=cmd_settings_show)
 
     settings_set_p = settings_sub.add_parser("set", help="Update user settings (+ optional model_profile)")
-    settings_set_p.add_argument("--provider", default=None, choices=["ollama", "openai"], help="Default provider")
+    settings_set_p.add_argument("--provider", default=None, choices=list(VALID_PROVIDERS), help="Default provider")
     settings_set_p.add_argument("--model", default=None, help="Default model")
     settings_set_p.add_argument("--openai-base-url", default=None, help="Default OpenAI-compatible base URL")
-    settings_set_p.add_argument("--openai-api-key-env", default=None, help="Environment variable name for OpenAI API key")
+    settings_set_p.add_argument(
+        "--openai-api-key-env",
+        default=None,
+        help="Environment variable name for OpenAI-compatible API key",
+    )
     settings_set_p.add_argument("--use-task-analyzer", default=None, action=argparse.BooleanOptionalAction, help="Default analyzer toggle")
     settings_set_p.add_argument("--task-analyzer-model", default=None, help="Default analyzer model")
     settings_set_p.add_argument("--debug-routing", default=None, action=argparse.BooleanOptionalAction, help="Default debug routing")
