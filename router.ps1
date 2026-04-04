@@ -12,12 +12,12 @@ param(
     [string]$Task = "",
 
     [string]$Model = "",
-    [ValidateSet("ollama", "openai")]
+    [ValidateSet("ollama", "openai", "deepseek")]
     [string]$Provider = "",
     [string]$Risks = "",
     [string]$BaseUrl = "http://localhost:11434",
     [string]$OpenAIBaseUrl = "",
-    [string]$OpenAIApiKeyEnv = "OPENAI_API_KEY",
+    [string]$OpenAIApiKeyEnv = "DEEPSEEK_API_KEY",
     [string]$OutDir = "runs",
     [string]$SettingsFile = ".router_settings.json",
     [string]$SaveAs = "",
@@ -291,9 +291,18 @@ function Ensure-SettingsInitialized {
     }
 
     Write-Verbose ("No settings file found at '{0}'. Initializing persisted defaults." -f $SettingsFile)
+    $defaultProvider = "deepseek"
+    $defaultModel = "deepseek-reasoner"
+    $defaultOpenAiBaseUrl = "https://api.deepseek.com"
+    $defaultOpenAiApiKeyEnv = "DEEPSEEK_API_KEY"
+
     $argList = @(
         "--settings-file", $SettingsFile,
         "settings", "set",
+        "--provider", $defaultProvider,
+        "--model", $defaultModel,
+        "--openai-base-url", $defaultOpenAiBaseUrl,
+        "--openai-api-key-env", $defaultOpenAiApiKeyEnv,
         "--use-task-analyzer",
         "--bounded-orchestration",
         "--no-debug-routing",
@@ -306,6 +315,11 @@ function Ensure-SettingsInitialized {
         switch ($Provider) {
             "openai" { $argList += @("--model", "gpt-5.4-mini") }
             "ollama" { $argList += @("--model", "dolphin29:latest") }
+            "deepseek" {
+                $argList += @("--model", $defaultModel)
+                $argList += @("--openai-base-url", $defaultOpenAiBaseUrl)
+                $argList += @("--openai-api-key-env", $defaultOpenAiApiKeyEnv)
+            }
         }
     }
 
@@ -490,12 +504,12 @@ function Get-AdvancedOverrideArgs {
         $extraArgs += @("--model", $modelText.Trim())
     }
 
-    $providerText = Read-Host "Override provider ollama|openai (blank = persisted/default)"
+    $providerText = Read-Host "Override provider ollama|openai|deepseek (blank = persisted/default)"
     if (-not [string]::IsNullOrWhiteSpace($providerText)) {
         $extraArgs += @("--provider", $providerText.Trim().ToLowerInvariant())
     }
 
-    $openAiBaseUrlText = Read-Host "Override OpenAI base URL (blank = persisted/default)"
+    $openAiBaseUrlText = Read-Host "Override OpenAI-compatible base URL (blank = persisted/default)"
     if (-not [string]::IsNullOrWhiteSpace($openAiBaseUrlText)) {
         $extraArgs += @("--openai-base-url", $openAiBaseUrlText.Trim())
     }
@@ -559,17 +573,17 @@ function Update-SettingsInteractive {
         $argList += @("--model", $modelText.Trim())
     }
 
-    $providerText = Read-Host "Provider ollama|openai (blank = leave unchanged)"
+    $providerText = Read-Host "Provider ollama|openai|deepseek (blank = leave unchanged)"
     if (-not [string]::IsNullOrWhiteSpace($providerText)) {
         $argList += @("--provider", $providerText.Trim().ToLowerInvariant())
     }
 
-    $openAiBaseUrlText = Read-Host "OpenAI base URL (blank = leave unchanged)"
+    $openAiBaseUrlText = Read-Host "OpenAI-compatible base URL (blank = leave unchanged)"
     if (-not [string]::IsNullOrWhiteSpace($openAiBaseUrlText)) {
         $argList += @("--openai-base-url", $openAiBaseUrlText.Trim())
     }
 
-    $openAiApiKeyEnvText = Read-Host "OpenAI API key env var name (blank = leave unchanged)"
+    $openAiApiKeyEnvText = Read-Host "OpenAI-compatible API key env var name (blank = leave unchanged)"
     if (-not [string]::IsNullOrWhiteSpace($openAiApiKeyEnvText)) {
         $argList += @("--openai-api-key-env", $openAiApiKeyEnvText.Trim())
     }
@@ -618,10 +632,10 @@ function Show-Menu {
         Write-Section "Router menu"
         Write-Host "1. Plan task (default settings)"
         Write-Host "2. Run task with current provider (default settings)"
-        Write-Host "3. Plan task (advanced per-run overrides: model/provider/OpenAI)"
-        Write-Host "4. Run task (advanced per-run overrides: model/provider/OpenAI)"
+        Write-Host "3. Plan task (advanced per-run overrides: model/provider/OpenAI-compatible)"
+        Write-Host "4. Run task (advanced per-run overrides: model/provider/OpenAI-compatible)"
         Write-Host "5. Show current settings"
-        Write-Host "6. Update settings (including provider/OpenAI)"
+        Write-Host "6. Update settings (including provider/OpenAI-compatible)"
         Write-Host "7. Reset ALL settings to defaults"
         Write-Host "8. Show model-control settings"
         Write-Host "9. Set model-control profile"

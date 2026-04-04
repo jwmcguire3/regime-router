@@ -72,7 +72,10 @@ def test_wrapper_settings_show_set_reset(tmp_path):
         text=True,
     )
     reset_payload = _load_json_stdout(reset_result.stdout)
-    assert reset_payload["settings"]["model"] == "dolphin29:latest"
+    assert reset_payload["settings"]["provider"] == "deepseek"
+    assert reset_payload["settings"]["model"] == "deepseek-reasoner"
+    assert reset_payload["settings"]["openai_base_url"] == "https://api.deepseek.com"
+    assert reset_payload["settings"]["openai_api_key_env"] == "DEEPSEEK_API_KEY"
 
 
 @pytest.mark.skipif(_pwsh() is None, reason="PowerShell is not available in this environment")
@@ -103,3 +106,28 @@ def test_wrapper_settings_set_does_not_override_existing_defaults_without_flags(
     payload = _load_json_stdout(show_result.stdout)
     assert payload["settings"]["model"] == "qwen3"
     assert payload["settings"]["max_switches"] == 7
+
+
+@pytest.mark.skipif(_pwsh() is None, reason="PowerShell is not available in this environment")
+def test_wrapper_first_run_initializes_with_deepseek_defaults(tmp_path):
+    pwsh = _pwsh()
+    assert pwsh is not None
+    repo_root = Path(__file__).resolve().parents[1]
+    script = repo_root / "router.ps1"
+    settings_file = tmp_path / "fresh-wrapper-settings.json"
+
+    assert not settings_file.exists()
+
+    show_result = subprocess.run(
+        [pwsh, "-NoProfile", "-File", str(script), "settings-show", "-SettingsFile", str(settings_file)],
+        check=True,
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    payload = _load_json_stdout(show_result.stdout)
+
+    assert payload["settings"]["provider"] == "deepseek"
+    assert payload["settings"]["model"] == "deepseek-reasoner"
+    assert payload["settings"]["openai_base_url"] == "https://api.deepseek.com"
+    assert payload["settings"]["openai_api_key_env"] == "DEEPSEEK_API_KEY"
