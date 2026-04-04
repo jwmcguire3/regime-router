@@ -10,22 +10,27 @@ DEFAULT_OLLAMA_MODEL = "dolphin29:latest"
 DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
+DEFAULT_DEEPSEEK_MODEL = "deepseek-reasoner"
+DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEFAULT_DEEPSEEK_API_KEY_ENV = "DEEPSEEK_API_KEY"
 
 
 def default_model_for_provider(provider: str) -> str:
     if provider == "openai":
         return DEFAULT_OPENAI_MODEL
+    if provider == "deepseek":
+        return DEFAULT_DEEPSEEK_MODEL
     return DEFAULT_OLLAMA_MODEL
 
 
 @dataclass
 class UserSettings:
-    provider: str = "ollama"
-    model: str = DEFAULT_OLLAMA_MODEL
-    openai_base_url: str = DEFAULT_OPENAI_BASE_URL
-    openai_api_key_env: str = DEFAULT_OPENAI_API_KEY_ENV
+    provider: str = "deepseek"
+    model: str = DEFAULT_DEEPSEEK_MODEL
+    openai_base_url: str = DEFAULT_DEEPSEEK_BASE_URL
+    openai_api_key_env: str = DEFAULT_DEEPSEEK_API_KEY_ENV
     use_task_analyzer: bool = True
-    task_analyzer_model: str = DEFAULT_OLLAMA_MODEL
+    task_analyzer_model: str = DEFAULT_DEEPSEEK_MODEL
     debug_routing: bool = False
     bounded_orchestration: bool = True
     max_switches: int = 2
@@ -34,7 +39,7 @@ class UserSettings:
     def from_dict(cls, raw: Dict[str, Any]) -> "UserSettings":
         defaults = cls()
         provider = str(raw.get("provider", defaults.provider)).strip().lower()
-        if provider not in {"ollama", "openai"}:
+        if provider not in {"ollama", "openai", "deepseek"}:
             provider = defaults.provider
         default_model = default_model_for_provider(provider)
         model_raw = raw.get("model", None)
