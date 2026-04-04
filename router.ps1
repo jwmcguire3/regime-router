@@ -234,6 +234,18 @@ function Invoke-SettingsSet {
     }
     if ($Provider) {
         $argList += @("--provider", $Provider)
+        if (-not $OpenAIBaseUrl -and -not $PSBoundParameters.ContainsKey("OpenAIApiKeyEnv")) {
+            switch ($Provider) {
+                "openai" {
+                    $argList += @("--openai-base-url", "https://api.openai.com/v1")
+                    $argList += @("--openai-api-key-env", "OPENAI_API_KEY")
+                }
+                "deepseek" {
+                    $argList += @("--openai-base-url", "https://api.deepseek.com")
+                    $argList += @("--openai-api-key-env", "DEEPSEEK_API_KEY")
+                }
+            }
+        }
     }
     if ($OpenAIBaseUrl) {
         $argList += @("--openai-base-url", $OpenAIBaseUrl)
@@ -578,14 +590,31 @@ function Update-SettingsInteractive {
         $argList += @("--provider", $providerText.Trim().ToLowerInvariant())
     }
 
-    $openAiBaseUrlText = Read-Host "OpenAI-compatible base URL (blank = leave unchanged)"
+    $openAiBaseUrlText = Read-Host "OpenAI-compatible base URL (blank = provider default if provider changed)"
     if (-not [string]::IsNullOrWhiteSpace($openAiBaseUrlText)) {
         $argList += @("--openai-base-url", $openAiBaseUrlText.Trim())
     }
 
-    $openAiApiKeyEnvText = Read-Host "OpenAI-compatible API key env var name (blank = leave unchanged)"
+    $openAiApiKeyEnvText = Read-Host "OpenAI-compatible API key env var name (blank = provider default if provider changed)"
     if (-not [string]::IsNullOrWhiteSpace($openAiApiKeyEnvText)) {
         $argList += @("--openai-api-key-env", $openAiApiKeyEnvText.Trim())
+    }
+
+    if (
+        (-not [string]::IsNullOrWhiteSpace($providerText)) -and
+        ([string]::IsNullOrWhiteSpace($openAiBaseUrlText)) -and
+        ([string]::IsNullOrWhiteSpace($openAiApiKeyEnvText))
+    ) {
+        switch ($providerText.Trim().ToLowerInvariant()) {
+            "openai" {
+                $argList += @("--openai-base-url", "https://api.openai.com/v1")
+                $argList += @("--openai-api-key-env", "OPENAI_API_KEY")
+            }
+            "deepseek" {
+                $argList += @("--openai-base-url", "https://api.deepseek.com")
+                $argList += @("--openai-api-key-env", "DEEPSEEK_API_KEY")
+            }
+        }
     }
 
     $analyzerChoice = Read-TriStateChoice -Prompt "Set task analyzer default"
