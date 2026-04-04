@@ -8,7 +8,15 @@ from typing import Dict, List, Optional, Set
 from .models import RoutingDecision, RoutingFeatures
 from .routing import extract_routing_features, infer_risk_profile
 from .runtime import CognitiveRouterRuntime
-from .settings import CliSettings, CliSettingsStore, default_model_for_provider
+from .settings import (
+    CliSettings,
+    CliSettingsStore,
+    DEFAULT_DEEPSEEK_API_KEY_ENV,
+    DEFAULT_DEEPSEEK_BASE_URL,
+    DEFAULT_OPENAI_API_KEY_ENV,
+    DEFAULT_OPENAI_BASE_URL,
+    default_model_for_provider,
+)
 from .state import Handoff, make_record
 from .storage import SessionStore
 
@@ -158,6 +166,37 @@ def _resolve_models_for_provider_transition(
     return resolved_model, resolved_task_analyzer_model
 
 
+def _default_openai_compat_endpoint_for_provider(provider: str) -> tuple[str, str]:
+    if provider == "openai":
+        return DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_API_KEY_ENV
+    if provider == "deepseek":
+        return DEFAULT_DEEPSEEK_BASE_URL, DEFAULT_DEEPSEEK_API_KEY_ENV
+    return "", ""
+
+
+def _resolve_openai_compat_for_provider_transition(
+    *,
+    current_provider: str,
+    target_provider: str,
+    current_openai_base_url: str,
+    current_openai_api_key_env: str,
+    openai_base_url_override: Optional[object],
+    openai_api_key_env_override: Optional[object],
+) -> tuple[str, str]:
+    resolved_openai_base_url = str(_resolve_setting(openai_base_url_override, current_openai_base_url))
+    resolved_openai_api_key_env = str(_resolve_setting(openai_api_key_env_override, current_openai_api_key_env))
+    if target_provider == current_provider:
+        return resolved_openai_base_url, resolved_openai_api_key_env
+    if target_provider not in {"openai", "deepseek"}:
+        return resolved_openai_base_url, resolved_openai_api_key_env
+    target_default_base_url, target_default_api_key_env = _default_openai_compat_endpoint_for_provider(target_provider)
+    if openai_base_url_override is None:
+        resolved_openai_base_url = target_default_base_url
+    if openai_api_key_env_override is None:
+        resolved_openai_api_key_env = target_default_api_key_env
+    return resolved_openai_base_url, resolved_openai_api_key_env
+
+
 def _validate_model_value(name: str, value: str) -> None:
     if not value.strip():
         raise ValueError(f"{name} must be a non-empty string")
@@ -181,13 +220,21 @@ def _resolved_cli_settings(args: argparse.Namespace) -> CliSettings:
         model_override=model_override,
         task_analyzer_model_override=task_analyzer_model_override,
     )
+    resolved_openai_base_url, resolved_openai_api_key_env = _resolve_openai_compat_for_provider_transition(
+        current_provider=user.provider,
+        target_provider=resolved_provider,
+        current_openai_base_url=user.openai_base_url,
+        current_openai_api_key_env=user.openai_api_key_env,
+        openai_base_url_override=getattr(args, "openai_base_url", None),
+        openai_api_key_env_override=getattr(args, "openai_api_key_env", None),
+    )
 
     updated = CliSettings(
         user=type(user)(
             provider=resolved_provider,
             model=resolved_model,
-            openai_base_url=str(_resolve_setting(getattr(args, "openai_base_url", None), user.openai_base_url)),
-            openai_api_key_env=str(_resolve_setting(getattr(args, "openai_api_key_env", None), user.openai_api_key_env)),
+            openai_base_url=resolved_openai_base_url,
+            openai_api_key_env=resolved_openai_api_key_env,
             use_task_analyzer=bool(_resolve_setting(getattr(args, "use_task_analyzer", None), user.use_task_analyzer)),
             task_analyzer_model=resolved_task_analyzer_model,
             debug_routing=bool(_resolve_setting(getattr(args, "debug_routing", None), user.debug_routing)),
@@ -351,13 +398,21 @@ def cmd_settings_set(args: argparse.Namespace) -> int:
         model_override=args.model,
         task_analyzer_model_override=args.task_analyzer_model,
     )
+    resolved_openai_base_url, resolved_openai_api_key_env = _resolve_openai_compat_for_provider_transition(
+        current_provider=current.user.provider,
+        target_provider=resolved_provider,
+        current_openai_base_url=current.user.openai_base_url,
+        current_openai_api_key_env=current.user.openai_api_key_env,
+        openai_base_url_override=args.openai_base_url,
+        openai_api_key_env_override=args.openai_api_key_env,
+    )
 
     updated = CliSettings(
         user=type(current.user)(
             provider=resolved_provider,
             model=resolved_model,
-            openai_base_url=str(_resolve_setting(args.openai_base_url, current.user.openai_base_url)),
-            openai_api_key_env=str(_resolve_setting(args.openai_api_key_env, current.user.openai_api_key_env)),
+            openai_base_url=resolved_openai_base_url,
+            openai_api_key_env=resolved_openai_api_key_env,
             use_task_analyzer=bool(_resolve_setting(args.use_task_analyzer, current.user.use_task_analyzer)),
             task_analyzer_model=resolved_task_analyzer_model,
             debug_routing=bool(_resolve_setting(args.debug_routing, current.user.debug_routing)),
