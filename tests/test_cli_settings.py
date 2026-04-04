@@ -230,6 +230,36 @@ def test_settings_provider_deepseek_persists_and_uses_deepseek_defaults(tmp_path
     assert set_payload["settings"]["provider"] == "deepseek"
     assert set_payload["settings"]["model"] == "deepseek-reasoner"
     assert set_payload["settings"]["task_analyzer_model"] == "deepseek-reasoner"
+    assert set_payload["settings"]["openai_base_url"] == "https://api.deepseek.com"
+    assert set_payload["settings"]["openai_api_key_env"] == "DEEPSEEK_API_KEY"
+
+
+def test_settings_provider_transition_updates_openai_compatible_endpoint_defaults(tmp_path, capsys):
+    settings_file = tmp_path / "settings.json"
+
+    main(
+        [
+            "--settings-file",
+            str(settings_file),
+            "settings",
+            "set",
+            "--provider",
+            "openai",
+            "--openai-base-url",
+            "https://api.openai.com/v1",
+            "--openai-api-key-env",
+            "OPENAI_API_KEY",
+        ]
+    )
+    capsys.readouterr()
+
+    rc_set = main(["--settings-file", str(settings_file), "settings", "set", "--provider", "deepseek"])
+    set_payload = json.loads(capsys.readouterr().out)
+
+    assert rc_set == 0
+    assert set_payload["settings"]["provider"] == "deepseek"
+    assert set_payload["settings"]["openai_base_url"] == "https://api.deepseek.com"
+    assert set_payload["settings"]["openai_api_key_env"] == "DEEPSEEK_API_KEY"
 
 
 def test_cli_help_text_is_provider_aware(capsys):
@@ -350,6 +380,23 @@ def test_models_command_routes_to_active_provider(monkeypatch, tmp_path, capsys)
     assert rc == 0
     assert payload["provider"] == "openai"
     assert ProviderAwareModelsRuntime.init_calls[-1]["provider"] == "openai"
+
+
+def test_models_provider_override_updates_openai_compatible_endpoint_defaults(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("router.cli.CognitiveRouterRuntime", ProviderAwareModelsRuntime)
+    settings_file = tmp_path / "settings.json"
+
+    main(["--settings-file", str(settings_file), "settings", "set", "--provider", "openai"])
+    capsys.readouterr()
+
+    rc = main(["--settings-file", str(settings_file), "--provider", "deepseek", "models"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    assert payload["provider"] == "deepseek"
+    assert ProviderAwareModelsRuntime.init_calls[-1]["provider"] == "deepseek"
+    assert ProviderAwareModelsRuntime.init_calls[-1]["openai_base_url"] == "https://api.deepseek.com"
+    assert ProviderAwareModelsRuntime.init_calls[-1]["openai_api_key_env"] == "DEEPSEEK_API_KEY"
 
 
 def test_provider_openai_without_explicit_model_uses_openai_default(monkeypatch, tmp_path, capsys):
