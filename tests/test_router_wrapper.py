@@ -131,3 +131,53 @@ def test_wrapper_first_run_initializes_with_deepseek_defaults(tmp_path):
     assert payload["settings"]["model"] == "deepseek-reasoner"
     assert payload["settings"]["openai_base_url"] == "https://api.deepseek.com"
     assert payload["settings"]["openai_api_key_env"] == "DEEPSEEK_API_KEY"
+
+
+@pytest.mark.skipif(_pwsh() is None, reason="PowerShell is not available in this environment")
+def test_wrapper_settings_set_provider_switch_applies_provider_openai_compat_defaults(tmp_path):
+    pwsh = _pwsh()
+    assert pwsh is not None
+    repo_root = Path(__file__).resolve().parents[1]
+    script = repo_root / "router.ps1"
+    settings_file = tmp_path / "wrapper-provider-switch.json"
+
+    subprocess.run(
+        [
+            pwsh,
+            "-NoProfile",
+            "-File",
+            str(script),
+            "settings-set",
+            "-SettingsFile",
+            str(settings_file),
+            "-Provider",
+            "openai",
+        ],
+        check=True,
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+
+    switch_result = subprocess.run(
+        [
+            pwsh,
+            "-NoProfile",
+            "-File",
+            str(script),
+            "settings-set",
+            "-SettingsFile",
+            str(settings_file),
+            "-Provider",
+            "deepseek",
+        ],
+        check=True,
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = _load_json_stdout(switch_result.stdout)
+    assert payload["settings"]["provider"] == "deepseek"
+    assert payload["settings"]["openai_base_url"] == "https://api.deepseek.com"
+    assert payload["settings"]["openai_api_key_env"] == "DEEPSEEK_API_KEY"
