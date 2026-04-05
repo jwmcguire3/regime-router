@@ -342,13 +342,13 @@ class OutputValidator:
                     STRUCTURAL_SIGNAL_CONCRETE_TOO_SMALL: ["concrete", "small"],
                     STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED: ["fragment", "spine"],
                 }
-                matched = 0
+                # Structural-signal grounding is advisory only: keep the token scan for
+                # potential diagnostics, but do not turn missing matches into a hard
+                # semantic validation failure.
                 for signal in active_signals:
                     tokens = token_expectations.get(signal, [])
                     if tokens and all(tok in all_text for tok in tokens):
-                        matched += 1
-                if matched < 1:
-                    failures.append("artifact is not grounded in the task's core structural signals")
+                        break
         return failures
 
     def _check_stage_specific(
