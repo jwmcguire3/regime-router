@@ -3,11 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping, Optional
 
-from ..models import RoutingDecision, Stage
+from ..models import ARTIFACT_HINTS, RoutingDecision, Stage
 from ..state import RouterState
 from .collapse_detector import CollapseDetector
 
-BUILDER_RECURRENCE_THRESHOLD = 7
 STAGE_PROGRESSION = [
     Stage.EXPLORATION,
     Stage.SYNTHESIS,
@@ -59,16 +58,12 @@ class StopPolicy:
         if self._collapse_signal_present(router_state, validation_result):
             return StopDecision(should_stop=False, reason="collapse_override_active")
 
-        if self._builder_blocked(router_state):
-            recurrence_label = self._format_recurrence(router_state.recurrence_potential)
-            return StopDecision(
-                should_stop=True,
-                reason=f"Builder blocked: recurrence_potential {recurrence_label} < {BUILDER_RECURRENCE_THRESHOLD}",
-            )
-
         artifact_complete = self._artifact_complete(validation_result)
         if not artifact_complete:
             return StopDecision(should_stop=False, reason="artifact_incomplete")
+        artifact_matches_current_stage = self._artifact_matches_current_stage(validation_result, current_stage)
+        if not artifact_matches_current_stage:
+            return StopDecision(should_stop=False, reason="artifact_complete_but_stage_artifact_mismatch")
         deliverable_pressure = self._requested_deliverable_pressure(router_state)
         if deliverable_pressure and current_stage in INTERMEDIATE_STAGE_ARTIFACT:
             return StopDecision(
@@ -112,18 +107,9 @@ class StopPolicy:
         if next_regime is None:
             return False
         next_stage = next_regime.stage
-        if next_stage == current_stage:
-            return False
-        if _STAGE_RANK[next_stage] <= _STAGE_RANK[current_stage]:
-            return False
-        return _STAGE_RANK[next_stage] <= _STAGE_RANK[endpoint]
-
-    def _builder_blocked(self, state: RouterState) -> bool:
-        if state.current_regime.stage != Stage.OPERATOR:
-            return False
-        if state.recommended_next_regime is None or state.recommended_next_regime.stage != Stage.BUILDER:
-            return False
-        return state.recurrence_potential < BUILDER_RECURRENCE_THRESHOLD
+        if _STAGE_RANK[next_stage] > _STAGE_RANK[current_stage]:
+            return _STAGE_RANK[next_stage] <= _STAGE_RANK[endpoint]
+        return self._has_qualified_reentry_justification(state)
 
     def _artifact_complete(self, validation_result: Mapping[str, object]) -> bool:
         if not bool(validation_result.get("is_valid", False)):
@@ -138,6 +124,31 @@ class StopPolicy:
         if failure_signal and completion_signal == failure_signal:
             return False
         return True
+
+    def _artifact_matches_current_stage(self, validation_result: Mapping[str, object], current_stage: Stage) -> bool:
+        parsed = validation_result.get("parsed", {})
+        if not isinstance(parsed, Mapping):
+            return False
+        artifact_type = parsed.get("artifact_type")
+        regime = parsed.get("regime")
+        if not isinstance(artifact_type, str) or not artifact_type.strip():
+            return False
+        if not isinstance(regime, str) or not regime.strip():
+            return False
+        expected_artifact_type = ARTIFACT_HINTS[current_stage]
+        return artifact_type.strip() == expected_artifact_type and regime.strip().lower() == current_stage.value
+
+    def _has_qualified_reentry_justification(self, state: RouterState) -> bool:
+        justification = state.last_reentry_justification
+        if justification is None:
+            return False
+        fields = (
+            justification.defect_class,
+            justification.repair_target,
+            justification.contract_delta,
+            justification.state_delta,
+        )
+        return all(isinstance(value, str) and bool(value.strip()) for value in fields)
 
     def _endpoint_stage(self, state: RouterState, routing_decision: Optional[RoutingDecision]) -> Stage:
         if routing_decision is not None:
@@ -163,9 +174,3 @@ class StopPolicy:
         if not has_explicit_pressure and "deliver" not in summary and "provide" not in summary and "return" not in summary:
             return ""
         return requested_terms[0]
-
-    def _format_recurrence(self, recurrence_potential: float) -> str:
-        as_int = int(recurrence_potential)
-        if float(as_int) == float(recurrence_potential):
-            return str(as_int)
-        return f"{recurrence_potential:.2f}".rstrip("0").rstrip(".")

@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from router.models import Stage
+from router.models import ARTIFACT_HINTS, Stage
 from router.orchestration.switch_orchestrator import SwitchOrchestrationResult
 from router.runtime import CognitiveRuntime
 
@@ -124,7 +124,7 @@ def _stage_payload(stage: Stage, next_stage: Stage | None):
         {
             "regime": stage.value,
             "purpose": f"{stage.value} purpose",
-            "artifact_type": "artifact",
+            "artifact_type": ARTIFACT_HINTS[stage],
             "artifact": artifact,
             "completion_signal": f"{stage.value}_complete",
             "failure_signal": "",
@@ -237,6 +237,7 @@ def test_builder_only_when_justified_integration(runtime_factory, monkeypatch):
             _analyzer_json(Stage.SYNTHESIS, Stage.BUILDER, recurrence=2),
             _stage_payload(Stage.SYNTHESIS, Stage.OPERATOR),
             _stage_payload(Stage.OPERATOR, Stage.BUILDER),
+            _stage_payload(Stage.BUILDER, Stage.BUILDER),
         ]
     )
 
@@ -253,8 +254,8 @@ def test_builder_only_when_justified_integration(runtime_factory, monkeypatch):
     runtime.execute("One-off decision with low recurrence", model="fake", bounded_orchestration=True, max_switches=3)
 
     assert runtime.router_state is not None
-    assert runtime.router_state.executed_regime_stages == [Stage.SYNTHESIS, Stage.OPERATOR]
-    assert "Builder blocked" in (runtime.router_state.orchestration_stop_reason or "")
+    assert runtime.router_state.executed_regime_stages == [Stage.SYNTHESIS, Stage.OPERATOR, Stage.BUILDER]
+    assert "artifact_complete_at_or_past_endpoint:builder" in (runtime.router_state.orchestration_stop_reason or "")
 
 
 def test_builder_entered_when_justified(runtime_factory, monkeypatch):

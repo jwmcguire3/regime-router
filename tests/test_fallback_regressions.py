@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from router.models import RegimeConfidenceResult, RegimeExecutionResult, RoutingDecision, Stage
+from router.models import ARTIFACT_HINTS, RegimeConfidenceResult, RegimeExecutionResult, RoutingDecision, Stage
 from router.orchestration.stop_policy import StopPolicy
 from router.orchestration.switch_orchestrator import SwitchOrchestrationResult
 from router.orchestration.transition_rules import assumption_or_frame_collapse
@@ -85,7 +85,7 @@ def _make_result(stage: Stage, *, is_valid: bool, completion_signal: str, failur
     parsed = {
         "regime": stage.value,
         "purpose": "test",
-        "artifact_type": "test_artifact",
+        "artifact_type": ARTIFACT_HINTS[stage],
         "artifact": {},
         "completion_signal": completion_signal,
         "failure_signal": failure_signal,

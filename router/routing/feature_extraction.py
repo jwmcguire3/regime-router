@@ -251,5 +251,9 @@ def extract_routing_features(task: str) -> RoutingFeatures:
     )
 
 
+def explain_feature_matches(features: RoutingFeatures) -> dict[str, list[str]]:
+    return dict(features.detected_markers)
+
+
 def extract_structural_signals(task: str) -> List[str]:
     return extract_routing_features(task).structural_signals
