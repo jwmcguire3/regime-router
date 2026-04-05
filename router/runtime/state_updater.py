@@ -4,7 +4,16 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 import hashlib
 import re
 
-from ..models import ARTIFACT_FIELDS, ARTIFACT_HINTS, CANONICAL_FAILURE_IF_OVERUSED, Regime, RegimeExecutionResult, RoutingDecision, Stage
+from ..models import (
+    ARTIFACT_FIELDS,
+    ARTIFACT_HINTS,
+    CANONICAL_FAILURE_IF_OVERUSED,
+    Regime,
+    RegimeExecutionResult,
+    RoutingDecision,
+    Stage,
+    TaskAnalyzerOutput,
+)
 from ..state import Handoff, RouterState
 
 if TYPE_CHECKING:
@@ -34,6 +43,7 @@ def build_router_state(
     risks: Set[str],
     features: object,
     composer: "RegimeComposer",
+    analyzer_result: Optional[TaskAnalyzerOutput] = None,
 ) -> RouterState:
     task_hash = hashlib.sha1(bottleneck.encode("utf-8")).hexdigest()[:12]
     normalized_bottleneck = decision.bottleneck.strip() if isinstance(decision.bottleneck, str) and decision.bottleneck.strip() else bottleneck
@@ -72,8 +82,16 @@ def build_router_state(
         switch_trigger=decision.switch_trigger,
         recommended_next_regime=runner_up_regime,
         decision_pressure=float(getattr(features, "decision_pressure", 0)),
-        evidence_quality=float(getattr(features, "evidence_demand", 0)),
+        evidence_quality=(
+            float(analyzer_result.evidence_quality)
+            if analyzer_result is not None
+            else float(getattr(features, "evidence_demand", 0))
+        ),
         recurrence_potential=float(getattr(features, "recurrence_potential", 0)),
+        policy_events=[],
+        last_reentry_justification=None,
+        last_state_delta=None,
+        last_contract_delta=None,
     )
 
 
@@ -86,6 +104,9 @@ def update_router_state_from_execution(
 ) -> None:
     if state is None:
         return
+    prior_dominant_frame = state.dominant_frame
+    prior_recommended_next = state.recommended_next_regime.stage if state.recommended_next_regime is not None else None
+    prior_contradictions = list(state.contradictions)
     parsed = result.validation.get("parsed", {})
     structurally_trustworthy = bool(
         result.validation.get("valid_json", False)
@@ -145,6 +166,24 @@ def update_router_state_from_execution(
         failure_signal_seen=bool(failure_signal) or not is_valid,
         outcome_summary=" ".join(summary_chunks),
     )
+    state.last_state_delta = _compute_state_delta(
+        state,
+        parsed,
+        prior_dominant_frame=prior_dominant_frame,
+        prior_recommended_next=prior_recommended_next,
+    )
+    if semantic_failures and set(state.contradictions) != set(prior_contradictions):
+        state.last_state_delta = "semantic_failures_introduced"
+    if semantic_failures:
+        state.last_contract_delta = "contract_invalidated_by_semantic_failure"
+    elif completion_signal and failure_signal and completion_signal != failure_signal:
+        state.last_contract_delta = "contract_invalidated_by_control_conflict"
+    else:
+        current_recommended_next = state.recommended_next_regime.stage if state.recommended_next_regime is not None else None
+        if current_recommended_next != prior_recommended_next:
+            state.last_contract_delta = "next_stage_contract_changed"
+        else:
+            state.last_contract_delta = "artifact_contract_advanced"
 
 
 def handoff_from_state(state: Optional[RouterState]) -> Handoff:
@@ -178,7 +217,7 @@ def handoff_from_state(state: Optional[RouterState]) -> Handoff:
         what_remains_uncertain=state.uncertainties,
         active_contradictions=state.contradictions,
         assumptions_in_play=state.assumptions,
-        main_risk_if_continue=state.risks[-1] if state.risks else "",
+        main_risk_if_continue=_best_active_risk(state.risks),
         recommended_next_regime=state.recommended_next_regime.stage if state.recommended_next_regime else None,
         minimum_useful_artifact=state.stage_goal,
         prior_artifact_summary="",
@@ -216,6 +255,27 @@ def _determine_next_stage(result: RegimeExecutionResult, state: RouterState) -> 
     if state.recommended_next_regime is not None:
         return state.recommended_next_regime.stage
     return None
+
+
+def _compute_state_delta(
+    state: RouterState,
+    parsed: object,
+    *,
+    prior_dominant_frame: Optional[str],
+    prior_recommended_next: Optional[Stage],
+) -> str:
+    if (state.dominant_frame or "") != (prior_dominant_frame or ""):
+        return "dominant_frame_changed"
+    parsed_contradictions = tuple(_extract_contradictions(parsed))
+    if parsed_contradictions and parsed_contradictions != tuple(state.contradictions):
+        return "contradictions_changed"
+    parsed_uncertainties = tuple(_extract_uncertainties(parsed))
+    if parsed_uncertainties and parsed_uncertainties != tuple(state.uncertainties):
+        return "uncertainties_changed"
+    current_recommended_next = state.recommended_next_regime.stage if state.recommended_next_regime else None
+    if current_recommended_next != prior_recommended_next:
+        return "recommended_next_stage_changed"
+    return "no_material_state_delta"
 
 
 def _first_sentence(text: str) -> str:
@@ -419,6 +479,16 @@ def _minimum_useful_artifact(next_stage: Optional[Stage], state: RouterState) ->
     return f"Progress toward endpoint '{endpoint}' with the minimum useful typed artifact."
 
 
+def _best_active_risk(risks: List[str]) -> str:
+    if not risks:
+        return ""
+    for risk in risks:
+        lowered = risk.lower()
+        if any(token in lowered for token in ("active", "current", "immediate", "now", "blocked", "invalid")):
+            return risk
+    return risks[-1]
+
+
 def compute_forward_handoff(
     result: RegimeExecutionResult,
     router_state: RouterState,
@@ -457,7 +527,7 @@ def compute_forward_handoff(
         what_remains_uncertain=uncertainties,
         active_contradictions=contradictions,
         assumptions_in_play=assumptions,
-        main_risk_if_continue=router_state.risks[-1] if router_state.risks else "",
+        main_risk_if_continue=_best_active_risk(router_state.risks),
         recommended_next_regime=next_stage,
         minimum_useful_artifact=_minimum_useful_artifact(next_stage, router_state),
         prior_artifact_summary=artifact_summary,

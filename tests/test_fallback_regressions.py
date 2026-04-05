@@ -195,7 +195,7 @@ def test_collapse_assumption_guard_is_noop_after_state_build():
     assert bool(state_with_signals.assumptions) is True
 
 
-def test_reentry_exploration_fallback_blocked_by_prior_stage_guard():
+def test_reentry_exploration_fallback_requires_complete_justification():
     state = _make_state(
         Stage.SYNTHESIS,
         assumptions=["a1"],
@@ -217,8 +217,8 @@ def test_reentry_exploration_fallback_blocked_by_prior_stage_guard():
 
     _run_loop(runtime, state, initial_result)
 
-    assert state.orchestration_stop_reason == "loop_prevented_prior_stage"
-    assert state.switch_history[-1].reason == "Switch denied to avoid re-entering a previously executed stage."
+    assert state.orchestration_stop_reason == "loop_prevented_reentry"
+    assert "previously visited stage without material state delta" in state.switch_history[-1].reason
 
 
 def test_invalid_output_recovery_empty_output_does_not_count_as_progress_and_falls_back():

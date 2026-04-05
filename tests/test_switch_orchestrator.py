@@ -139,7 +139,7 @@ def test_epistemic_completion_moves_to_operator():
     assert result.next_regime.stage == Stage.OPERATOR
 
 
-def test_operator_completion_with_recurrence_moves_to_builder():
+def test_operator_completion_with_recurrence_does_not_force_builder_without_structure():
     state = _state_for(Stage.OPERATOR, recurrence_potential=2.0)
     output = _output(
         Stage.OPERATOR,
@@ -152,11 +152,11 @@ def test_operator_completion_with_recurrence_moves_to_builder():
             "review_point": "Review in two weeks.",
         },
         completion_signal="decision_ready_for_execution",
-        failure_signal="forced_closure_without_real_tradeoff",
+        failure_signal="",
     )
     result = SwitchOrchestrator(RegimeComposer()).orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
-    assert result.next_regime is not None
-    assert result.next_regime.stage == Stage.BUILDER
+    assert result.switch_recommended_now is False
+    assert result.next_regime is None
 
 
 def test_operator_failure_moves_to_epistemic():
@@ -172,7 +172,7 @@ def test_operator_failure_moves_to_epistemic():
             "review_point": "",
         },
         completion_signal="decision_committed_with_actions",
-        failure_signal="decision_not_actionable_under_constraints",
+        failure_signal="",
     )
     result = SwitchOrchestrator(RegimeComposer()).orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
     assert result.switch_recommended_now is True
@@ -224,7 +224,7 @@ def test_valid_operator_output_with_no_recurrence_does_not_switch():
             "review_point": "Review in one week.",
         },
         completion_signal="decision_committed_with_actions",
-        failure_signal="decision_not_actionable_under_constraints",
+        failure_signal="",
         validation_overrides={
             "is_valid": True,
             "semantic_failures": [],
@@ -398,7 +398,7 @@ def test_runtime_single_step_mode_preserves_old_behavior(monkeypatch):
     assert runtime.router_state.orchestration_stop_reason == "single_step_mode"
 
 
-def test_runtime_allows_single_collapse_reentry_then_stops(monkeypatch):
+def test_runtime_records_reentry_metadata_for_collapse_and_can_continue(monkeypatch):
     runtime = CognitiveRuntime(provider="ollama")
     scripted = [
         RegimeExecutionResult(
@@ -478,13 +478,11 @@ def test_runtime_allows_single_collapse_reentry_then_stops(monkeypatch):
     runtime.execute(task="Brainstorm options.", model="fake", bounded_orchestration=True, max_switches=3)
 
     assert runtime.router_state is not None
-    assert call_count["n"] == 3
-    assert runtime.router_state.switches_executed == 2
-    assert runtime.router_state.collapse_reentries == 1
-    assert runtime.router_state.orchestration_stop_reason == "switch_not_recommended"
+    assert call_count["n"] == 2
+    assert runtime.router_state.switches_executed == 1
+    assert runtime.router_state.orchestration_stop_reason == "loop_prevented_reentry"
     assert runtime.router_state.switch_history[-1].switch_executed is False
     assert runtime.router_state.switch_history[-1].planned_switch_condition == runtime.router_state.planned_switch_condition
-    assert runtime.router_state.switch_history[1].observed_switch_cause == "assumption_or_frame_collapse"
-    assert runtime.router_state.switch_history[1].reason == "collapse_recovery"
+    assert runtime.router_state.switch_history[-1].reentry_allowed is False
     assert runtime.router_state.recommended_next_regime is not None
-    assert runtime.router_state.recommended_next_regime.stage == Stage.EXPLORATION
+    assert runtime.router_state.recommended_next_regime.stage == Stage.SYNTHESIS

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Optional, Set
 
 from ..control import EscalationPolicy, MisroutingDetector, RegimeOutputContract, SwitchOrchestrationResult, SwitchOrchestrator
-from ..models import RegimeExecutionResult, RoutingDecision, RoutingFeatures, Stage
+from ..models import ReentryDecision, ReentryJustification, RegimeExecutionResult, RoutingDecision, RoutingFeatures, Stage
 from ..routing import RegimeComposer
 from ..orchestration.stop_policy import StopPolicy
 from ..state import Handoff, RouterState
@@ -12,8 +12,6 @@ BAD_OUTPUT_CAUSE = "invalid_output_unrecoverable"
 
 
 class SessionRuntime:
-    MAX_COLLAPSE_REENTRIES = 1
-
     def __init__(
         self,
         *,
@@ -69,6 +67,11 @@ class SessionRuntime:
                     reason=f"Switch limit reached; max_switches={max_switches}.",
                     planned_switch_condition=state.planned_switch_condition,
                     observed_switch_cause=state.observed_switch_cause or state.switch_trigger,
+                    defect_class=None,
+                    repair_target=None,
+                    contract_delta=state.last_contract_delta,
+                    state_delta=state.last_state_delta,
+                    reentry_allowed=False,
                 )
                 state.orchestration_stop_reason = "switch_limit_reached"
                 break
@@ -119,6 +122,11 @@ class SessionRuntime:
                     reason=builder_gate_decision.reason,
                     planned_switch_condition=state.planned_switch_condition,
                     observed_switch_cause=state.observed_switch_cause or state.switch_trigger,
+                    defect_class=(state.last_reentry_justification.defect_class if state.last_reentry_justification else None),
+                    repair_target=(state.last_reentry_justification.repair_target if state.last_reentry_justification else None),
+                    contract_delta=state.last_contract_delta,
+                    state_delta=state.last_state_delta,
+                    reentry_allowed=False,
                 )
                 state.orchestration_stop_reason = builder_gate_decision.reason
                 break
@@ -134,6 +142,11 @@ class SessionRuntime:
                             reason="Exploration produced unrecoverable invalid output; stopping to avoid churn.",
                             planned_switch_condition=state.planned_switch_condition,
                             observed_switch_cause=BAD_OUTPUT_CAUSE,
+                            defect_class=None,
+                            repair_target=None,
+                            contract_delta=state.last_contract_delta,
+                            state_delta=state.last_state_delta,
+                            reentry_allowed=False,
                         )
                         state.orchestration_stop_reason = "invalid_output_unrecoverable"
                         break
@@ -157,10 +170,20 @@ class SessionRuntime:
                         reason=orchestrated.reason_for_switch,
                         planned_switch_condition=state.planned_switch_condition,
                         observed_switch_cause=state.observed_switch_cause or state.switch_trigger,
+                        defect_class=(state.last_reentry_justification.defect_class if state.last_reentry_justification else None),
+                        repair_target=(state.last_reentry_justification.repair_target if state.last_reentry_justification else None),
+                        contract_delta=state.last_contract_delta,
+                        state_delta=state.last_state_delta,
+                        reentry_allowed=False,
                     )
                     state.orchestration_stop_reason = "switch_not_recommended"
                     break
-            if orchestrated.next_regime.stage == state.current_regime.stage:
+            reentry_decision = self._evaluate_reentry(
+                state=state,
+                next_stage=orchestrated.next_regime.stage,
+                reason_for_switch=orchestrated.reason_for_switch,
+            )
+            if not reentry_decision.allowed:
                 state.recommended_next_regime = prior_recommended_next
                 state.record_switch_decision(
                     switch_index=switch_index,
@@ -168,35 +191,17 @@ class SessionRuntime:
                     to_stage=orchestrated.next_regime.stage,
                     switch_recommended=True,
                     switch_executed=False,
-                    reason="Switch denied to avoid same-stage loop.",
+                    reason=reentry_decision.reason,
                     planned_switch_condition=state.planned_switch_condition,
                     observed_switch_cause=state.observed_switch_cause or state.switch_trigger,
+                    defect_class=(reentry_decision.justification.defect_class if reentry_decision.justification else None),
+                    repair_target=(reentry_decision.justification.repair_target if reentry_decision.justification else None),
+                    contract_delta=(reentry_decision.justification.contract_delta if reentry_decision.justification else state.last_contract_delta),
+                    state_delta=(reentry_decision.justification.state_delta if reentry_decision.justification else state.last_state_delta),
+                    reentry_allowed=False,
                 )
-                state.orchestration_stop_reason = "loop_prevented_same_stage"
+                state.orchestration_stop_reason = "loop_prevented_reentry"
                 break
-            if orchestrated.next_regime.stage in state.executed_regime_stages:
-                if self._allow_collapse_reentry(state):
-                    orchestrated = SwitchOrchestrationResult(
-                        next_regime=orchestrated.next_regime,
-                        switch_recommended_now=True,
-                        reason_for_switch="collapse_recovery",
-                        updated_state=state,
-                    )
-                    state.collapse_reentries += 1
-                else:
-                    state.recommended_next_regime = prior_recommended_next
-                    state.record_switch_decision(
-                        switch_index=switch_index,
-                        from_stage=state.current_regime.stage,
-                        to_stage=orchestrated.next_regime.stage,
-                        switch_recommended=True,
-                        switch_executed=False,
-                        reason="Switch denied to avoid re-entering a previously executed stage.",
-                        planned_switch_condition=state.planned_switch_condition,
-                        observed_switch_cause=state.observed_switch_cause or state.switch_trigger,
-                    )
-                    state.orchestration_stop_reason = "loop_prevented_prior_stage"
-                    break
             state.record_switch_decision(
                 switch_index=switch_index,
                 from_stage=state.current_regime.stage,
@@ -206,6 +211,11 @@ class SessionRuntime:
                 reason=orchestrated.reason_for_switch,
                 planned_switch_condition=state.planned_switch_condition,
                 observed_switch_cause=state.observed_switch_cause or state.switch_trigger,
+                defect_class=(reentry_decision.justification.defect_class if reentry_decision.justification else None),
+                repair_target=(reentry_decision.justification.repair_target if reentry_decision.justification else None),
+                contract_delta=(reentry_decision.justification.contract_delta if reentry_decision.justification else state.last_contract_delta),
+                state_delta=(reentry_decision.justification.state_delta if reentry_decision.justification else state.last_state_delta),
+                reentry_allowed=True,
             )
             state.switches_executed += 1
             state.current_regime = orchestrated.next_regime
@@ -222,12 +232,61 @@ class SessionRuntime:
             state.latest_forward_handoff = prior_handoff
         return current_result
 
-    def _allow_collapse_reentry(self, state: RouterState) -> bool:
-        observed_cause = (state.observed_switch_cause or "").lower()
-        collapse_triggered = "collapse" in observed_cause
-        if not collapse_triggered:
+    def _evaluate_reentry(
+        self,
+        *,
+        state: RouterState,
+        next_stage: Stage,
+        reason_for_switch: str,
+    ) -> ReentryDecision:
+        current_stage = state.current_regime.stage
+        same_stage = next_stage == current_stage
+        is_prior_stage = next_stage in state.executed_regime_stages
+        justification = state.last_reentry_justification
+        cause = (state.observed_switch_cause or state.switch_trigger or "").strip()
+        last_delta = (state.last_state_delta or "").strip()
+        trivial_delta = last_delta in {"", "no_material_state_delta"}
+        if same_stage and state.switch_history:
+            last = state.switch_history[-1]
+            if last.to_stage == next_stage and (last.observed_switch_cause or "") == cause:
+                return ReentryDecision(allowed=False, reason="Switch denied: same-stage retry has unchanged brief/cause.")
+        if is_prior_stage and trivial_delta:
+            return ReentryDecision(allowed=False, reason="Switch denied: previously visited stage without material state delta.")
+        if self._is_ping_pong(state, next_stage):
+            return ReentryDecision(allowed=False, reason="Switch denied: ping-pong oscillation detected for same cause/target.")
+        if same_stage or is_prior_stage:
+            if not self._justification_complete(justification):
+                return ReentryDecision(allowed=False, reason="Switch denied: reentry justification is missing required fields.")
+            return ReentryDecision(allowed=True, reason=reason_for_switch, justification=justification)
+        return ReentryDecision(allowed=True, reason=reason_for_switch, justification=justification)
+
+    def _justification_complete(self, justification: Optional[ReentryJustification]) -> bool:
+        if justification is None:
             return False
-        return state.collapse_reentries < self.MAX_COLLAPSE_REENTRIES
+        return all(
+            bool(str(value).strip())
+            for value in (
+                justification.defect_class,
+                justification.repair_target,
+                justification.contract_delta,
+                justification.state_delta,
+            )
+        )
+
+    def _is_ping_pong(self, state: RouterState, next_stage: Stage) -> bool:
+        if len(state.switch_history) < 2:
+            return False
+        recent = state.switch_history[-2:]
+        cause = (state.observed_switch_cause or state.switch_trigger or "").strip()
+        last_delta = (state.last_state_delta or "").strip()
+        if last_delta and last_delta != "no_material_state_delta":
+            return False
+        first, second = recent
+        if not first.to_stage or not second.to_stage:
+            return False
+        oscillating_pair = first.from_stage == second.to_stage and first.to_stage == second.from_stage
+        same_cause = (first.observed_switch_cause or "").strip() == (second.observed_switch_cause or "").strip() == cause
+        return oscillating_pair and first.to_stage == next_stage and same_cause
 
     def _is_unrecoverable_invalid_output(self, result: RegimeExecutionResult) -> bool:
         validation = result.validation
