@@ -17,6 +17,26 @@ STAGE_PROGRESSION = [
     Stage.BUILDER,
 ]
 _STAGE_RANK = {stage: idx for idx, stage in enumerate(STAGE_PROGRESSION)}
+INTERMEDIATE_STAGE_ARTIFACT = {
+    Stage.EXPLORATION: "candidate_frame_set",
+    Stage.SYNTHESIS: "dominant_frame",
+    Stage.OPERATOR: "decision_packet",
+}
+_EXPLICIT_DELIVERABLE_TOKENS = (
+    "final",
+    "final deliverable",
+    "finished",
+    "completed",
+    "not the final output",
+)
+_CONCRETE_DELIVERABLE_TERMS = (
+    "memo",
+    "worksheet",
+    "framework document",
+    "spec",
+    "specification",
+    "document",
+)
 
 
 @dataclass(frozen=True)
@@ -49,6 +69,15 @@ class StopPolicy:
         artifact_complete = self._artifact_complete(validation_result)
         if not artifact_complete:
             return StopDecision(should_stop=False, reason="artifact_incomplete")
+        deliverable_pressure = self._requested_deliverable_pressure(router_state)
+        if deliverable_pressure and current_stage in INTERMEDIATE_STAGE_ARTIFACT:
+            return StopDecision(
+                should_stop=False,
+                reason=(
+                    "deliverable_pressure_unsatisfied:"
+                    f"requested={deliverable_pressure};artifact={INTERMEDIATE_STAGE_ARTIFACT[current_stage]}"
+                ),
+            )
 
         endpoint = self._endpoint_stage(router_state, routing_decision)
         at_or_past_endpoint = _STAGE_RANK[current_stage] >= _STAGE_RANK[endpoint]
@@ -122,6 +151,18 @@ class StopPolicy:
             if normalized in Stage._value2member_map_:
                 return Stage(normalized)
         return Stage.OPERATOR
+
+    def _requested_deliverable_pressure(self, state: RouterState) -> str:
+        summary = (state.task_summary or "").strip().lower()
+        if not summary:
+            return ""
+        has_explicit_pressure = any(token in summary for token in _EXPLICIT_DELIVERABLE_TOKENS)
+        requested_terms = [term for term in _CONCRETE_DELIVERABLE_TERMS if term in summary]
+        if not requested_terms:
+            return ""
+        if not has_explicit_pressure and "deliver" not in summary and "provide" not in summary and "return" not in summary:
+            return ""
+        return requested_terms[0]
 
     def _format_recurrence(self, recurrence_potential: float) -> str:
         as_int = int(recurrence_potential)

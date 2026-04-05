@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, cast
 
 from ..analyzer import TaskAnalyzer
 from ..classifier import TaskClassification, TaskClassifier
@@ -59,6 +59,11 @@ class CognitiveRouterRuntime:
         use_task_analyzer: bool = True,
         task_analyzer_model: str = DEFAULT_DEEPSEEK_MODEL,
     ) -> None:
+        self._provider = provider
+        self._ollama_base_url = ollama_base_url
+        self._openai_base_url = openai_base_url
+        self._openai_api_key_env = openai_api_key_env
+        self._task_analyzer_model = task_analyzer_model
         self.router = Router()
         self.composer = RegimeComposer()
         self.validator = OutputValidator()
@@ -69,14 +74,9 @@ class CognitiveRouterRuntime:
         self.collapse_detector = CollapseDetector()
         self.switch_orchestrator = SwitchOrchestrator(self.composer, collapse_detector=self.collapse_detector)
         self.stop_policy = StopPolicy(collapse_detector=self.collapse_detector)
-        self.model_client: ModelClient = create_model_client(
-            provider=provider,
-            ollama_base_url=ollama_base_url,
-            openai_base_url=openai_base_url,
-            openai_api_key_env=openai_api_key_env,
-        )
+        self.model_client: Optional[ModelClient] = None
         self.use_task_analyzer = use_task_analyzer
-        self.task_analyzer = TaskAnalyzer(self.model_client, model=task_analyzer_model)
+        self.task_analyzer: Optional[TaskAnalyzer] = None
         self.task_classifier = TaskClassifier()
         self.router_state: Optional[RouterState] = None
 
@@ -86,11 +86,7 @@ class CognitiveRouterRuntime:
             escalation_policy=self.escalation_policy,
             task_classifier=self.task_classifier,
         )
-        self.executor = RegimeExecutor(
-            model_client=self.model_client,
-            prompt_builder=self.prompt_builder,
-            validator=self.validator,
-        )
+        self.executor: Optional[RegimeExecutor] = None
         self.session_runtime = SessionRuntime(
             misrouting_detector=self.misrouting_detector,
             escalation_policy=self.escalation_policy,
@@ -100,14 +96,42 @@ class CognitiveRouterRuntime:
 
     @property
     def ollama(self) -> ModelClient:
-        return self.model_client
+        self._ensure_model_client()
+        return cast(ModelClient, self.model_client)
 
     @ollama.setter
     def ollama(self, client: ModelClient) -> None:
         self.model_client = client
-        self.executor.model_client = client
-        if self.task_analyzer is not None:
+        if self.executor is None:
+            self.executor = RegimeExecutor(
+                model_client=client,
+                prompt_builder=self.prompt_builder,
+                validator=self.validator,
+            )
+        else:
+            self.executor.model_client = client
+        if self.task_analyzer is None:
+            self.task_analyzer = TaskAnalyzer(client, model=self._task_analyzer_model)
+        else:
             self.task_analyzer.model_client = client
+
+    def _ensure_model_client(self) -> ModelClient:
+        if self.model_client is None:
+            self.model_client = create_model_client(
+                provider=self._provider,
+                ollama_base_url=self._ollama_base_url,
+                openai_base_url=self._openai_base_url,
+                openai_api_key_env=self._openai_api_key_env,
+            )
+        if self.executor is None:
+            self.executor = RegimeExecutor(
+                model_client=self.model_client,
+                prompt_builder=self.prompt_builder,
+                validator=self.validator,
+            )
+        if self.task_analyzer is None:
+            self.task_analyzer = TaskAnalyzer(self.model_client, model=self._task_analyzer_model)
+        return self.model_client
 
     def plan(
         self,
@@ -118,6 +142,8 @@ class CognitiveRouterRuntime:
         risks_inferred: bool = False,
     ) -> Tuple[RoutingDecision, Regime, Handoff]:
         analyzer_result = None
+        if self.use_task_analyzer:
+            self._ensure_model_client()
         if self.use_task_analyzer and self.task_analyzer is not None:
             features = extract_routing_features(bottleneck)
             signals = task_signals if task_signals is not None else features.structural_signals
@@ -211,7 +237,7 @@ class CognitiveRouterRuntime:
         return decision, regime, result, handoff
 
     def list_models(self) -> Dict[str, object]:
-        return self.model_client.list_models()
+        return self._ensure_model_client().list_models()
 
     def _run_orchestration_loop(
         self,
@@ -260,7 +286,7 @@ class CognitiveRouterRuntime:
         return decision, regime, handoff
 
     def _execute_direct_task(self, *, task: str, model: str, regime: Regime) -> RegimeExecutionResult:
-        return execute_direct_task(model_client=self.model_client, task=task, model=model, regime=regime)
+        return execute_direct_task(model_client=self._ensure_model_client(), task=task, model=model, regime=regime)
 
     def _execute_regime_once(
         self,
@@ -272,7 +298,8 @@ class CognitiveRouterRuntime:
         risk_profile: Set[str],
         prior_handoff: Optional[Handoff] = None,
     ) -> RegimeExecutionResult:
-        return self.executor.execute_once(
+        self._ensure_model_client()
+        return cast(RegimeExecutor, self.executor).execute_once(
             task=task,
             model=model,
             regime=regime,
