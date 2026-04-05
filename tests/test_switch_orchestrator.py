@@ -268,7 +268,7 @@ def test_max_step_bound_is_enforced():
 
 
 def test_runtime_bounded_mode_updates_prior_regimes_without_infinite_loop(monkeypatch):
-    runtime = CognitiveRuntime()
+    runtime = CognitiveRuntime(provider="ollama")
     scripted = [
         RegimeExecutionResult(
             task="task",
@@ -366,7 +366,7 @@ def test_runtime_bounded_mode_updates_prior_regimes_without_infinite_loop(monkey
 
 
 def test_runtime_single_step_mode_preserves_old_behavior(monkeypatch):
-    runtime = CognitiveRuntime()
+    runtime = CognitiveRuntime(provider="ollama")
     scripted = [
         RegimeExecutionResult(
             task="task",
@@ -398,7 +398,7 @@ def test_runtime_single_step_mode_preserves_old_behavior(monkeypatch):
 
 
 def test_runtime_prevents_stage_loops_in_bounded_mode(monkeypatch):
-    runtime = CognitiveRuntime()
+    runtime = CognitiveRuntime(provider="ollama")
     scripted = [
         RegimeExecutionResult(
             task="task",
