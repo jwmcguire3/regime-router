@@ -277,6 +277,129 @@ def test_handoff_fields_appear_in_prompt():
     assert "Artifact 1" in prompt
 
 
+def test_handoff_downstream_discipline_stable_and_broken_elements_are_labeled():
+    composer = RegimeComposer()
+    prior_handoff = Handoff(
+        current_bottleneck="bottleneck",
+        dominant_frame="Frame X",
+        what_is_known=["Known 1"],
+        what_remains_uncertain=["Unknown 1"],
+        active_contradictions=["Contradiction 1"],
+        assumptions_in_play=["Assumption 1"],
+        main_risk_if_continue="Risk 1",
+        recommended_next_regime=Stage.OPERATOR,
+        minimum_useful_artifact="Deliver an operator decision artifact.",
+        source_stage=Stage.EPISTEMIC,
+        source_regime_name="epistemic-core",
+        stable_elements=["supported_claims: constraint budget is fixed"],
+        broken_elements=["decision_relevant_conclusions: timeline confidence was overstated"],
+        recommended_next_regime_full=composer.compose(Stage.OPERATOR),
+    )
+
+    prompt = PromptBuilder.build_user_prompt(
+        "task",
+        composer.compose(Stage.OPERATOR),
+        prior_handoff=prior_handoff,
+    )
+
+    assert "Stable (build on these, do not re-derive):" in prompt
+    assert "supported_claims: constraint budget is fixed" in prompt
+    assert "Broken (reopen these):" in prompt
+    assert "decision_relevant_conclusions: timeline confidence was overstated" in prompt
+
+
+def test_do_not_relitigate_is_visible_downstream():
+    composer = RegimeComposer()
+    prior_handoff = Handoff(
+        current_bottleneck="bottleneck",
+        dominant_frame="Frame X",
+        what_is_known=["Known 1"],
+        what_remains_uncertain=["Unknown 1"],
+        active_contradictions=[],
+        assumptions_in_play=[],
+        main_risk_if_continue="Risk 1",
+        recommended_next_regime=Stage.OPERATOR,
+        minimum_useful_artifact="Deliver an operator decision artifact.",
+        source_stage=Stage.SYNTHESIS,
+        source_regime_name="synthesis-core",
+        do_not_relitigate=["central_claim", "key_tensions"],
+        recommended_next_regime_full=composer.compose(Stage.OPERATOR),
+    )
+
+    prompt = PromptBuilder.build_user_prompt(
+        "task",
+        composer.compose(Stage.OPERATOR),
+        prior_handoff=prior_handoff,
+    )
+
+    assert "Do not relitigate unless broken:" in prompt
+    assert "central_claim" in prompt
+    assert "key_tensions" in prompt
+
+
+def test_handoff_downstream_discipline_minimum_useful_artifact_pressure_is_actionable():
+    composer = RegimeComposer()
+    prior_handoff = Handoff(
+        current_bottleneck="bottleneck",
+        dominant_frame="Frame X",
+        what_is_known=["Known 1"],
+        what_remains_uncertain=["Unknown 1"],
+        active_contradictions=[],
+        assumptions_in_play=[],
+        main_risk_if_continue="Risk 1",
+        recommended_next_regime=Stage.OPERATOR,
+        minimum_useful_artifact="Progress toward endpoint 'operator' by delivering a valid 'decision' artifact.",
+        source_stage=Stage.EPISTEMIC,
+        source_regime_name="epistemic-core",
+        recommended_next_regime_full=composer.compose(Stage.OPERATOR),
+    )
+
+    prompt = PromptBuilder.build_user_prompt(
+        "task",
+        composer.compose(Stage.OPERATOR),
+        prior_handoff=prior_handoff,
+    )
+
+    assert "Minimum useful artifact:" in prompt
+    assert "Progress toward endpoint 'operator'" in prompt
+    assert (
+        "Your response must directly advance the minimum useful artifact above." in prompt
+    )
+
+
+def test_prior_stage_context_constrains_downstream_prompt_materially():
+    composer = RegimeComposer()
+    prior_handoff = Handoff(
+        current_bottleneck="bottleneck",
+        dominant_frame="Frame X",
+        what_is_known=["Known 1"],
+        what_remains_uncertain=["Unknown 1"],
+        active_contradictions=["Contradiction 1"],
+        assumptions_in_play=["Assumption 1"],
+        main_risk_if_continue="Risk 1",
+        recommended_next_regime=Stage.OPERATOR,
+        minimum_useful_artifact="Deliver an operator decision artifact.",
+        prior_artifact_summary="Earlier stage established competing deadline and quality pressure.",
+        source_stage=Stage.SYNTHESIS,
+        source_regime_name="synthesis-core",
+        stable_elements=["central_claim: deadlines dominate sequencing choices"],
+        tentative_elements=["pressure_points: quality floor may be underspecified"],
+        broken_elements=["supporting_structure: staffing assumptions invalidated"],
+        do_not_relitigate=["central_claim"],
+        recommended_next_regime_full=composer.compose(Stage.OPERATOR),
+    )
+    regime = composer.compose(Stage.OPERATOR)
+
+    fresh_prompt = PromptBuilder.build_user_prompt("task", regime, prior_handoff=None)
+    downstream_prompt = PromptBuilder.build_user_prompt("task", regime, prior_handoff=prior_handoff)
+
+    assert "## Prior Stage Context" not in fresh_prompt
+    assert "## Prior Stage Context" in downstream_prompt
+    assert "deadlines dominate sequencing choices" in downstream_prompt
+    assert "Do not relitigate unless broken: central_claim" in downstream_prompt
+    assert len(downstream_prompt.splitlines()) >= len(fresh_prompt.splitlines()) + 10
+
+
 def test_forward_handoff_includes_artifact_summary(monkeypatch):
     runtime = CognitiveRuntime()
     runtime.task_analyzer = _NoopAnalyzer(_decision(Stage.EPISTEMIC, Stage.OPERATOR))
