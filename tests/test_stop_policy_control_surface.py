@@ -91,6 +91,27 @@ def test_stop_policy_refuses_endpoint_completion_on_artifact_stage_mismatch() ->
 
 
 def test_stop_policy_allows_justified_reentry_to_defer_stop() -> None:
+    state = _state_for(Stage.SYNTHESIS)
+    state.recommended_next_regime = RegimeComposer().compose(Stage.EPISTEMIC)
+    state.last_reentry_justification = ReentryJustification(
+        defect_class="contract_invalidated",
+        repair_target="epistemic:evidence_refresh",
+        contract_delta="next_stage_contract_changed",
+        state_delta="recommended_next_stage_changed",
+    )
+
+    decision = StopPolicy().should_stop(
+        router_state=state,
+        validation_result=_valid_validation(Stage.SYNTHESIS),
+        routing_decision=None,
+        current_stage=Stage.SYNTHESIS,
+    )
+
+    assert decision.should_stop is False
+    assert decision.reason == "forward_progress_recommended"
+
+
+def test_stop_policy_endpoint_completion_wins_over_justified_reentry() -> None:
     state = _state_for(Stage.OPERATOR)
     state.recommended_next_regime = RegimeComposer().compose(Stage.EPISTEMIC)
     state.last_reentry_justification = ReentryJustification(
@@ -107,8 +128,8 @@ def test_stop_policy_allows_justified_reentry_to_defer_stop() -> None:
         current_stage=Stage.OPERATOR,
     )
 
-    assert decision.should_stop is False
-    assert decision.reason == "forward_progress_recommended"
+    assert decision.should_stop is True
+    assert decision.reason == "artifact_complete_at_or_past_endpoint:operator"
 
 
 def test_stop_policy_does_not_defer_for_unjustified_same_or_lower_recommendation() -> None:

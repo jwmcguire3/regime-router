@@ -59,8 +59,11 @@ class StopPolicy:
         if self._collapse_signal_present(router_state, validation_result):
             return StopDecision(should_stop=False, reason="collapse_override_active")
 
-        artifact_complete = self._artifact_complete(router_state, validation_result, current_stage)
-        if not artifact_complete:
+        endpoint = self._endpoint_stage(router_state, routing_decision)
+        at_or_past_endpoint = _STAGE_RANK[current_stage] >= _STAGE_RANK[endpoint]
+        operator_default = endpoint == Stage.OPERATOR and current_stage == Stage.OPERATOR
+        artifact_has_completion = self._artifact_has_completion_signal(validation_result)
+        if not artifact_has_completion:
             return StopDecision(should_stop=False, reason="artifact_incomplete")
         artifact_matches_current_stage = self._artifact_matches_current_stage(validation_result, current_stage)
         if not artifact_matches_current_stage:
@@ -75,14 +78,26 @@ class StopPolicy:
                 ),
             )
 
-        endpoint = self._endpoint_stage(router_state, routing_decision)
-        at_or_past_endpoint = _STAGE_RANK[current_stage] >= _STAGE_RANK[endpoint]
-        operator_default = endpoint == Stage.OPERATOR and current_stage == Stage.OPERATOR
+        if at_or_past_endpoint or operator_default:
+            return StopDecision(should_stop=True, reason=f"artifact_complete_at_or_past_endpoint:{endpoint.value}")
+        artifact_complete = self._artifact_complete(router_state, validation_result, current_stage)
+        if not artifact_complete:
+            return StopDecision(should_stop=False, reason="artifact_incomplete")
         if self._should_defer_stop_for_forward_recommendation(router_state, current_stage, endpoint):
             return StopDecision(should_stop=False, reason="forward_progress_recommended")
-        if (artifact_complete and at_or_past_endpoint) or (artifact_complete and operator_default):
-            return StopDecision(should_stop=True, reason=f"artifact_complete_at_or_past_endpoint:{endpoint.value}")
         return StopDecision(should_stop=False, reason="endpoint_not_reached")
+
+    def _artifact_has_completion_signal(self, validation_result: Mapping[str, object]) -> bool:
+        if not bool(validation_result.get("is_valid", False)):
+            return False
+        parsed = validation_result.get("parsed", {})
+        if not isinstance(parsed, dict):
+            return False
+        completion_signal = str(parsed.get("completion_signal", "")).strip()
+        if not completion_signal:
+            return False
+        artifact = parsed.get("artifact", {})
+        return isinstance(artifact, dict)
 
     def _collapse_signal_present(
         self,
