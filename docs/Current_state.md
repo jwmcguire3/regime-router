@@ -38,7 +38,7 @@ A normal run currently follows this shape:
 1. accept a task,
 2. classify the task to extract a direct-vs-regime signal,
 3. extract deterministic structural features from the task,
-4. call the analyzer with task text, structural features, task signals, risk profile, and classifier signal,
+4. if task-analyzer mode is enabled, call the analyzer with task text, structural features, task signals, risk profile, and classifier signal,
 5. convert analyzer output into a `RoutingDecision`, including start-stage and likely endpoint inference,
 6. decide whether direct fast-path planning is allowed,
 7. if direct fast-path planning is allowed, compose a direct passthrough regime,
@@ -214,6 +214,8 @@ The settings and runtime layers currently define:
 - default DeepSeek model: `deepseek-reasoner`
 - default DeepSeek base URL: `https://api.deepseek.com`
 - default DeepSeek API key environment variable: `DEEPSEEK_API_KEY`
+- `UserSettings` default OpenAI-compatible endpoint fields: `openai_base_url=https://api.deepseek.com`, `openai_api_key_env=DEEPSEEK_API_KEY` (because default provider is `deepseek`)
+- `UserSettings` default `task_analyzer_model`: `deepseek-reasoner`
 - default `use_task_analyzer`: `True`
 - default `bounded_orchestration`: `True`
 - default `max_switches`: `2`
@@ -1220,6 +1222,7 @@ It stores:
 - `uncertainties`
 - `contradictions`
 - `assumptions`
+- `substantive_assumptions`
 - `risks`
 - `stage_goal`
 - `planned_switch_condition`
@@ -1227,6 +1230,11 @@ It stores:
 - `switch_trigger`
 - `recommended_next_regime`
 - `decision_pressure`
+- `fragility_pressure`
+- `possibility_space_need`
+- `detected_markers`
+- `structural_signals`
+- `evidence_demand`
 - `evidence_quality`
 - `recurrence_potential`
 - `prior_regimes`
@@ -1252,6 +1260,7 @@ RouterState currently supports methods to:
 
 - record a completed regime step,
 - record a switch decision,
+- record a policy event,
 - apply a dominant frame,
 - update inference state,
 - resolve a regime for a requested stage.
@@ -1302,6 +1311,13 @@ It contains:
 - `minimum_useful_artifact`
 - `recommended_next_regime_full`
 - `prior_artifact_summary`
+- `source_stage`
+- `source_regime_name`
+- `created_from`
+- `stable_elements`
+- `tentative_elements`
+- `broken_elements`
+- `do_not_relitigate`
 
 ### 16.6 Forward handoff computation
 
@@ -1312,7 +1328,6 @@ This computation is deterministic and does not call the model.
 The forward handoff is built from:
 
 - the parsed validated artifact,
-- the routing decision,
 - the current router state,
 - the current regime stage,
 - completion and failure signals,
@@ -1324,7 +1339,7 @@ The handoff content is task-derived rather than router-derived.
 
 Current behavior includes:
 
-- `current_bottleneck` comes from the routing decision’s bottleneck label,
+- `current_bottleneck` is carried from canonical `RouterState.current_bottleneck` (initialized from the task text),
 - `what_is_known` contains concise extracted findings rather than raw field dumps,
 - `what_remains_uncertain` is extracted from artifact limitations, deferrals, or open questions when present,
 - `active_contradictions` reflects task-level tensions or tradeoffs when present,
@@ -1376,7 +1391,11 @@ The restoration layer can rebuild:
 - confidence objects,
 - prior regime history,
 - switch history,
+- policy events,
+- reentry justification state,
 - the main `RouterState` object.
+
+It also preserves backward-compatibility aliases while restoring switch state (`planned_switch_condition`/`switch_trigger`, `observed_switch_cause`/`switch_trigger`), so older saved records still deserialize into current fields.
 
 This allows runs to be saved, inspected, and later resumed or reloaded into runtime state.
 
@@ -1469,8 +1488,7 @@ It uses several control gates:
 - whether a valid artifact has been produced,
 - whether explicit deliverable pressure means an intermediate artifact is not yet sufficient,
 - whether the current stage is at or past the inferred endpoint,
-- whether a forward recommendation should defer stopping,
-- whether builder entry is justified by recurrence.
+- whether a forward recommendation should defer stopping.
 
 ### 20.2 StopDecision
 
@@ -1484,25 +1502,15 @@ It uses several control gates:
 The stop policy currently checks conditions equivalent to:
 
 1. **collapse override**: if collapse is detected, do not stop yet (`collapse_override_active`),
-2. **builder gate**: if operator is trying to move to builder but `recurrence_potential < 7`, stop with a builder-block reason,
-3. **artifact complete**: validation must be valid and include completion/failure control fields in a non-contradictory way,
+2. **artifact signal gate**: continue unless validation is valid and includes a non-empty completion signal plus artifact payload,
+3. **stage-artifact gate**: continue if the artifact type/regime pair does not match the current stage contract,
 4. **deliverable pressure gate**: continue when the task asks for explicit final/concrete deliverables but the current stage artifact is still intermediate,
 5. **endpoint check**: stop when artifact is complete and stage rank is at or past endpoint,
-6. **forward recommendation deferral**: continue if there is a valid forward regime recommendation that still advances toward endpoint.
+6. **forward recommendation deferral**: continue if there is a valid forward regime recommendation that still advances toward endpoint or a qualified reentry justification.
 
 The loop stops when completion + endpoint logic wins and no defer gate applies.
 
-### 20.4 Builder gate
-
-Builder entry is separately gated.
-
-Builder is only entered when `recurrence_potential >= 7`.
-
-If switch logic recommends builder but recurrence potential is below threshold, the stop policy blocks builder entry and records a reason such as:
-
-- `Builder blocked: recurrence_potential {n} < 7`
-
-### 20.5 Relation to hard orchestration ceiling
+### 20.4 Relation to hard orchestration ceiling
 
 The stop policy can terminate the loop early.
 
@@ -1535,9 +1543,9 @@ Inside the orchestration loop, the runtime currently:
 2. enforces `max_switches` as a hard limit,
 3. runs misrouting detection and escalation evaluation,
 4. asks the switch orchestrator whether to switch,
-5. applies builder gate checks before executing a recommended switch,
+5. evaluates reentry allow/deny policy before executing a recommended switch,
 6. applies unrecoverable-invalid-output fallback behavior (attempt exploration fallback unless already in exploration, in which case stop),
-7. blocks same-stage and prior-stage re-entry loops (with a bounded collapse-reentry exception),
+7. blocks same-stage and prior-stage re-entry loops unless required reentry justification fields are complete,
 8. records switch decisions in state history,
 9. executes the next regime with prior handoff context,
 10. updates state and recomputes forward handoff,
