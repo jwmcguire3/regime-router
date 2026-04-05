@@ -31,20 +31,6 @@ The runtime owns the control plane. The model is used for analysis proposals and
 
 This document describes the implementation and operating behavior that currently exists.
 
-### 1.1 Recent commit-backed updates (last 15 commits)
-
-A review of commits `a854334` through `091e5ab` confirms the following are now true in the current codebase:
-
-- **Stop-policy completion logic was aligned with stage/artifact state**, and this behavior is now covered by explicit control-surface tests.
-- **Qualified re-entry policy exists in transition logic**, allowing bounded collapse-related exceptions while still preventing open-ended prior-stage loops.
-- **Analyzer hard stage demotions were replaced with policy guardrails**: weak feature support now yields warnings/advisories and softer confidence handling instead of unconditional primary-stage overrides.
-- **Policy/re-entry observability fields were added** so pre-policy choices, warnings, and actions are inspectable in routing decisions and state traces.
-- **Control-surface governance docs were added/updated** (`control_surface_map.csv`, policy/spec docs, and demotion audit) to keep behavior changes auditable against implementation.
-
-This section is intentionally commit-derived so that the rest of the document can be read with the correct operational assumptions.
-
----
-
 ## 2. Core operating model
 
 A normal run currently follows this shape:
@@ -543,6 +529,8 @@ Its fields include:
 - `runner_up_regime`
 - `why_primary_wins_now`
 - `switch_trigger`
+- `pre_policy_primary_regime`
+- `pre_policy_runner_up_regime`
 - `confidence`
 - `deterministic_stage_scores`
 - `deterministic_score_summary`
@@ -552,6 +540,9 @@ Its fields include:
 - `analyzer_changed_primary`
 - `analyzer_changed_runner_up`
 - `analyzer_summary`
+- `inference_quality`
+- `policy_warnings`
+- `policy_actions`
 - `likely_endpoint_regime`
 - `endpoint_confidence`
 
@@ -969,19 +960,13 @@ The prompt builder supports at least three repair modes:
 
 There are two execution paths.
 
-### 13.1 Direct execution path
+### 13.1 Direct execution helper
 
-If runtime fast-path conditions are satisfied, the runtime calls `execute_direct_task(...)`.
+`router/execution/direct_execution.py` still provides `execute_direct_task(...)` as a direct helper.
 
-This path:
+In the current runtime flow, `CognitiveRouterRuntime.execute(...)` does not route through that helper. It executes through `RegimeExecutor.execute_once(...)`, including direct passthrough regimes when direct gating conditions are met.
 
-- executes through a direct passthrough regime,
-- uses a simpler direct system prompt,
-- treats validation as effectively valid for passthrough purposes,
-- still updates router state,
-- still produces a handoff projection.
-
-The direct path exists inside the same analysis-first planning model as staged execution.
+As a result, direct-mode runs and staged runs share the same executor/validation pipeline, with routing and regime selection determining behavior.
 
 ### 13.2 Regime execution path
 
@@ -1237,6 +1222,8 @@ It stores:
 - `assumptions`
 - `risks`
 - `stage_goal`
+- `planned_switch_condition`
+- `observed_switch_cause`
 - `switch_trigger`
 - `recommended_next_regime`
 - `decision_pressure`
@@ -1247,11 +1234,17 @@ It stores:
 - `max_switches`
 - `switches_attempted`
 - `switches_executed`
+- `collapse_reentries`
 - `orchestration_stop_reason`
 - `executed_regime_stages`
 - `switch_history`
+- `policy_events`
+- `last_reentry_justification`
+- `last_state_delta`
+- `last_contract_delta`
 - `escalation_debug`
 - `task_classification`
+- `latest_forward_handoff`
 
 ### 16.2 RouterState methods
 
@@ -1283,7 +1276,14 @@ Every switch decision can be recorded as a `SwitchDecisionRecord` containing:
 - switch recommended flag
 - switch executed flag
 - reason
-- switch trigger
+- planned switch condition
+- observed switch cause
+- switch trigger (legacy alias for observed switch cause)
+- defect class
+- repair target
+- contract delta
+- state delta
+- re-entry allowed flag
 
 ### 16.5 Handoff
 
