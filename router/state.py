@@ -511,6 +511,30 @@ def router_state_from_jsonable(payload: object, resolve_stage: Callable[[Stage],
 
     last_reentry_justification = _reentry_justification_from_payload(payload.get("last_reentry_justification"))
 
+    assumptions = [str(v) for v in payload.get("assumptions", []) if isinstance(v, str)]
+    legacy_structural_signals: List[str] = []
+    filtered_assumptions: List[str] = []
+    legacy_prefix = "Structural signals observed:"
+    for assumption in assumptions:
+        if not assumption.startswith(legacy_prefix):
+            filtered_assumptions.append(assumption)
+            continue
+        observed_signals = assumption[len(legacy_prefix) :].strip()
+        if not observed_signals:
+            continue
+        legacy_structural_signals.extend(
+            signal.strip() for signal in observed_signals.split(",") if signal.strip()
+        )
+
+    payload_structural_signals = payload.get("structural_signals", [])
+    structural_signals = (
+        [str(v) for v in payload_structural_signals if isinstance(v, str)]
+        if isinstance(payload_structural_signals, list)
+        else []
+    )
+    if not structural_signals and legacy_structural_signals:
+        structural_signals = legacy_structural_signals
+
     return RouterState(
         task_id=str(payload.get("task_id", "")),
         task_summary=str(payload.get("task_summary", "")),
@@ -522,9 +546,11 @@ def router_state_from_jsonable(payload: object, resolve_stage: Callable[[Stage],
         knowns=[str(v) for v in payload.get("knowns", []) if isinstance(v, str)],
         uncertainties=[str(v) for v in payload.get("uncertainties", []) if isinstance(v, str)],
         contradictions=[str(v) for v in payload.get("contradictions", []) if isinstance(v, str)],
-        assumptions=[str(v) for v in payload.get("assumptions", []) if isinstance(v, str)],
+        assumptions=filtered_assumptions,
         substantive_assumptions=[
-            str(v) for v in payload.get("substantive_assumptions", payload.get("assumptions", [])) if isinstance(v, str)
+            str(v)
+            for v in payload.get("substantive_assumptions", filtered_assumptions)
+            if isinstance(v, str) and not str(v).startswith(legacy_prefix)
         ],
         risks=[str(v) for v in payload.get("risks", []) if isinstance(v, str)],
         stage_goal=str(payload.get("stage_goal", "")),
@@ -550,7 +576,7 @@ def router_state_from_jsonable(payload: object, resolve_stage: Callable[[Stage],
         detected_markers=(
             dict(payload.get("detected_markers", {})) if isinstance(payload.get("detected_markers"), dict) else {}
         ),
-        structural_signals=[str(v) for v in payload.get("structural_signals", []) if isinstance(v, str)],
+        structural_signals=structural_signals,
         evidence_demand=float(payload.get("evidence_demand", 0.0)),
         evidence_quality=float(payload.get("evidence_quality", 0.0)),
         recurrence_potential=float(payload.get("recurrence_potential", 0.0)),
