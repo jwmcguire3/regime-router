@@ -105,6 +105,34 @@ def test_builder_primary_not_hard_demoted_when_recurrence_support_absent() -> No
     assert "builder support weak; advisory only" in decision.policy_warnings
 
 
+
+
+def test_operator_weak_support_warning_suppressed_at_high_confidence() -> None:
+    analyzer = _analyzer(_analysis_output(top_stage=Stage.OPERATOR, confidence=0.8))
+
+    decision = analyzer.propose_route("task", _features(decision_pressure=0, markers={}), [], set())
+
+    assert decision.primary_regime == Stage.OPERATOR
+    assert "operator support weak; soft guardrail only" not in decision.policy_warnings
+
+
+def test_adversarial_weak_support_warning_suppressed_at_high_confidence() -> None:
+    analyzer = _analyzer(_analysis_output(top_stage=Stage.ADVERSARIAL, confidence=0.85))
+
+    decision = analyzer.propose_route("task", _features(fragility_pressure=0), [], set())
+
+    assert decision.primary_regime == Stage.ADVERSARIAL
+    assert "adversarial support weak; advisory only" not in decision.policy_warnings
+
+
+def test_builder_weak_support_warning_suppressed_at_high_confidence() -> None:
+    analyzer = _analyzer(_analysis_output(top_stage=Stage.BUILDER, confidence=0.9, recurrence_potential=0))
+
+    decision = analyzer.propose_route("task", _features(recurrence_potential=0), [], set())
+
+    assert decision.primary_regime == Stage.BUILDER
+    assert "builder support weak; advisory only" not in decision.policy_warnings
+
 def test_builder_endpoint_softened_when_support_absent_and_confidence_not_high() -> None:
     analyzer = _analyzer(
         _analysis_output(
