@@ -1,6 +1,6 @@
 # Cognitive Router — Current State Detailed Standalone
 
-Last updated: April 2, 2026
+Last updated: April 5, 2026
 
 ## 1. What this system is
 
@@ -181,29 +181,39 @@ The active model client is created by `create_model_client(...)` inside the runt
 
 - `ollama`
 - `openai`
+- `deepseek`
 
 ### 4.1 Ollama provider
 
 When `provider="ollama"`, the runtime constructs `OllamaModelClient` using the configured Ollama base URL.
 
-### 4.2 OpenAI-compatible provider
+### 4.2 OpenAI-compatible providers
 
-When `provider="openai"`, the runtime constructs `OpenAIModelClient` using:
+When `provider="openai"` or `provider="deepseek"`, the runtime constructs `OpenAIModelClient` using:
 
 - `openai_base_url`
 - `openai_api_key_env`
 
 The runtime reads the API key from the configured environment variable and raises a runtime error if that variable is missing or empty.
 
-### 4.3 Settings defaults
+### 4.3 Provider transition behavior
 
-The settings layer currently defines:
+The CLI/settings layer now includes provider-transition logic for OpenAI-compatible endpoints. When the provider changes between `openai` and `deepseek`, endpoint defaults are automatically refreshed unless explicit overrides are provided.
 
-- default provider: `ollama`
+This keeps `openai_base_url` and `openai_api_key_env` aligned with the selected provider while still allowing custom values when intentionally set.
+
+### 4.4 Settings defaults
+
+The settings and runtime layers currently define:
+
+- default provider: `deepseek`
 - default Ollama model: `dolphin29:latest`
 - default OpenAI model: `gpt-5.4-mini`
 - default OpenAI base URL: `https://api.openai.com/v1`
 - default OpenAI API key environment variable: `OPENAI_API_KEY`
+- default DeepSeek model: `deepseek-reasoner`
+- default DeepSeek base URL: `https://api.deepseek.com`
+- default DeepSeek API key environment variable: `DEEPSEEK_API_KEY`
 - default `use_task_analyzer`: `True`
 - default `bounded_orchestration`: `True`
 - default `max_switches`: `2`
