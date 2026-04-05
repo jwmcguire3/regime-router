@@ -5,7 +5,17 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set
 
-from .models import FunctionType, LinePrimitive, Regime, RegimeConfidenceResult, RegimeExecutionResult, RoutingDecision, Stage
+from .models import (
+    FunctionType,
+    LinePrimitive,
+    PolicyEvent,
+    ReentryJustification,
+    Regime,
+    RegimeConfidenceResult,
+    RegimeExecutionResult,
+    RoutingDecision,
+    Stage,
+)
 
 RegimeConfidence = RegimeConfidenceResult
 
@@ -30,6 +40,11 @@ class SwitchDecisionRecord:
     planned_switch_condition: Optional[str]
     observed_switch_cause: Optional[str]
     switch_trigger: Optional[str]  # legacy alias for observed_switch_cause
+    defect_class: Optional[str] = None
+    repair_target: Optional[str] = None
+    contract_delta: Optional[str] = None
+    state_delta: Optional[str] = None
+    reentry_allowed: Optional[bool] = None
 
 
 @dataclass
@@ -64,6 +79,10 @@ class RouterState:
     orchestration_stop_reason: Optional[str] = None
     executed_regime_stages: List[Stage] = field(default_factory=list)
     switch_history: List[SwitchDecisionRecord] = field(default_factory=list)
+    policy_events: List[PolicyEvent] = field(default_factory=list)
+    last_reentry_justification: Optional[ReentryJustification] = None
+    last_state_delta: Optional[str] = None
+    last_contract_delta: Optional[str] = None
     escalation_debug: Dict[str, object] = field(default_factory=dict)
     task_classification: Optional[Dict[str, object]] = None
     latest_forward_handoff: Optional["Handoff"] = None
@@ -99,6 +118,11 @@ class RouterState:
         reason: str,
         planned_switch_condition: Optional[str],
         observed_switch_cause: Optional[str],
+        defect_class: Optional[str] = None,
+        repair_target: Optional[str] = None,
+        contract_delta: Optional[str] = None,
+        state_delta: Optional[str] = None,
+        reentry_allowed: Optional[bool] = None,
     ) -> None:
         self.switch_history.append(
             SwitchDecisionRecord(
@@ -111,8 +135,16 @@ class RouterState:
                 planned_switch_condition=planned_switch_condition,
                 observed_switch_cause=observed_switch_cause,
                 switch_trigger=observed_switch_cause,
+                defect_class=defect_class,
+                repair_target=repair_target,
+                contract_delta=contract_delta,
+                state_delta=state_delta,
+                reentry_allowed=reentry_allowed,
             )
         )
+
+    def record_policy_event(self, event: PolicyEvent) -> None:
+        self.policy_events.append(event)
 
     def apply_dominant_frame(self, dominant_frame: Optional[str]) -> None:
         self.dominant_frame = dominant_frame
@@ -346,6 +378,25 @@ def _regime_confidence_from_payload(payload: object) -> RegimeConfidenceResult:
     )
 
 
+def _reentry_justification_from_payload(payload: object) -> Optional[ReentryJustification]:
+    if isinstance(payload, ReentryJustification):
+        return payload
+    if not isinstance(payload, Mapping):
+        return None
+    defect_class = payload.get("defect_class")
+    repair_target = payload.get("repair_target")
+    contract_delta = payload.get("contract_delta")
+    state_delta = payload.get("state_delta")
+    if not all(isinstance(v, str) for v in (defect_class, repair_target, contract_delta, state_delta)):
+        return None
+    return ReentryJustification(
+        defect_class=defect_class,
+        repair_target=repair_target,
+        contract_delta=contract_delta,
+        state_delta=state_delta,
+    )
+
+
 def router_state_from_jsonable(payload: object, resolve_stage: Callable[[Stage], Regime]) -> Optional[RouterState]:
     if payload is None:
         return None
@@ -422,8 +473,38 @@ def router_state_from_jsonable(payload: object, resolve_stage: Callable[[Stage],
                     if item.get("observed_switch_cause") is not None
                     else None
                 ),
+                defect_class=str(item.get("defect_class")) if item.get("defect_class") is not None else None,
+                repair_target=str(item.get("repair_target")) if item.get("repair_target") is not None else None,
+                contract_delta=str(item.get("contract_delta")) if item.get("contract_delta") is not None else None,
+                state_delta=str(item.get("state_delta")) if item.get("state_delta") is not None else None,
+                reentry_allowed=(
+                    bool(item.get("reentry_allowed")) if item.get("reentry_allowed") is not None else None
+                ),
             )
         )
+
+    policy_events: List[PolicyEvent] = []
+    for item in payload.get("policy_events", []):
+        if not isinstance(item, Mapping):
+            continue
+        rule_name = item.get("rule_name")
+        authority = item.get("authority")
+        action = item.get("action")
+        detail = item.get("detail")
+        consumed_features = [str(v) for v in item.get("consumed_features", []) if isinstance(v, str)]
+        if not all(isinstance(v, str) for v in (rule_name, authority, action, detail)):
+            continue
+        policy_events.append(
+            PolicyEvent(
+                rule_name=rule_name,
+                authority=authority,
+                consumed_features=consumed_features,
+                action=action,
+                detail=detail,
+            )
+        )
+
+    last_reentry_justification = _reentry_justification_from_payload(payload.get("last_reentry_justification"))
 
     return RouterState(
         task_id=str(payload.get("task_id", "")),
@@ -472,6 +553,12 @@ def router_state_from_jsonable(payload: object, resolve_stage: Callable[[Stage],
         ),
         executed_regime_stages=executed_regime_stages,
         switch_history=switch_history,
+        policy_events=policy_events,
+        last_reentry_justification=last_reentry_justification,
+        last_state_delta=str(payload.get("last_state_delta")) if payload.get("last_state_delta") is not None else None,
+        last_contract_delta=(
+            str(payload.get("last_contract_delta")) if payload.get("last_contract_delta") is not None else None
+        ),
         task_classification=(
             payload.get("task_classification") if isinstance(payload.get("task_classification"), Mapping) else None
         ),

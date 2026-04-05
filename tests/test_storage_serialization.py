@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from router.models import Stage
+from router.models import PolicyEvent, RegimeConfidenceResult, RoutingDecision, Stage
 from router.runtime import CognitiveRuntime
 from router.state import make_record, router_state_from_jsonable, to_jsonable
 from router.storage import SessionStore
@@ -175,3 +175,137 @@ def test_router_state_round_trip_preserves_planned_and_observed_switch_fields():
     assert restored.observed_switch_cause == "failure_signal"
     assert restored.switch_history[0].planned_switch_condition == "switch when tradeoff is decision-relevant"
     assert restored.switch_history[0].observed_switch_cause == "failure_signal"
+
+
+def test_policy_events_serialize_in_router_state():
+    runtime = CognitiveRuntime()
+    restored = router_state_from_jsonable(
+        {
+            "task_id": "task-policy-events",
+            "task_summary": "policy events",
+            "current_bottleneck": "policy bottleneck",
+            "current_regime": "operator",
+            "runner_up_regime": "epistemic",
+            "regime_confidence": {"level": "low"},
+            "knowns": [],
+            "uncertainties": [],
+            "contradictions": [],
+            "assumptions": [],
+            "risks": [],
+            "stage_goal": "goal",
+        },
+        runtime.composer.compose,
+    )
+    assert restored is not None
+    restored.record_policy_event(
+        PolicyEvent(
+            rule_name="qualified_reentry",
+            authority="soft_guardrail",
+            consumed_features=["observed_switch_cause", "collapse_reentries"],
+            action="allow_reentry",
+            detail="Limited one-hop reentry for artifact repair.",
+        )
+    )
+
+    serialized = to_jsonable(restored)
+    assert isinstance(serialized, dict)
+    assert serialized["policy_events"] == [
+        {
+            "rule_name": "qualified_reentry",
+            "authority": "soft_guardrail",
+            "consumed_features": ["observed_switch_cause", "collapse_reentries"],
+            "action": "allow_reentry",
+            "detail": "Limited one-hop reentry for artifact repair.",
+        }
+    ]
+
+    round_tripped = router_state_from_jsonable(serialized, runtime.composer.compose)
+    assert round_tripped is not None
+    assert len(round_tripped.policy_events) == 1
+    assert round_tripped.policy_events[0].authority == "soft_guardrail"
+
+
+def test_switch_history_serializes_reentry_fields():
+    runtime = CognitiveRuntime()
+    restored = router_state_from_jsonable(
+        {
+            "task_id": "task-switch-history",
+            "task_summary": "switch history",
+            "current_bottleneck": "switch bottleneck",
+            "current_regime": "operator",
+            "runner_up_regime": "epistemic",
+            "regime_confidence": {"level": "low"},
+            "knowns": [],
+            "uncertainties": [],
+            "contradictions": [],
+            "assumptions": [],
+            "risks": [],
+            "stage_goal": "goal",
+            "last_reentry_justification": {
+                "defect_class": "artifact_mismatch",
+                "repair_target": "handoff_contract",
+                "contract_delta": "tighten acceptance criteria",
+                "state_delta": "refresh bottleneck summary",
+            },
+            "last_state_delta": "refresh bottleneck summary",
+            "last_contract_delta": "tighten acceptance criteria",
+        },
+        runtime.composer.compose,
+    )
+    assert restored is not None
+    restored.record_switch_decision(
+        switch_index=2,
+        from_stage=Stage.OPERATOR,
+        to_stage=Stage.EPISTEMIC,
+        switch_recommended=True,
+        switch_executed=True,
+        reason="qualified reentry",
+        planned_switch_condition="repair contract mismatch",
+        observed_switch_cause="artifact_defect",
+        defect_class="artifact_mismatch",
+        repair_target="handoff_contract",
+        contract_delta="tighten acceptance criteria",
+        state_delta="refresh bottleneck summary",
+        reentry_allowed=True,
+    )
+    serialized = to_jsonable(restored)
+
+    assert isinstance(serialized, dict)
+    assert serialized["switch_history"][0]["defect_class"] == "artifact_mismatch"
+    assert serialized["switch_history"][0]["repair_target"] == "handoff_contract"
+    assert serialized["switch_history"][0]["contract_delta"] == "tighten acceptance criteria"
+    assert serialized["switch_history"][0]["state_delta"] == "refresh bottleneck summary"
+    assert serialized["switch_history"][0]["reentry_allowed"] is True
+    assert serialized["last_reentry_justification"]["defect_class"] == "artifact_mismatch"
+    assert serialized["last_state_delta"] == "refresh bottleneck summary"
+    assert serialized["last_contract_delta"] == "tighten acceptance criteria"
+
+    round_tripped = router_state_from_jsonable(serialized, runtime.composer.compose)
+    assert round_tripped is not None
+    assert round_tripped.switch_history[0].defect_class == "artifact_mismatch"
+    assert round_tripped.switch_history[0].reentry_allowed is True
+    assert round_tripped.last_reentry_justification is not None
+    assert round_tripped.last_reentry_justification.repair_target == "handoff_contract"
+
+
+def test_record_contains_pre_and_post_policy_routing():
+    decision = RoutingDecision(
+        bottleneck="routing bottleneck",
+        primary_regime=Stage.SYNTHESIS,
+        runner_up_regime=Stage.EPISTEMIC,
+        why_primary_wins_now="Synthesis aligns best with bottleneck.",
+        switch_trigger="frame collapse",
+        pre_policy_primary_regime=Stage.BUILDER,
+        pre_policy_runner_up_regime=Stage.SYNTHESIS,
+        policy_warnings=["builder threshold bypassed"],
+        policy_actions=["demoted_builder_to_synthesis"],
+        confidence=RegimeConfidenceResult.low_default(),
+    )
+    serialized = to_jsonable(decision)
+    assert isinstance(serialized, dict)
+    assert serialized["pre_policy_primary_regime"] == "builder"
+    assert serialized["pre_policy_runner_up_regime"] == "synthesis"
+    assert serialized["primary_regime"] == "synthesis"
+    assert serialized["runner_up_regime"] == "epistemic"
+    assert serialized["policy_warnings"] == ["builder threshold bypassed"]
+    assert serialized["policy_actions"] == ["demoted_builder_to_synthesis"]
