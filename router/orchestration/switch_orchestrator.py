@@ -116,8 +116,7 @@ class SwitchOrchestrator:
                 state=state,
                 current_stage=state.current_regime.stage,
                 next_stage=sparse_next_stage,
-                completion_signal=completion_signal,
-                failure_signal=failure_signal,
+                canonical=canonical,
                 detection=detection,
                 output=output,
             )
@@ -169,8 +168,7 @@ class SwitchOrchestrator:
             state=state,
             current_stage=current_stage,
             next_stage=resolved_next_stage,
-            completion_signal=completion_signal,
-            failure_signal=failure_signal,
+            canonical=canonical,
             detection=detection,
             output=output,
         )
