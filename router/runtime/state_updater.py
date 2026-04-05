@@ -74,7 +74,7 @@ def build_router_state(
         ],
         uncertainties=[],
         contradictions=[],
-        assumptions=[f"Structural signals observed: {', '.join(signals) if signals else 'none'}"],
+        assumptions=[],
         substantive_assumptions=[],
         risks=sorted(risks) + [primary_failure],
         stage_goal=stage_goal,
@@ -83,11 +83,12 @@ def build_router_state(
         switch_trigger=decision.switch_trigger,
         recommended_next_regime=runner_up_regime,
         decision_pressure=float(getattr(features, "decision_pressure", 0)),
-        evidence_quality=(
-            float(analyzer_result.evidence_quality)
-            if analyzer_result is not None
-            else float(getattr(features, "evidence_demand", 0))
-        ),
+        evidence_demand=float(getattr(features, "evidence_demand", 0)),
+        evidence_quality=float(analyzer_result.evidence_quality) if analyzer_result is not None else 0.0,
+        fragility_pressure=float(getattr(features, "fragility_pressure", 0)),
+        possibility_space_need=float(getattr(features, "possibility_space_need", 0)),
+        detected_markers=dict(getattr(features, "detected_markers", {})),
+        structural_signals=list(getattr(features, "structural_signals", [])),
         recurrence_potential=float(getattr(features, "recurrence_potential", 0)),
         policy_events=[],
         last_reentry_justification=None,

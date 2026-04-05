@@ -191,8 +191,8 @@ def test_collapse_assumption_guard_is_noop_after_state_build():
         composer=composer,
     )
 
-    assert bool(state_without_signals.assumptions) is True
-    assert bool(state_with_signals.assumptions) is True
+    assert bool(state_without_signals.assumptions) is False
+    assert bool(state_with_signals.assumptions) is False
 
 
 def test_reentry_exploration_fallback_requires_complete_justification():
