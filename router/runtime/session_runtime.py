@@ -3,9 +3,12 @@ from __future__ import annotations
 from typing import List, Optional, Set
 
 from ..control import EscalationPolicy, MisroutingDetector, RegimeOutputContract, SwitchOrchestrationResult, SwitchOrchestrator
-from ..models import RegimeExecutionResult, RoutingDecision, RoutingFeatures
+from ..models import RegimeExecutionResult, RoutingDecision, RoutingFeatures, Stage
+from ..routing import RegimeComposer
 from ..orchestration.stop_policy import StopPolicy
 from ..state import Handoff, RouterState
+
+BAD_OUTPUT_CAUSE = "invalid_output_unrecoverable"
 
 
 class SessionRuntime:
@@ -23,6 +26,7 @@ class SessionRuntime:
         self.escalation_policy = escalation_policy
         self.switch_orchestrator = switch_orchestrator
         self.stop_policy = stop_policy
+        self._composer = RegimeComposer()
 
     def run_orchestration_loop(
         self,
@@ -119,18 +123,43 @@ class SessionRuntime:
                 state.orchestration_stop_reason = builder_gate_decision.reason
                 break
             if not orchestrated.switch_recommended_now or orchestrated.next_regime is None:
-                state.record_switch_decision(
-                    switch_index=switch_index,
-                    from_stage=state.current_regime.stage,
-                    to_stage=None,
-                    switch_recommended=False,
-                    switch_executed=False,
-                    reason=orchestrated.reason_for_switch,
-                    planned_switch_condition=state.planned_switch_condition,
-                    observed_switch_cause=state.observed_switch_cause or state.switch_trigger,
-                )
-                state.orchestration_stop_reason = "switch_not_recommended"
-                break
+                if self._is_unrecoverable_invalid_output(current_result):
+                    if state.current_regime.stage == Stage.EXPLORATION:
+                        state.record_switch_decision(
+                            switch_index=switch_index,
+                            from_stage=state.current_regime.stage,
+                            to_stage=None,
+                            switch_recommended=False,
+                            switch_executed=False,
+                            reason="Exploration produced unrecoverable invalid output; stopping to avoid churn.",
+                            planned_switch_condition=state.planned_switch_condition,
+                            observed_switch_cause=BAD_OUTPUT_CAUSE,
+                        )
+                        state.orchestration_stop_reason = "invalid_output_unrecoverable"
+                        break
+                    fallback_regime = state.resolve_regime(Stage.EXPLORATION, self._composer.compose)
+                    state.recommended_next_regime = fallback_regime
+                    orchestrated = SwitchOrchestrationResult(
+                        next_regime=fallback_regime,
+                        switch_recommended_now=True,
+                        reason_for_switch="invalid_output_recovery",
+                        updated_state=state,
+                    )
+                    state.observed_switch_cause = BAD_OUTPUT_CAUSE
+                    state.switch_trigger = BAD_OUTPUT_CAUSE
+                else:
+                    state.record_switch_decision(
+                        switch_index=switch_index,
+                        from_stage=state.current_regime.stage,
+                        to_stage=None,
+                        switch_recommended=False,
+                        switch_executed=False,
+                        reason=orchestrated.reason_for_switch,
+                        planned_switch_condition=state.planned_switch_condition,
+                        observed_switch_cause=state.observed_switch_cause or state.switch_trigger,
+                    )
+                    state.orchestration_stop_reason = "switch_not_recommended"
+                    break
             if orchestrated.next_regime.stage == state.current_regime.stage:
                 state.recommended_next_regime = prior_recommended_next
                 state.record_switch_decision(
@@ -199,3 +228,15 @@ class SessionRuntime:
         if not collapse_triggered:
             return False
         return state.collapse_reentries < self.MAX_COLLAPSE_REENTRIES
+
+    def _is_unrecoverable_invalid_output(self, result: RegimeExecutionResult) -> bool:
+        validation = result.validation
+        if "is_valid" not in validation:
+            return False
+        if validation.get("is_valid", False):
+            return False
+        if not str(result.raw_response or "").strip():
+            return True
+        if validation.get("repair_attempted", False) and not validation.get("repair_succeeded", False):
+            return True
+        return not bool(validation.get("valid_json", False))

@@ -126,16 +126,23 @@ def update_router_state_from_execution(
         )
 
     is_valid = bool(result.validation.get("is_valid", False))
-    summary_chunks = ["Execution yielded a valid artifact." if is_valid else "Execution yielded validation failures."]
+    artifact_complete = bool(completion_signal) and is_valid and completion_signal != failure_signal
+    summary_chunks = [
+        "Execution yielded a completed artifact."
+        if artifact_complete
+        else "Execution output was incomplete or invalid."
+    ]
     if completion_signal:
         summary_chunks.append(f"completion_signal={completion_signal}")
     if failure_signal:
         summary_chunks.append(f"failure_signal={failure_signal}")
+    if not is_valid:
+        summary_chunks.append("validation_failed=true")
     state.record_regime_step(
         regime=state.current_regime,
         reason_entered=reason_entered,
-        completion_signal_seen=is_valid,
-        failure_signal_seen=not is_valid,
+        completion_signal_seen=artifact_complete,
+        failure_signal_seen=bool(failure_signal) or not is_valid,
         outcome_summary=" ".join(summary_chunks),
     )
 
