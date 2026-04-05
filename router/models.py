@@ -42,6 +42,12 @@ class Severity(str, Enum):
     HIGH = "high"
 
 
+class ControlAuthority(str, Enum):
+    HARD_VETO = "hard_veto"
+    SOFT_GUARDRAIL = "soft_guardrail"
+    ADVISORY_ONLY = "advisory_only"
+
+
 # ============================================================
 # Data models
 # ============================================================
@@ -100,6 +106,8 @@ class RoutingDecision:
     runner_up_regime: Optional[Stage]
     why_primary_wins_now: str
     switch_trigger: str
+    pre_policy_primary_regime: Optional[Stage] = None
+    pre_policy_runner_up_regime: Optional[Stage] = None
     likely_endpoint_regime: str = "operator"
     endpoint_confidence: float = 0.7
     confidence: "RegimeConfidenceResult" = field(default_factory=lambda: RegimeConfidenceResult.low_default())
@@ -112,6 +120,32 @@ class RoutingDecision:
     analyzer_changed_runner_up: bool = False
     analyzer_summary: Optional[str] = None
     inference_quality: str = "fallback"
+    policy_warnings: List[str] = field(default_factory=list)
+    policy_actions: List[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ReentryJustification:
+    defect_class: str
+    repair_target: str
+    contract_delta: str
+    state_delta: str
+
+
+@dataclass(frozen=True)
+class ReentryDecision:
+    allowed: bool
+    reason: str
+    justification: Optional[ReentryJustification] = None
+
+
+@dataclass(frozen=True)
+class PolicyEvent:
+    rule_name: str
+    authority: str
+    consumed_features: List[str]
+    action: str
+    detail: str
 
 
 @dataclass
