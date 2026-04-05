@@ -124,3 +124,21 @@ def test_stop_policy_does_not_defer_for_unjustified_same_or_lower_recommendation
 
     assert decision.should_stop is True
     assert decision.reason == "artifact_complete_at_or_past_endpoint:operator"
+
+
+def test_stop_policy_rejects_control_conflict_even_when_completion_signal_is_present() -> None:
+    state = _state_for(Stage.OPERATOR)
+    validation = _valid_validation(Stage.OPERATOR)
+    parsed = validation["parsed"]
+    assert isinstance(parsed, dict)
+    parsed["failure_signal"] = "insufficient_support_for_key_claims"
+
+    decision = StopPolicy().should_stop(
+        router_state=state,
+        validation_result=validation,
+        routing_decision=None,
+        current_stage=Stage.OPERATOR,
+    )
+
+    assert decision.should_stop is False
+    assert decision.reason == "artifact_incomplete"

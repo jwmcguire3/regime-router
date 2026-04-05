@@ -29,10 +29,11 @@ def _features(
     decision_pressure: int = 1,
     fragility_pressure: int = 1,
     recurrence_potential: int = 1,
+    structural_signals: List[str] | None = None,
     markers: Dict[str, List[str]] | None = None,
 ) -> RoutingFeatures:
     return RoutingFeatures(
-        structural_signals=["expansion_when_defined"],
+        structural_signals=structural_signals if structural_signals is not None else ["expansion_when_defined"],
         decision_pressure=decision_pressure,
         evidence_demand=0,
         fragility_pressure=fragility_pressure,
@@ -132,3 +133,23 @@ def test_pre_policy_and_post_policy_routing_are_serialized() -> None:
     assert decision.primary_regime == Stage.OPERATOR
     assert decision.runner_up_regime is not None
     assert decision.policy_warnings
+
+
+def test_confidence_is_dampened_when_structure_is_absent_and_scores_are_near_tied() -> None:
+    payload = _analysis_output(top_stage=Stage.ADVERSARIAL, confidence=0.96)
+    payload["structural_signals"] = []
+    payload["stage_scores"] = {
+        Stage.EXPLORATION.value: 0.2,
+        Stage.SYNTHESIS.value: 0.3,
+        Stage.EPISTEMIC.value: 0.5,
+        Stage.ADVERSARIAL.value: 0.52,
+        Stage.OPERATOR.value: 0.51,
+        Stage.BUILDER.value: 0.1,
+    }
+    analyzer = _analyzer(payload)
+
+    decision = analyzer.propose_route("task", _features(structural_signals=[]), [], set())
+
+    assert decision.confidence.level != "high"
+    assert decision.confidence.weak_lexical_dependence is True
+    assert decision.confidence.structural_feature_state == "none"

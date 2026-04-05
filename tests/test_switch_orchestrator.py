@@ -120,7 +120,7 @@ def test_synthesis_failure_moves_to_epistemic_or_adversarial():
     assert epistemic_result.next_regime.stage == Stage.EPISTEMIC
 
 
-def test_epistemic_completion_moves_to_operator():
+def test_epistemic_conflicted_completion_does_not_advance_to_operator():
     state = _state_for(Stage.EPISTEMIC)
     output = _output(
         Stage.EPISTEMIC,
@@ -135,8 +135,8 @@ def test_epistemic_completion_moves_to_operator():
         failure_signal="evidence_quality_insufficient",
     )
     result = SwitchOrchestrator(RegimeComposer()).orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
-    assert result.next_regime is not None
-    assert result.next_regime.stage == Stage.OPERATOR
+    assert result.switch_recommended_now is False
+    assert result.next_regime is None
 
 
 def test_operator_completion_with_recurrence_does_not_force_builder_without_structure():

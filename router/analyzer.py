@@ -164,7 +164,14 @@ class TaskAnalyzer:
         if primary == runner_up:
             runner_up = Stage.SYNTHESIS if primary != Stage.SYNTHESIS else Stage.EXPLORATION
 
-        confidence_score = analyzer_result.confidence
+        score_gap_raw = (ranked[0][1] - ranked[1][1]) if len(ranked) > 1 else 0.0
+        structural_signals_present = bool(analyzer_result.structural_signals) or bool(routing_features.structural_signals)
+        confidence_score, confidence_adjustments = self._apply_confidence_dampening(
+            confidence=analyzer_result.confidence,
+            structural_signals_present=structural_signals_present,
+            score_gap=score_gap_raw,
+        )
+        policy_actions.extend(confidence_adjustments)
         if confidence_score >= 0.8:
             confidence_level = Severity.HIGH.value
         elif confidence_score >= 0.5:
@@ -172,7 +179,6 @@ class TaskAnalyzer:
         else:
             confidence_level = Severity.LOW.value
 
-        score_gap_raw = (ranked[0][1] - ranked[1][1]) if len(ranked) > 1 else 0.0
         if (
             pre_policy_primary_regime == Stage.OPERATOR
             and routing_features.decision_pressure == 0
@@ -200,8 +206,8 @@ class TaskAnalyzer:
             runner_up_score=runner_up_score,
             score_gap=max(0, top_score - runner_up_score),
             nontrivial_stage_count=nontrivial_stage_count,
-            weak_lexical_dependence=False,
-            structural_feature_state="rich" if routing_features.structural_signals else "sparse",
+            weak_lexical_dependence=not structural_signals_present,
+            structural_feature_state="rich" if structural_signals_present else "none",
         )
 
         stage_reasons = {
@@ -308,6 +314,28 @@ class TaskAnalyzer:
             runner_up = Stage.SYNTHESIS if primary != Stage.SYNTHESIS else Stage.EXPLORATION
 
         return primary, runner_up, policy_warnings, policy_actions
+
+    def _apply_confidence_dampening(
+        self,
+        *,
+        confidence: float,
+        structural_signals_present: bool,
+        score_gap: float,
+    ) -> tuple[float, list[str]]:
+        adjusted = float(confidence)
+        actions: list[str] = []
+        if structural_signals_present:
+            return adjusted, actions
+        if score_gap <= 0.05 and adjusted > 0.45:
+            adjusted = 0.45
+            actions.append("confidence capped: no structural signals and near-tie stage scores")
+        elif score_gap <= 0.15 and adjusted > 0.6:
+            adjusted = 0.6
+            actions.append("confidence capped: no structural signals and weak stage separation")
+        elif adjusted > 0.75:
+            adjusted = 0.75
+            actions.append("confidence softened: lexical-only evidence without structure")
+        return adjusted, actions
 
     def _degrade_confidence_level(self, level: str) -> str:
         if level == Severity.HIGH.value:

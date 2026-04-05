@@ -231,6 +231,8 @@ def next_stage(
         or bool(failure_signal)
     ):
         return Stage.EPISTEMIC
+    if current_stage in {Stage.EPISTEMIC, Stage.ADVERSARIAL} and failure_signal:
+        return None
     if current_stage in {Stage.EPISTEMIC, Stage.ADVERSARIAL} and completion_signal:
         return Stage.OPERATOR
     if current_stage == Stage.OPERATOR and completion_signal:

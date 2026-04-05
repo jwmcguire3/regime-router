@@ -53,3 +53,10 @@ def test_operator_optionality_includes_opr_g1():
     regime = GrammarComposer().compose(Stage.OPERATOR, {"optionality"})
     assert regime.tail_line is not None
     assert regime.tail_line.id == "OPR-G1"
+
+
+def test_tail_line_is_not_marked_as_rejected_after_tail_slot_preservation():
+    regime = GrammarComposer().compose(Stage.ADVERSARIAL, {"single_point_failure"}, handoff_expected=True)
+    assert regime.tail_line is not None
+    assert regime.tail_line.id == "ADV-T1"
+    assert "ADV-T1" not in regime.rejected_lines

@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from router.models import PolicyEvent, RegimeConfidenceResult, RoutingDecision, Stage
+from router.models import PolicyEvent, RegimeConfidenceResult, RegimeExecutionResult, RoutingDecision, Stage
 from router.runtime import CognitiveRuntime
 from router.state import make_record, router_state_from_jsonable, to_jsonable
 from router.storage import SessionStore
@@ -309,3 +309,157 @@ def test_record_contains_pre_and_post_policy_routing():
     assert serialized["runner_up_regime"] == "epistemic"
     assert serialized["policy_warnings"] == ["builder threshold bypassed"]
     assert serialized["policy_actions"] == ["demoted_builder_to_synthesis"]
+
+
+def test_make_record_includes_initial_and_final_regime_fields() -> None:
+    runtime = CognitiveRuntime()
+    decision = RoutingDecision(
+        bottleneck="routing bottleneck",
+        primary_regime=Stage.SYNTHESIS,
+        runner_up_regime=Stage.EPISTEMIC,
+        why_primary_wins_now="Synthesis aligns best with bottleneck.",
+        switch_trigger="frame collapse",
+        confidence=RegimeConfidenceResult.low_default(),
+    )
+    regime = runtime.composer.compose(Stage.SYNTHESIS)
+    result = RegimeExecutionResult(
+        task="choose between A and B",
+        model="fake",
+        regime_name=regime.name,
+        stage=Stage.OPERATOR,
+        system_prompt="",
+        user_prompt="",
+        raw_response="{}",
+        artifact_text="",
+        validation={"is_valid": False, "parsed": {}},
+    )
+    handoff = runtime._handoff_from_state(
+        router_state_from_jsonable(
+            {
+                "task_id": "task-for-record",
+                "task_summary": "summary",
+                "current_bottleneck": "bottleneck",
+                "current_regime": "operator",
+                "runner_up_regime": "epistemic",
+                "regime_confidence": {"level": "low"},
+                "knowns": [],
+                "uncertainties": [],
+                "contradictions": [],
+                "assumptions": [],
+                "risks": [],
+                "stage_goal": "goal",
+            },
+            runtime.composer.compose,
+        )
+    )
+    router_state = router_state_from_jsonable(
+        {
+            "task_id": "task-for-record",
+            "task_summary": "summary",
+            "current_bottleneck": "bottleneck",
+            "current_regime": "operator",
+            "runner_up_regime": "epistemic",
+            "regime_confidence": {"level": "low"},
+            "knowns": [],
+            "uncertainties": [],
+            "contradictions": [],
+            "assumptions": [],
+            "risks": [],
+            "stage_goal": "goal",
+        },
+        runtime.composer.compose,
+    )
+    assert router_state is not None
+
+    record = make_record(
+        task="choose between A and B",
+        risk_profile=set(),
+        model="fake",
+        routing=decision,
+        regime=regime,
+        result=result,
+        handoff=handoff,
+        router_state=router_state,
+    )
+    serialized = to_jsonable(record)
+    assert isinstance(serialized, dict)
+    orchestration = serialized["orchestration"]
+    assert orchestration["initial_regime"] == regime.stage.value
+    assert orchestration["final_regime"] == router_state.current_regime.stage.value
+    assert orchestration["active_regime_at_emit"] == router_state.current_regime.stage.value
+
+
+def test_handoff_serialization_includes_transition_stage_fields() -> None:
+    runtime = CognitiveRuntime()
+    decision = RoutingDecision(
+        bottleneck="routing bottleneck",
+        primary_regime=Stage.SYNTHESIS,
+        runner_up_regime=Stage.EPISTEMIC,
+        why_primary_wins_now="Synthesis aligns best with bottleneck.",
+        switch_trigger="frame collapse",
+        confidence=RegimeConfidenceResult.low_default(),
+    )
+    regime = runtime.composer.compose(Stage.SYNTHESIS)
+    result = RegimeExecutionResult(
+        task="assess risk and decide",
+        model="fake",
+        regime_name=regime.name,
+        stage=Stage.SYNTHESIS,
+        system_prompt="",
+        user_prompt="",
+        raw_response="{}",
+        artifact_text="",
+        validation={"is_valid": False, "parsed": {}},
+    )
+    handoff = runtime._handoff_from_state(
+        router_state_from_jsonable(
+            {
+                "task_id": "task-for-record",
+                "task_summary": "summary",
+                "current_bottleneck": "bottleneck",
+                "current_regime": "synthesis",
+                "runner_up_regime": "epistemic",
+                "regime_confidence": {"level": "low"},
+                "knowns": [],
+                "uncertainties": [],
+                "contradictions": [],
+                "assumptions": [],
+                "risks": [],
+                "stage_goal": "goal",
+                "recommended_next_regime": "epistemic",
+            },
+            runtime.composer.compose,
+        )
+    )
+    router_state = router_state_from_jsonable(
+        {
+            "task_id": "task-for-record",
+            "task_summary": "summary",
+            "current_bottleneck": "bottleneck",
+            "current_regime": "synthesis",
+            "runner_up_regime": "epistemic",
+            "regime_confidence": {"level": "low"},
+            "knowns": [],
+            "uncertainties": [],
+            "contradictions": [],
+            "assumptions": [],
+            "risks": [],
+            "stage_goal": "goal",
+            "recommended_next_regime": "epistemic",
+        },
+        runtime.composer.compose,
+    )
+    record = make_record(
+        task="assess risk and decide",
+        risk_profile=set(),
+        model="fake",
+        routing=decision,
+        regime=regime,
+        result=result,
+        handoff=handoff,
+        router_state=router_state,
+    )
+    serialized = to_jsonable(record)
+    assert isinstance(serialized, dict)
+    assert "from_stage" in serialized["handoff"]
+    assert "to_stage" in serialized["handoff"]

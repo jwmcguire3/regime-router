@@ -75,6 +75,11 @@ class GrammarComposer:
         rejected_lines.extend(tail_rejected)
         rejection_reasons.extend(dedupe_reasons)
         rejection_reasons.extend(tail_reasons)
+        rejected_lines, rejection_reasons = self._reconcile_rejections_with_final_lines(
+            final_lines=deduped_lines,
+            rejected_lines=rejected_lines,
+            rejection_reasons=rejection_reasons,
+        )
 
         is_valid, violations = validate_regime_grammar(deduped_lines)
         if not is_valid:
@@ -94,6 +99,21 @@ class GrammarComposer:
             rejected_lines=rejected_lines,
             rejection_reasons=rejection_reasons,
         )
+
+    def _reconcile_rejections_with_final_lines(
+        self,
+        *,
+        final_lines: List[LinePrimitive],
+        rejected_lines: List[str],
+        rejection_reasons: List[str],
+    ) -> Tuple[List[str], List[str]]:
+        final_ids = {line.id for line in final_lines}
+        paired = [
+            (line_id, reason)
+            for line_id, reason in zip(rejected_lines, rejection_reasons)
+            if line_id not in final_ids
+        ]
+        return [line_id for line_id, _ in paired], [reason for _, reason in paired]
 
     def _apply_synthesis_break_condition_pressure(
         self,

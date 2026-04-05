@@ -191,6 +191,8 @@ class Handoff:
     recommended_next_regime_full: Optional[Regime] = None
     source_stage: Optional[Stage] = None
     source_regime_name: str = ""
+    from_stage: Optional[Stage] = None
+    to_stage: Optional[Stage] = None
     created_from: str = ""  # one of: "initial_run", "switch", "repair", "fallback"
     stable_elements: List[str] = field(default_factory=list)
     tentative_elements: List[str] = field(default_factory=list)
@@ -243,6 +245,9 @@ def make_record(
         "switches_executed": 0,
         "switch_history": [],
         "final_current_regime": to_jsonable(regime.stage),
+        "initial_regime": to_jsonable(regime.stage),
+        "final_regime": to_jsonable(regime.stage),
+        "active_regime_at_emit": to_jsonable(regime.stage),
         "execution_stages": [to_jsonable(regime.stage)],
         "stop_reason": "single_step_mode" if not bounded_orchestration else "unknown",
     }
@@ -255,6 +260,9 @@ def make_record(
                 "switches_executed": router_state.switches_executed,
                 "switch_history": to_jsonable(router_state.switch_history),
                 "final_current_regime": to_jsonable(router_state.current_regime.stage),
+                "initial_regime": to_jsonable(regime.stage),
+                "final_regime": to_jsonable(router_state.current_regime.stage),
+                "active_regime_at_emit": to_jsonable(router_state.current_regime.stage),
                 "execution_stages": to_jsonable(router_state.executed_regime_stages),
                 "stop_reason": router_state.orchestration_stop_reason,
             }

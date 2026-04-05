@@ -147,7 +147,7 @@ def update_router_state_from_execution(
         )
 
     is_valid = bool(result.validation.get("is_valid", False))
-    artifact_complete = bool(completion_signal) and is_valid and completion_signal != failure_signal
+    artifact_complete = bool(completion_signal) and is_valid and not failure_signal
     summary_chunks = [
         "Execution yielded a completed artifact."
         if artifact_complete
@@ -176,7 +176,7 @@ def update_router_state_from_execution(
         state.last_state_delta = "semantic_failures_introduced"
     if semantic_failures:
         state.last_contract_delta = "contract_invalidated_by_semantic_failure"
-    elif completion_signal and failure_signal and completion_signal != failure_signal:
+    elif completion_signal and failure_signal:
         state.last_contract_delta = "contract_invalidated_by_control_conflict"
     else:
         current_recommended_next = state.recommended_next_regime.stage if state.recommended_next_regime is not None else None
@@ -202,6 +202,8 @@ def handoff_from_state(state: Optional[RouterState]) -> Handoff:
             recommended_next_regime_full=None,
             source_stage=None,
             source_regime_name="",
+            from_stage=None,
+            to_stage=None,
             created_from="fallback",
             stable_elements=[],
             tentative_elements=[],
@@ -224,6 +226,8 @@ def handoff_from_state(state: Optional[RouterState]) -> Handoff:
         recommended_next_regime_full=state.recommended_next_regime,
         source_stage=state.current_regime.stage if state else None,
         source_regime_name=state.current_regime.name if state else "",
+        from_stage=None,
+        to_stage=state.recommended_next_regime.stage if state.recommended_next_regime else None,
         created_from="fallback",
         stable_elements=[],
         tentative_elements=[],
@@ -534,6 +538,8 @@ def compute_forward_handoff(
         recommended_next_regime_full=next_regime,
         source_stage=regime.stage,
         source_regime_name=regime.name,
+        from_stage=regime.stage,
+        to_stage=next_stage,
         created_from="switch" if router_state.switches_executed > 0 else "initial_run",
         stable_elements=stable,
         tentative_elements=tentative,

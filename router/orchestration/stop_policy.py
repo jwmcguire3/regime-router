@@ -121,7 +121,7 @@ class StopPolicy:
         failure_signal = str(parsed.get("failure_signal", "")).strip()
         if not completion_signal:
             return False
-        if failure_signal and completion_signal == failure_signal:
+        if failure_signal:
             return False
         return True
 
