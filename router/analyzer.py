@@ -128,6 +128,7 @@ class TaskAnalyzer:
                 runner_up_regime=Stage.SYNTHESIS,
                 why_primary_wins_now="Analyzer unavailable; exploration is the safest low-confidence fallback.",
                 switch_trigger="Switch when one frame becomes clearly more decision-relevant than alternatives.",
+                endpoint_confidence=0.3,
                 confidence=RegimeConfidenceResult(
                     level=Severity.LOW.value,
                     rationale="Analyzer failed; defaulting to conservative exploration fallback.",
@@ -141,6 +142,7 @@ class TaskAnalyzer:
                 analyzer_enabled=True,
                 analyzer_used=True,
                 analyzer_summary=summary,
+                inference_quality="analyzer_led",
             )
 
         ranked = sorted(
@@ -246,6 +248,7 @@ class TaskAnalyzer:
             analyzer_enabled=True,
             analyzer_used=True,
             analyzer_summary="; ".join(summary_parts),
+            inference_quality="analyzer_led",
         )
 
     def _build_user_prompt(

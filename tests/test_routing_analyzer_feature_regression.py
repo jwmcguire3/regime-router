@@ -179,7 +179,6 @@ def test_analyzer_led_endpoint_is_clamped_when_it_precedes_primary() -> None:
 # Family B — feature-led fallback path (Router.route placeholder)
 
 
-@pytest.mark.xfail(reason="Router.route fallback is a placeholder and does not compute feature-grounded deterministic scores.")
 def test_feature_led_decision_scores_are_feature_grounded() -> None:
     planner = _planner()
 
@@ -193,9 +192,9 @@ def test_feature_led_decision_scores_are_feature_grounded() -> None:
     assert decision.primary_regime == Stage.OPERATOR
     assert decision.deterministic_stage_scores
     assert decision.deterministic_stage_scores[Stage.OPERATOR] >= decision.deterministic_stage_scores[Stage.EXPLORATION]
+    assert decision.inference_quality == "feature_led"
 
 
-@pytest.mark.xfail(reason="Router.route fallback does not expose a feature-led quality marker distinct from analyzer-led.")
 def test_feature_led_decision_has_non_analyzer_quality_marker() -> None:
     planner = _planner()
 
@@ -209,9 +208,9 @@ def test_feature_led_decision_has_non_analyzer_quality_marker() -> None:
     assert decision.analyzer_used is False
     assert decision.analyzer_summary is not None
     assert "feature_led" in decision.analyzer_summary
+    assert decision.inference_quality == "feature_led"
 
 
-@pytest.mark.xfail(reason="Router.route fallback endpoint confidence is fixed, not calibrated lower than analyzer-led for the same task.")
 def test_feature_led_endpoint_confidence_is_lower_than_analyzer_led_for_same_task() -> None:
     task = "Decide now between options this week and make a call."
     features = extract_routing_features(task)
@@ -245,7 +244,6 @@ def test_feature_led_endpoint_confidence_is_lower_than_analyzer_led_for_same_tas
     assert fallback_decision.endpoint_confidence < analyzer_decision.endpoint_confidence
 
 
-@pytest.mark.xfail(reason="Router.route fallback still emits placeholder explanation/summary text.")
 def test_feature_led_score_summary_has_no_placeholder_text() -> None:
     planner = _planner()
 
@@ -270,7 +268,6 @@ def test_feature_led_score_summary_has_no_placeholder_text() -> None:
 # Fast-path gate regression
 
 
-@pytest.mark.xfail(reason="Fast-path direct gate currently ignores fragility_pressure > 0 and incorrectly bypasses regimes.")
 def test_fastpath_blocks_direct_when_fragility_pressure_is_positive() -> None:
     planner = _planner()
     fixed_decision = RoutingDecision(

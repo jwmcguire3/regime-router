@@ -111,6 +111,7 @@ class RoutingDecision:
     analyzer_changed_primary: bool = False
     analyzer_changed_runner_up: bool = False
     analyzer_summary: Optional[str] = None
+    inference_quality: str = "fallback"
 
 
 @dataclass
