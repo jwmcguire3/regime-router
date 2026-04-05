@@ -545,6 +545,13 @@ def router_state_from_jsonable(payload: object, resolve_stage: Callable[[Stage],
         switch_trigger=str(payload.get("switch_trigger")) if payload.get("switch_trigger") is not None else None,
         recommended_next_regime=recommended_next_regime,
         decision_pressure=float(payload.get("decision_pressure", 0.0)),
+        fragility_pressure=float(payload.get("fragility_pressure", 0.0)),
+        possibility_space_need=float(payload.get("possibility_space_need", 0.0)),
+        detected_markers=(
+            dict(payload.get("detected_markers", {})) if isinstance(payload.get("detected_markers"), dict) else {}
+        ),
+        structural_signals=[str(v) for v in payload.get("structural_signals", []) if isinstance(v, str)],
+        evidence_demand=float(payload.get("evidence_demand", 0.0)),
         evidence_quality=float(payload.get("evidence_quality", 0.0)),
         recurrence_potential=float(payload.get("recurrence_potential", 0.0)),
         prior_regimes=prior_regimes,
