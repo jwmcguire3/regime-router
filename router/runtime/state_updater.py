@@ -56,6 +56,12 @@ def build_router_state(
         if decision.primary_regime
         else "Bypassing routing can miss hidden reasoning bottlenecks."
     )
+    raw_structural_signals = getattr(features, "structural_signals", [])
+    structural_signals = (
+        [str(value) for value in raw_structural_signals if isinstance(value, str)]
+        if isinstance(raw_structural_signals, (list, tuple, set))
+        else []
+    )
     return RouterState(
         task_id=f"task-{task_hash}",
         task_summary=bottleneck[:180],
@@ -88,7 +94,7 @@ def build_router_state(
         fragility_pressure=float(getattr(features, "fragility_pressure", 0)),
         possibility_space_need=float(getattr(features, "possibility_space_need", 0)),
         detected_markers=dict(getattr(features, "detected_markers", {})),
-        structural_signals=list(getattr(features, "structural_signals", [])),
+        structural_signals=structural_signals,
         recurrence_potential=float(getattr(features, "recurrence_potential", 0)),
         policy_events=list(decision.policy_events),
         last_reentry_justification=None,
