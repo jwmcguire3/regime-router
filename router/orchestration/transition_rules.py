@@ -126,8 +126,7 @@ def build_reentry_justification(
     state: RouterState,
     current_stage: Stage,
     next_stage: Optional[Stage],
-    completion_signal: str,
-    failure_signal: str,
+    canonical: CanonicalStatus,
     detection: MisroutingDetectionResult,
     output: RegimeOutputContract,
 ) -> Optional[ReentryJustification]:
@@ -139,8 +138,8 @@ def build_reentry_justification(
         state=state,
         current_stage=current_stage,
         next_stage=next_stage,
-        completion_signal=completion_signal,
-        failure_signal=failure_signal,
+        completion_signal=canonical.completion_signal,
+        failure_signal=canonical.failure_signal,
         detection=detection,
         output=output,
     )
