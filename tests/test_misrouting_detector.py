@@ -57,7 +57,7 @@ def _output_for(stage: Stage, artifact: dict) -> RegimeOutputContract:
 
 
 def test_exploration_complete_stays_complete_with_multiple_distinct_frames():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
     state = _state_for(Stage.EXPLORATION)
     result = detector.detect(
         state,
@@ -78,7 +78,7 @@ def test_exploration_complete_stays_complete_with_multiple_distinct_frames():
 
 
 def test_exploration_negative_does_not_trigger_with_two_or_three_frames_and_criteria():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
     state = _state_for(Stage.EXPLORATION)
     result = detector.detect(
         state,
@@ -97,7 +97,7 @@ def test_exploration_negative_does_not_trigger_with_two_or_three_frames_and_crit
 
 
 def test_exploration_fail_stays_exploration_fail_when_sprawl_is_undifferentiated():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
     state = _state_for(Stage.EXPLORATION)
     result = detector.detect(
         state,
@@ -118,7 +118,7 @@ def test_exploration_fail_stays_exploration_fail_when_sprawl_is_undifferentiated
 
 
 def test_synthesis_positive_detects_unsupported_unification_and_flattened_contradictions():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
     state = _state_for(Stage.SYNTHESIS, contradictions=["Signal A conflicts with signal B"])
     result = detector.detect(
         state,
@@ -138,7 +138,7 @@ def test_synthesis_positive_detects_unsupported_unification_and_flattened_contra
 
 
 def test_epistemic_complete_stays_complete_without_decision_recommendation():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
     state = _state_for(Stage.EPISTEMIC)
     result = detector.detect(
         state,
@@ -161,7 +161,7 @@ def test_epistemic_complete_stays_complete_without_decision_recommendation():
 
 
 def test_adversarial_positive_detects_repetitive_objections_and_defaults_to_operator():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
     state = _state_for(Stage.ADVERSARIAL)
     objections = ["Objection A", "Objection B"]
     result = detector.detect(
@@ -183,7 +183,7 @@ def test_adversarial_positive_detects_repetitive_objections_and_defaults_to_oper
 
 
 def test_adversarial_complete_still_works_with_revision_movement():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
     state = _state_for(Stage.ADVERSARIAL)
     result = detector.detect(
         state,
@@ -206,7 +206,7 @@ def test_adversarial_complete_still_works_with_revision_movement():
 
 
 def test_operator_positive_detects_forced_closure_and_routes_to_epistemic_when_support_is_missing():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
     state = _state_for(Stage.OPERATOR, assumptions=["Assume demand stays flat"])
     result = detector.detect(
         state,
@@ -228,7 +228,7 @@ def test_operator_positive_detects_forced_closure_and_routes_to_epistemic_when_s
 
 
 def test_operator_complete_and_fail_still_work():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
 
     complete_state = _state_for(Stage.OPERATOR)
     complete_result = detector.detect(
@@ -270,7 +270,7 @@ def test_operator_complete_and_fail_still_work():
 
 
 def test_operator_missing_decision_is_treated_as_failure_and_routes_to_epistemic():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
     state = _state_for(Stage.OPERATOR)
     result = detector.detect(
         state,
@@ -293,7 +293,7 @@ def test_operator_missing_decision_is_treated_as_failure_and_routes_to_epistemic
 
 
 def test_builder_positive_detects_premature_architecture_with_weak_recurrence():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
     state = _state_for(Stage.BUILDER, recurrence_potential=0.0)
     result = detector.detect(
         state,
@@ -316,7 +316,7 @@ def test_builder_positive_detects_premature_architecture_with_weak_recurrence():
 
 
 def test_synthesis_complete_stays_synthesis_complete_with_thin_but_coherent_structure():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
     state = _state_for(Stage.SYNTHESIS, contradictions=["A and B are in tension"])
     result = detector.detect(
         state,
@@ -338,7 +338,7 @@ def test_synthesis_complete_stays_synthesis_complete_with_thin_but_coherent_stru
 
 
 def test_synthesis_fail_remains_failure_in_synthesis_even_if_next_is_epistemic():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
     state = _state_for(Stage.SYNTHESIS)
     result = detector.detect(
         state,
@@ -360,7 +360,7 @@ def test_synthesis_fail_remains_failure_in_synthesis_even_if_next_is_epistemic()
 
 
 def test_epistemic_fail_remains_epistemic_fail_when_no_support_split_and_no_uncertainty_handling():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
     state = _state_for(Stage.EPISTEMIC, assumptions=[], contradictions=[])
     result = detector.detect(
         state,
@@ -383,7 +383,7 @@ def test_epistemic_fail_remains_epistemic_fail_when_no_support_split_and_no_unce
 
 
 def test_detector_does_not_trigger_constantly_across_balanced_cases():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
     triggered = 0
     for stage, artifact, kwargs in [
         (
@@ -427,7 +427,7 @@ def test_detector_does_not_trigger_constantly_across_balanced_cases():
 
 
 def test_any_regime_can_fallback_to_exploration_on_assumption_collapse():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
     for stage in [Stage.SYNTHESIS, Stage.ADVERSARIAL, Stage.OPERATOR, Stage.BUILDER]:
         state = _state_for(stage, assumptions=["Core assumption"])
         # Ensure each stage has its stage-specific failure signal active.
@@ -480,7 +480,7 @@ def test_any_regime_can_fallback_to_exploration_on_assumption_collapse():
 
 
 def test_failure_transition_defaults_are_spec_aligned():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
 
     # Exploration failure defaults to synthesis.
     exploration = detector.detect(
@@ -550,7 +550,7 @@ def test_failure_transition_defaults_are_spec_aligned():
 
 
 def test_orchestration_path_is_bounded_and_preserves_state_fields_without_loops():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
     max_steps = 6
     visited: list[Stage] = []
     state = _state_for(Stage.EXPLORATION, assumptions=[])

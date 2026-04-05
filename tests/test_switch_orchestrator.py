@@ -63,7 +63,7 @@ def _output(
 
 
 def _detect(state: RouterState, output: RegimeOutputContract):
-    return MisroutingDetector().detect(state, output)
+    return MisroutingDetector(RegimeComposer()).detect(state, output)
 
 
 def test_exploration_completion_moves_to_synthesis():
@@ -74,14 +74,14 @@ def test_exploration_completion_moves_to_synthesis():
         completion_signal="exploration_ready_for_selection",
         failure_signal="branch_sprawl_without_differentiation",
     )
-    result = SwitchOrchestrator().orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
+    result = SwitchOrchestrator(RegimeComposer()).orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
     assert result.switch_recommended_now is True
     assert result.next_regime is not None
     assert result.next_regime.stage == Stage.SYNTHESIS
 
 
 def test_synthesis_failure_moves_to_epistemic_or_adversarial():
-    orchestrator = SwitchOrchestrator()
+    orchestrator = SwitchOrchestrator(RegimeComposer())
     adversarial_state = _state_for(Stage.SYNTHESIS)
     adversarial_output = _output(
         Stage.SYNTHESIS,
@@ -133,7 +133,7 @@ def test_epistemic_completion_moves_to_operator():
         completion_signal="support_separation_completed",
         failure_signal="evidence_quality_insufficient",
     )
-    result = SwitchOrchestrator().orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
+    result = SwitchOrchestrator(RegimeComposer()).orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
     assert result.next_regime is not None
     assert result.next_regime.stage == Stage.OPERATOR
 
@@ -153,7 +153,7 @@ def test_operator_completion_with_recurrence_moves_to_builder():
         completion_signal="decision_ready_for_execution",
         failure_signal="forced_closure_without_real_tradeoff",
     )
-    result = SwitchOrchestrator().orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
+    result = SwitchOrchestrator(RegimeComposer()).orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
     assert result.next_regime is not None
     assert result.next_regime.stage == Stage.BUILDER
 
@@ -173,7 +173,7 @@ def test_operator_failure_moves_to_epistemic():
         completion_signal="decision_committed_with_actions",
         failure_signal="decision_not_actionable_under_constraints",
     )
-    result = SwitchOrchestrator().orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
+    result = SwitchOrchestrator(RegimeComposer()).orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
     assert result.switch_recommended_now is True
     assert result.next_regime is not None
     assert result.next_regime.stage == Stage.EPISTEMIC
@@ -204,7 +204,7 @@ def test_operator_semantic_failure_moves_to_epistemic():
             "semantic_failures": ["fallback_trigger contains generic filler: understanding"],
         },
     )
-    result = SwitchOrchestrator().orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
+    result = SwitchOrchestrator(RegimeComposer()).orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
     assert result.switch_recommended_now is True
     assert result.next_regime is not None
     assert result.next_regime.stage == Stage.EPISTEMIC
@@ -229,7 +229,7 @@ def test_valid_operator_output_with_no_recurrence_does_not_switch():
             "semantic_failures": [],
         },
     )
-    result = SwitchOrchestrator().orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
+    result = SwitchOrchestrator(RegimeComposer()).orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
     assert result.switch_recommended_now is False
     assert result.next_regime is None
 
@@ -249,7 +249,7 @@ def test_assumption_collapse_triggers_exploration_fallback():
         completion_signal="decision_ready_for_execution",
         failure_signal="frame_collapses_due_to_assumption_collapse",
     )
-    result = SwitchOrchestrator().orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
+    result = SwitchOrchestrator(RegimeComposer()).orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
     assert result.next_regime is not None
     assert result.next_regime.stage == Stage.EXPLORATION
 
@@ -262,7 +262,7 @@ def test_max_step_bound_is_enforced():
         completion_signal="exploration_ready_for_selection",
         failure_signal="branch_sprawl_without_differentiation",
     )
-    result = SwitchOrchestrator().orchestrate(state, output, _detect(state, output), switches_used=2, max_switches=2)
+    result = SwitchOrchestrator(RegimeComposer()).orchestrate(state, output, _detect(state, output), switches_used=2, max_switches=2)
     assert result.switch_recommended_now is False
     assert result.next_regime is None
 

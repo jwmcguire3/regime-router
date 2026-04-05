@@ -73,7 +73,7 @@ def _assert_recommendation_contract(result, *, misrouted: bool) -> None:
 
 
 def test_exploration_healthy_and_failing_pairs():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
 
     healthy = detector.detect(
         make_state(Stage.EXPLORATION),
@@ -118,7 +118,7 @@ def test_exploration_healthy_and_failing_pairs():
 
 
 def test_synthesis_healthy_and_failing_pairs():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
 
     healthy = detector.detect(
         make_state(Stage.SYNTHESIS),
@@ -153,7 +153,7 @@ def test_synthesis_healthy_and_failing_pairs():
 
 
 def test_epistemic_healthy_and_failing_pairs():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
 
     healthy = detector.detect(
         make_state(Stage.EPISTEMIC),
@@ -186,7 +186,7 @@ def test_epistemic_healthy_and_failing_pairs():
 
 
 def test_adversarial_healthy_and_failing_pairs():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
 
     healthy = detector.detect(
         make_state(Stage.ADVERSARIAL),
@@ -219,7 +219,7 @@ def test_adversarial_healthy_and_failing_pairs():
 
 
 def test_operator_healthy_and_failing_pairs():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
 
     healthy = detector.detect(
         make_state(Stage.OPERATOR),
@@ -255,7 +255,7 @@ def test_operator_healthy_and_failing_pairs():
 
 
 def test_builder_healthy_and_failing_pairs():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
 
     healthy = detector.detect(
         make_state(Stage.BUILDER, recurrence_potential=3.0),
@@ -285,7 +285,7 @@ def test_builder_healthy_and_failing_pairs():
 
 
 def test_assumption_collapse_triggers_exploration_fallback():
-    detector = MisroutingDetector()
+    detector = MisroutingDetector(RegimeComposer())
     result = detector.detect(
         make_state(Stage.OPERATOR, assumptions=["Demand remains stable"]),
         make_output(

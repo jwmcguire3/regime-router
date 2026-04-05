@@ -26,8 +26,8 @@ class SwitchOrchestrationResult:
 
 
 class SwitchOrchestrator:
-    def __init__(self) -> None:
-        self._composer = RegimeComposer()
+    def __init__(self, composer: RegimeComposer) -> None:
+        self._composer = composer
 
     def orchestrate(
         self,

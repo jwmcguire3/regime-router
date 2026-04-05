@@ -71,7 +71,7 @@ def test_regime_field_mismatch_triggers_misrouting_detection():
     state = _state_for(Stage.OPERATOR)
     output = _operator_output(regime="synthesis")
 
-    result = MisroutingDetector().detect(state, output)
+    result = MisroutingDetector(RegimeComposer()).detect(state, output)
 
     assert result.misrouting_detected is True
     assert result.recommended_next_regime is not None
@@ -95,9 +95,9 @@ def test_switch_orchestrator_routes_operator_to_epistemic_on_regime_mismatch_con
         regime="operator",
         control_failures=["regime field mismatch: expected operator got synthesis"],
     )
-    detection = MisroutingDetector().detect(state, output)
+    detection = MisroutingDetector(RegimeComposer()).detect(state, output)
 
-    result = SwitchOrchestrator().orchestrate(state, output, detection, switches_used=0, max_switches=2)
+    result = SwitchOrchestrator(RegimeComposer()).orchestrate(state, output, detection, switches_used=0, max_switches=2)
 
     assert result.switch_recommended_now is True
     assert result.next_regime is not None
@@ -108,12 +108,12 @@ def test_switch_orchestrator_routes_operator_to_epistemic_on_regime_mismatch_con
 def test_non_mismatch_cases_unchanged():
     state = _state_for(Stage.OPERATOR)
     output = _operator_output(regime="operator", control_failures=[])
-    detection = MisroutingDetector().detect(state, output)
+    detection = MisroutingDetector(RegimeComposer()).detect(state, output)
 
     assert detection.misrouting_detected is False
     assert control_failure_regime_mismatch(output) is False
 
-    result = SwitchOrchestrator().orchestrate(state, output, detection, switches_used=0, max_switches=2)
+    result = SwitchOrchestrator(RegimeComposer()).orchestrate(state, output, detection, switches_used=0, max_switches=2)
 
     assert result.switch_recommended_now is False
     assert result.next_regime is None
