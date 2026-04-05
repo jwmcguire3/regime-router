@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import inspect
-from typing import Any, Optional, cast
+from typing import Optional
 
 from ..models import Regime, Stage
 from ..routing import RegimeComposer
@@ -149,27 +148,14 @@ class SwitchOrchestrator:
             )
 
         current_stage = state.current_regime.stage
-        if "canonical" in inspect.signature(next_stage).parameters:
-            resolved_next_stage = cast(Any, next_stage)(
-                state,
-                completion_signal,
-                failure_signal,
-                detection,
-                escalation,
-                output,
-                canonical=canonical,
-                semantic_operator_failure=semantic_failure,
-            )
-        else:
-            resolved_next_stage = next_stage(
-                state,
-                completion_signal,
-                failure_signal,
-                detection,
-                escalation,
-                output,
-                semantic_operator_failure=semantic_failure,
-            )
+        resolved_next_stage = next_stage(
+            state,
+            detection,
+            escalation,
+            output,
+            canonical=canonical,
+            semantic_operator_failure=semantic_failure,
+        )
         if resolved_next_stage is None:
             state.last_reentry_justification = None
             return SwitchOrchestrationResult(

@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from router.control import MisroutingDetectionResult, RegimeOutputContract, SwitchOrchestrator
 from router.models import ReentryJustification, RegimeConfidenceResult, RegimeExecutionResult, Stage
+from router.orchestration.canonical_status import CanonicalStatus
 from router.orchestration.transition_rules import next_stage
 from router.routing import RegimeComposer
 from router.runtime.session_runtime import SessionRuntime
@@ -233,7 +234,24 @@ def test_builder_not_forced_from_operator_by_recurrence_alone():
         raw_response=json.dumps({"artifact": {"decision": "ship one-off fix"}}),
         validation={"parsed": {"artifact": {"decision": "ship one-off fix"}}},
     )
-    chosen = next_stage(state, "decision_ready_for_execution", "", detection, None, output)
+    chosen = next_stage(
+        state,
+        detection,
+        None,
+        output,
+        canonical=CanonicalStatus(
+            terminal_signal="completion",
+            artifact_status="valid_complete",
+            switch_posture="stay",
+            completion_signal="decision_ready_for_execution",
+            failure_signal="",
+            is_valid=True,
+            structurally_valid=True,
+            semantic_valid=True,
+            control_conflict=False,
+            recommended_next_stage=None,
+        ),
+    )
     assert chosen is None
 
 

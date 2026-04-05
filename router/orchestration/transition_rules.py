@@ -4,6 +4,7 @@ from typing import Optional
 
 from ..models import ReentryJustification, Stage
 from ..state import RouterState
+from .canonical_status import CanonicalStatus
 from .escalation_policy import EscalationPolicyResult
 from .misrouting_detector import MisroutingDetectionResult
 from .output_contract import RegimeOutputContract
@@ -191,16 +192,17 @@ def _looks_like_reusable_structure(state: RouterState, output: RegimeOutputContr
 
 def next_stage(
     state: RouterState,
-    completion_signal: str,
-    failure_signal: str,
     detection: MisroutingDetectionResult,
     escalation: Optional[EscalationPolicyResult],
     output: RegimeOutputContract,
     *,
+    canonical: CanonicalStatus,
     semantic_operator_failure: bool = False,
 ) -> Optional[Stage]:
     current_stage = state.current_regime.stage
     recommended = detection.recommended_next_stage
+    completion_signal = canonical.completion_signal
+    failure_signal = canonical.failure_signal
 
     if detection.misrouting_detected and recommended is not None:
         if escalation and escalation.escalation_direction == "looser" and escalation.switch_pressure_adjustment <= -2:
@@ -219,21 +221,21 @@ def next_stage(
             )
             return recommended if defect_class else None
 
-    if current_stage == Stage.EXPLORATION and completion_signal:
+    if current_stage == Stage.EXPLORATION and canonical.terminal_signal == "completion":
         return Stage.SYNTHESIS
-    if current_stage == Stage.SYNTHESIS and failure_signal:
+    if current_stage == Stage.SYNTHESIS and canonical.terminal_signal in ("failure", "contradictory"):
         if recommended == Stage.ADVERSARIAL:
             return Stage.ADVERSARIAL
         return Stage.EPISTEMIC
     if current_stage == Stage.OPERATOR and (
         semantic_operator_failure
         or control_failure_regime_mismatch(output)
-        or bool(failure_signal)
+        or canonical.terminal_signal in ("failure", "contradictory")
     ):
         return Stage.EPISTEMIC
-    if current_stage in {Stage.EPISTEMIC, Stage.ADVERSARIAL} and completion_signal:
+    if current_stage in {Stage.EPISTEMIC, Stage.ADVERSARIAL} and canonical.terminal_signal == "completion":
         return Stage.OPERATOR
-    if current_stage == Stage.OPERATOR and completion_signal:
+    if current_stage == Stage.OPERATOR and canonical.terminal_signal == "completion":
         suggested_builder = recommended == Stage.BUILDER or (
             state.recommended_next_regime is not None and state.recommended_next_regime.stage == Stage.BUILDER
         )
