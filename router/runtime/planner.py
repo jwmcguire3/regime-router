@@ -119,6 +119,7 @@ class RuntimePlanner:
             risks=risks,
             features=features,
             composer=self.composer,
+            analyzer_result=analyzer_result,
         )
         state.escalation_debug = {
             "direction": escalation.escalation_direction,

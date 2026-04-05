@@ -11,6 +11,7 @@ from .escalation_policy import EscalationPolicyResult
 from .misrouting_detector import MisroutingDetectionResult
 from .output_contract import RegimeOutputContract
 from .transition_rules import (
+    build_reentry_justification,
     next_stage,
     operator_semantic_failure,
     signal_from_output,
@@ -97,15 +98,49 @@ class SwitchOrchestrator:
             )
 
         if not completion_signal and not failure_signal and not detection.misrouting_detected:
+            state.last_reentry_justification = None
             state.observed_switch_cause = None
             state.switch_trigger = None
+            parsed = output.validation.get("parsed", {})
+            parsed_mapping = parsed if isinstance(parsed, dict) else {}
+            recommended_raw = parsed_mapping.get("recommended_next_regime")
+            sparse_next_stage = Stage(str(recommended_raw).strip().lower()) if isinstance(recommended_raw, str) and str(recommended_raw).strip().lower() in Stage._value2member_map_ else None
+            sparse_justification = build_reentry_justification(
+                state=state,
+                current_stage=state.current_regime.stage,
+                next_stage=sparse_next_stage,
+                completion_signal=completion_signal,
+                failure_signal=failure_signal,
+                detection=detection,
+                output=output,
+            )
+            if sparse_justification is None:
+                return SwitchOrchestrationResult(
+                    next_regime=None,
+                    switch_recommended_now=False,
+                    reason_for_switch="No structured switching signal is active.",
+                    updated_state=state,
+                )
+            state.last_reentry_justification = sparse_justification
+            next_regime = self._resolve_stage(state, sparse_next_stage) if sparse_next_stage is not None else None
+            if next_regime is None:
+                return SwitchOrchestrationResult(
+                    next_regime=None,
+                    switch_recommended_now=False,
+                    reason_for_switch="No structured switching signal is active.",
+                    updated_state=state,
+                )
+            state.recommended_next_regime = next_regime
+            state.observed_switch_cause = sparse_justification.defect_class
+            state.switch_trigger = state.observed_switch_cause
             return SwitchOrchestrationResult(
-                next_regime=None,
-                switch_recommended_now=False,
-                reason_for_switch="No structured switching signal is active.",
+                next_regime=next_regime,
+                switch_recommended_now=True,
+                reason_for_switch=f"Defect evidence supports reentry toward {sparse_next_stage.value}.",
                 updated_state=state,
             )
 
+        current_stage = state.current_regime.stage
         resolved_next_stage = next_stage(
             state,
             completion_signal,
@@ -116,6 +151,7 @@ class SwitchOrchestrator:
             semantic_operator_failure=semantic_failure,
         )
         if resolved_next_stage is None:
+            state.last_reentry_justification = None
             return SwitchOrchestrationResult(
                 next_regime=None,
                 switch_recommended_now=False,
@@ -123,10 +159,22 @@ class SwitchOrchestrator:
                 updated_state=state,
             )
 
+        reentry_justification = build_reentry_justification(
+            state=state,
+            current_stage=current_stage,
+            next_stage=resolved_next_stage,
+            completion_signal=completion_signal,
+            failure_signal=failure_signal,
+            detection=detection,
+            output=output,
+        )
+        state.last_reentry_justification = reentry_justification
         next_regime = self._resolve_stage(state, resolved_next_stage)
         state.recommended_next_regime = next_regime
         state.observed_switch_cause = (
-            "semantic_validation_failed_in_operator"
+            reentry_justification.defect_class
+            if reentry_justification is not None
+            else "semantic_validation_failed_in_operator"
             if semantic_failure
             else failure_signal or completion_signal or "misrouting_detected"
         )

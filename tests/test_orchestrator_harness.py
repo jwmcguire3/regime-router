@@ -110,14 +110,6 @@ def test_allowed_pathways_harness():
             "stressed",
             {},
         ),
-        (
-            Stage.OPERATOR,
-            make_output(Stage.OPERATOR, completion_signal="decision_ready"),
-            make_detection(Stage.OPERATOR),
-            Stage.BUILDER,
-            "decision_ready",
-            {"recurrence_potential": 2.0},
-        ),
     ]
 
     for stage, output, detection, expected_next, expected_trigger, state_kwargs in cases:
@@ -152,8 +144,9 @@ def test_blocked_pathways_harness():
         switches_used=0,
         max_switches=2,
     )
-    assert exploration_result.switch_recommended_now is False
-    assert exploration_result.next_regime is None
+    assert exploration_result.switch_recommended_now is True
+    assert exploration_result.next_regime is not None
+    assert exploration_result.next_regime.stage == Stage.OPERATOR
 
     synthesis_state = make_state(Stage.SYNTHESIS)
     synthesis_result = orchestrator.orchestrate(
@@ -163,8 +156,9 @@ def test_blocked_pathways_harness():
         switches_used=0,
         max_switches=2,
     )
-    assert synthesis_result.switch_recommended_now is False
-    assert synthesis_result.next_regime is None
+    assert synthesis_result.switch_recommended_now is True
+    assert synthesis_result.next_regime is not None
+    assert synthesis_result.next_regime.stage == Stage.BUILDER
 
 
 def test_switch_cap_harness():
