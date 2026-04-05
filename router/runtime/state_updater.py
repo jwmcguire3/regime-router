@@ -47,7 +47,7 @@ def build_router_state(
     analyzer_result: Optional[TaskAnalyzerOutput] = None,
 ) -> RouterState:
     task_hash = hashlib.sha1(bottleneck.encode("utf-8")).hexdigest()[:12]
-    normalized_bottleneck = decision.bottleneck.strip() if isinstance(decision.bottleneck, str) and decision.bottleneck.strip() else bottleneck
+    normalized_bottleneck = bottleneck.strip() if isinstance(bottleneck, str) and bottleneck.strip() else bottleneck
     stage_goal = regime.tail_line.text if regime.tail_line else "Produce the minimum useful typed artifact for this regime."
     runner_up_regime = composer.compose(decision.runner_up_regime, risk_profile=risks) if decision.runner_up_regime else None
     primary_name = decision.primary_regime.value if decision.primary_regime else "direct"
@@ -59,7 +59,7 @@ def build_router_state(
     return RouterState(
         task_id=f"task-{task_hash}",
         task_summary=bottleneck[:180],
-        current_bottleneck=normalized_bottleneck,
+        current_bottleneck=bottleneck,
         current_regime=regime,
         runner_up_regime=runner_up_regime,
         regime_confidence=decision.confidence,
