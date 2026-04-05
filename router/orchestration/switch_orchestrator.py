@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+import inspect
+from typing import Any, Optional, cast
 
 from ..models import Regime, Stage
 from ..routing import RegimeComposer
@@ -10,6 +11,7 @@ from .collapse_detector import CollapseDetector
 from .escalation_policy import EscalationPolicyResult
 from .misrouting_detector import MisroutingDetectionResult
 from .output_contract import RegimeOutputContract
+from .canonical_status import canonical_status_from_validation
 from .transition_rules import (
     build_reentry_justification,
     next_stage,
@@ -84,6 +86,12 @@ class SwitchOrchestrator:
         parsed_mapping = parsed if isinstance(parsed, dict) else {}
         artifact = parsed_mapping.get("artifact", {})
         artifact_mapping = artifact if isinstance(artifact, dict) else {}
+        canonical = canonical_status_from_validation(
+            current_stage=output.stage,
+            state=state,
+            validation_result=output.validation,
+            artifact=artifact_mapping,
+        )
         collapse_detection = self._collapse_detector.detect(state, output.validation, artifact_mapping, failure_signal)
         if collapse_detection.collapse_detected:
             next_regime = self._resolve_stage(state, Stage.EXPLORATION)
@@ -97,7 +105,7 @@ class SwitchOrchestrator:
                 updated_state=state,
             )
 
-        if not completion_signal and not failure_signal and not detection.misrouting_detected:
+        if canonical.terminal_signal == "neither" and not detection.misrouting_detected:
             state.last_reentry_justification = None
             state.observed_switch_cause = None
             state.switch_trigger = None
@@ -141,15 +149,27 @@ class SwitchOrchestrator:
             )
 
         current_stage = state.current_regime.stage
-        resolved_next_stage = next_stage(
-            state,
-            completion_signal,
-            failure_signal,
-            detection,
-            escalation,
-            output,
-            semantic_operator_failure=semantic_failure,
-        )
+        if "canonical" in inspect.signature(next_stage).parameters:
+            resolved_next_stage = cast(Any, next_stage)(
+                state,
+                completion_signal,
+                failure_signal,
+                detection,
+                escalation,
+                output,
+                canonical=canonical,
+                semantic_operator_failure=semantic_failure,
+            )
+        else:
+            resolved_next_stage = next_stage(
+                state,
+                completion_signal,
+                failure_signal,
+                detection,
+                escalation,
+                output,
+                semantic_operator_failure=semantic_failure,
+            )
         if resolved_next_stage is None:
             state.last_reentry_justification = None
             return SwitchOrchestrationResult(
