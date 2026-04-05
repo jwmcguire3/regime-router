@@ -63,9 +63,9 @@ class CognitiveRouterRuntime:
         self.validator = OutputValidator()
         self.prompt_builder = PromptBuilder()
         self.evolver = EvolutionEngine()
-        self.misrouting_detector = MisroutingDetector()
+        self.misrouting_detector = MisroutingDetector(self.composer)
         self.escalation_policy = EscalationPolicy()
-        self.switch_orchestrator = SwitchOrchestrator()
+        self.switch_orchestrator = SwitchOrchestrator(self.composer)
         self.stop_policy = StopPolicy()
         self.model_client: ModelClient = create_model_client(
             provider=provider,
@@ -159,7 +159,7 @@ class CognitiveRouterRuntime:
         model: str,
         risk_profile: Optional[Set[str]] = None,
         handoff_expected: bool = True,
-        bounded_orchestration: bool = False,
+        bounded_orchestration: bool = True,
         max_switches: int = 2,
     ) -> Tuple[RoutingDecision, Regime, RegimeExecutionResult, Handoff]:
         task_signals = extract_structural_signals(task)

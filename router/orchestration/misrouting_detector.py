@@ -64,8 +64,8 @@ class MisroutingDetector:
         Stage.BUILDER: "premature architecture",
     }
 
-    def __init__(self) -> None:
-        self._composer = RegimeComposer()
+    def __init__(self, composer: RegimeComposer) -> None:
+        self._composer = composer
 
     def detect(self, state: RouterState, output: RegimeOutputContract) -> MisroutingDetectionResult:
         artifact = self._extract_artifact(output)

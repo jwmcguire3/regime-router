@@ -74,7 +74,7 @@ def make_detection(
 
 
 def test_allowed_pathways_harness():
-    orchestrator = SwitchOrchestrator()
+    orchestrator = SwitchOrchestrator(RegimeComposer())
 
     cases = [
         (
@@ -141,7 +141,7 @@ def test_allowed_pathways_harness():
 
 
 def test_blocked_pathways_harness():
-    orchestrator = SwitchOrchestrator()
+    orchestrator = SwitchOrchestrator(RegimeComposer())
 
     exploration_state = make_state(Stage.EXPLORATION)
     exploration_result = orchestrator.orchestrate(
@@ -167,7 +167,7 @@ def test_blocked_pathways_harness():
 
 
 def test_switch_cap_harness():
-    orchestrator = SwitchOrchestrator()
+    orchestrator = SwitchOrchestrator(RegimeComposer())
 
     state_at_cap = make_state(Stage.EXPLORATION)
     result_at_cap = orchestrator.orchestrate(
@@ -206,7 +206,7 @@ def test_switch_cap_harness():
 
 
 def test_no_signal_harness():
-    result = SwitchOrchestrator().orchestrate(
+    result = SwitchOrchestrator(RegimeComposer()).orchestrate(
         make_state(Stage.EPISTEMIC),
         make_output(Stage.EPISTEMIC),
         make_detection(Stage.EPISTEMIC),
@@ -218,7 +218,7 @@ def test_no_signal_harness():
 
 
 def test_assumption_or_frame_collapse_harness():
-    orchestrator = SwitchOrchestrator()
+    orchestrator = SwitchOrchestrator(RegimeComposer())
 
     assumption_collapse_result = orchestrator.orchestrate(
         make_state(Stage.OPERATOR, assumptions=["a1"], contradictions=["c1"]),
@@ -256,7 +256,7 @@ def test_escalation_damping_harness():
         switch_pressure_adjustment=-2,
     )
 
-    result = SwitchOrchestrator().orchestrate(
+    result = SwitchOrchestrator(RegimeComposer()).orchestrate(
         state,
         output,
         detection,
