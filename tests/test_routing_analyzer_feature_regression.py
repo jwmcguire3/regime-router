@@ -131,7 +131,7 @@ def test_analyzer_led_confidence_below_half_maps_to_low() -> None:
     assert decision.confidence.level == "low"
 
 
-def test_analyzer_led_builder_endpoint_demoted_when_recurrence_is_zero() -> None:
+def test_analyzer_led_builder_endpoint_retained_when_confidence_is_high() -> None:
     task = "Choose one plan now."
     features = extract_routing_features(task)
     output = TaskAnalyzerOutput(
@@ -143,14 +143,14 @@ def test_analyzer_led_builder_endpoint_demoted_when_recurrence_is_zero() -> None
         evidence_quality=features.evidence_demand,
         recurrence_potential=0,
         confidence=0.8,
-        rationale="Builder endpoint should be disallowed when recurrence is zero.",
+        rationale="Builder endpoint remains allowed at high confidence.",
         likely_endpoint_regime=Stage.BUILDER,
         endpoint_confidence=0.75,
     )
 
     decision = _analyzer().decision_from_analysis(task=task, analyzer_result=output, routing_features=features)
 
-    assert decision.likely_endpoint_regime == Stage.OPERATOR.value
+    assert decision.likely_endpoint_regime == Stage.BUILDER.value
 
 
 def test_analyzer_led_endpoint_is_clamped_when_it_precedes_primary() -> None:

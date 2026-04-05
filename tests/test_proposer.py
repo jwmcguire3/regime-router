@@ -106,24 +106,25 @@ def test_propose_route_ranks_stages_from_analyzer_output() -> None:
     assert decision.runner_up_regime == Stage.BUILDER
 
 
-def test_operator_demoted_when_decision_pressure_is_zero() -> None:
+def test_operator_primary_not_hard_demoted_when_decision_pressure_is_zero() -> None:
     client = StubModelClient([{"response": json.dumps(_analysis_output(top_stage=Stage.OPERATOR))}])
     analyzer = TaskAnalyzer(model_client=client, model="stub")
 
     decision = analyzer.propose_route("task", _features(decision_pressure=0, markers={}), [], set())
 
-    assert decision.primary_regime == Stage.EXPLORATION
-    assert "operator proposed without decision evidence" in (decision.analyzer_summary or "")
+    assert decision.primary_regime == Stage.OPERATOR
+    assert "operator support weak; soft guardrail only" in decision.policy_warnings
+    assert "demoted to exploration" not in (decision.analyzer_summary or "")
 
 
-def test_builder_demoted_when_recurrence_potential_is_zero() -> None:
+def test_builder_primary_not_hard_demoted_when_recurrence_potential_is_zero() -> None:
     client = StubModelClient([{"response": json.dumps(_analysis_output(top_stage=Stage.BUILDER))}])
     analyzer = TaskAnalyzer(model_client=client, model="stub")
 
     decision = analyzer.propose_route("task", _features(recurrence_potential=0), [], set())
 
-    assert decision.primary_regime == Stage.EXPLORATION
-    assert "builder proposed without recurrence potential" in (decision.analyzer_summary or "")
+    assert decision.primary_regime == Stage.BUILDER
+    assert "builder support weak; advisory only" in decision.policy_warnings
 
 
 def test_high_confidence_threshold_works() -> None:
@@ -184,7 +185,7 @@ def test_endpoint_defaults_to_operator() -> None:
     assert decision.endpoint_confidence == 0.7
 
 
-def test_builder_endpoint_demoted_without_recurrence() -> None:
+def test_builder_endpoint_softened_without_recurrence_when_confidence_not_high() -> None:
     payload = _analysis_output(top_stage=Stage.SYNTHESIS)
     payload["likely_endpoint_regime"] = Stage.BUILDER.value
     payload["endpoint_confidence"] = 0.9
@@ -195,6 +196,7 @@ def test_builder_endpoint_demoted_without_recurrence() -> None:
     decision = analyzer.propose_route("task", _features(recurrence_potential=0), [], set())
 
     assert decision.likely_endpoint_regime == Stage.OPERATOR.value
+    assert "builder endpoint softened to operator" in decision.policy_actions
 
 
 def test_endpoint_in_routing_decision() -> None:
