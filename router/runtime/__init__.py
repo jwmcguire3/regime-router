@@ -16,6 +16,7 @@ from ..llm import ModelClient, OllamaModelClient, OpenAIModelClient
 from ..execution.direct_execution import execute_direct_task
 from ..execution.executor import RegimeExecutor
 from ..execution.repair_policy import select_repair_mode
+from ..orchestration.collapse_detector import CollapseDetector
 from ..orchestration.stop_policy import StopPolicy
 from .planner import RuntimePlanner
 from .restore import restore_router_state
@@ -65,8 +66,9 @@ class CognitiveRouterRuntime:
         self.evolver = EvolutionEngine()
         self.misrouting_detector = MisroutingDetector(self.composer)
         self.escalation_policy = EscalationPolicy()
-        self.switch_orchestrator = SwitchOrchestrator(self.composer)
-        self.stop_policy = StopPolicy()
+        self.collapse_detector = CollapseDetector()
+        self.switch_orchestrator = SwitchOrchestrator(self.composer, collapse_detector=self.collapse_detector)
+        self.stop_policy = StopPolicy(collapse_detector=self.collapse_detector)
         self.model_client: ModelClient = create_model_client(
             provider=provider,
             ollama_base_url=ollama_base_url,

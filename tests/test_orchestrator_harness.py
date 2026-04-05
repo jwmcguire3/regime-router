@@ -32,6 +32,7 @@ def make_state(
         uncertainties=["uncertain"],
         contradictions=list(contradictions or []),
         assumptions=list(assumptions or []),
+        substantive_assumptions=list(assumptions or []),
         risks=["risk"],
         stage_goal="goal",
         planned_switch_condition="planned_condition",

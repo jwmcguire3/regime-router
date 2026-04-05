@@ -27,6 +27,7 @@ def _state_for(stage: Stage, *, recurrence_potential: float = 0.0, assumptions=N
         uncertainties=["uncertain fact"],
         contradictions=list(contradictions or []),
         assumptions=list(assumptions or []),
+        substantive_assumptions=list(assumptions or []),
         risks=["baseline risk"],
         stage_goal="goal",
         planned_switch_condition="planned_switch_from_router",
@@ -397,7 +398,7 @@ def test_runtime_single_step_mode_preserves_old_behavior(monkeypatch):
     assert runtime.router_state.orchestration_stop_reason == "single_step_mode"
 
 
-def test_runtime_prevents_stage_loops_in_bounded_mode(monkeypatch):
+def test_runtime_allows_single_collapse_reentry_then_stops(monkeypatch):
     runtime = CognitiveRuntime(provider="ollama")
     scripted = [
         RegimeExecutionResult(
@@ -436,7 +437,32 @@ def test_runtime_prevents_stage_loops_in_bounded_mode(monkeypatch):
                     "completion_signal": "",
                     "failure_signal": "assumption collapse",
                     "recommended_next_regime": "exploration",
-                    "artifact": {"central_claim": "claim", "organizing_idea": "idea", "supporting_structure": ""},
+                    "artifact": {
+                        "central_claim": "claim",
+                        "organizing_idea": "idea",
+                        "supporting_structure": "",
+                        "hidden_assumptions": ["This claim is unsupported by evidence."],
+                    },
+                },
+            },
+        ),
+        RegimeExecutionResult(
+            task="task",
+            model="fake",
+            regime_name="Exploration Core",
+            stage=Stage.EXPLORATION,
+            system_prompt="",
+            user_prompt="",
+            raw_response="{}",
+            artifact_text="{}",
+            validation={
+                "is_valid": True,
+                "semantic_failures": [],
+                "parsed": {
+                    "completion_signal": "",
+                    "failure_signal": "",
+                    "recommended_next_regime": "exploration",
+                    "artifact": {"candidate_frames": ["a b"], "selection_criteria": "criterion", "unresolved_axes": []},
                 },
             },
         ),
@@ -452,12 +478,13 @@ def test_runtime_prevents_stage_loops_in_bounded_mode(monkeypatch):
     runtime.execute(task="Brainstorm options.", model="fake", bounded_orchestration=True, max_switches=3)
 
     assert runtime.router_state is not None
-    assert call_count["n"] == 2
-    assert runtime.router_state.switches_executed == 1
-    assert runtime.router_state.orchestration_stop_reason == "loop_prevented_prior_stage"
+    assert call_count["n"] == 3
+    assert runtime.router_state.switches_executed == 2
+    assert runtime.router_state.collapse_reentries == 1
+    assert runtime.router_state.orchestration_stop_reason == "switch_not_recommended"
     assert runtime.router_state.switch_history[-1].switch_executed is False
     assert runtime.router_state.switch_history[-1].planned_switch_condition == runtime.router_state.planned_switch_condition
-    assert runtime.router_state.switch_history[-1].observed_switch_cause == "assumption_or_frame_collapse"
+    assert runtime.router_state.switch_history[1].observed_switch_cause == "assumption_or_frame_collapse"
+    assert runtime.router_state.switch_history[1].reason == "collapse_recovery"
     assert runtime.router_state.recommended_next_regime is not None
-    assert runtime.router_state.recommended_next_regime.stage == Stage.SYNTHESIS
-
+    assert runtime.router_state.recommended_next_regime.stage == Stage.EXPLORATION

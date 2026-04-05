@@ -6,11 +6,11 @@ from typing import Optional
 from ..models import Regime, Stage
 from ..routing import RegimeComposer
 from ..state import RouterState
+from .collapse_detector import CollapseDetector
 from .escalation_policy import EscalationPolicyResult
 from .misrouting_detector import MisroutingDetectionResult
 from .output_contract import RegimeOutputContract
 from .transition_rules import (
-    assumption_or_frame_collapse,
     next_stage,
     operator_semantic_failure,
     signal_from_output,
@@ -26,8 +26,9 @@ class SwitchOrchestrationResult:
 
 
 class SwitchOrchestrator:
-    def __init__(self, composer: RegimeComposer) -> None:
+    def __init__(self, composer: RegimeComposer, collapse_detector: Optional[CollapseDetector] = None) -> None:
         self._composer = composer
+        self._collapse_detector = collapse_detector or CollapseDetector()
 
     def orchestrate(
         self,
@@ -54,7 +55,12 @@ class SwitchOrchestrator:
                 updated_state=state,
             )
 
-        if assumption_or_frame_collapse(state, failure_signal):
+        parsed = output.validation.get("parsed", {})
+        parsed_mapping = parsed if isinstance(parsed, dict) else {}
+        artifact = parsed_mapping.get("artifact", {})
+        artifact_mapping = artifact if isinstance(artifact, dict) else {}
+        collapse_detection = self._collapse_detector.detect(state, output.validation, artifact_mapping, failure_signal)
+        if collapse_detection.collapse_detected:
             next_regime = self._resolve_stage(state, Stage.EXPLORATION)
             state.recommended_next_regime = next_regime
             state.observed_switch_cause = "assumption_or_frame_collapse"
@@ -62,7 +68,7 @@ class SwitchOrchestrator:
             return SwitchOrchestrationResult(
                 next_regime=next_regime,
                 switch_recommended_now=True,
-                reason_for_switch="Assumptions or frame collapsed; fallback to exploration.",
+                reason_for_switch=f"Collapse detected in active frame ({collapse_detection.reason}); fallback to exploration.",
                 updated_state=state,
             )
 

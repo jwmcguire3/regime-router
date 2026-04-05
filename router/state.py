@@ -47,6 +47,7 @@ class RouterState:
     assumptions: List[str]
     risks: List[str]
     stage_goal: str
+    substantive_assumptions: List[str] = field(default_factory=list)
     planned_switch_condition: Optional[str] = None
     observed_switch_cause: Optional[str] = None
     switch_trigger: Optional[str] = None  # legacy alias for observed_switch_cause
@@ -59,6 +60,7 @@ class RouterState:
     max_switches: int = 0
     switches_attempted: int = 0
     switches_executed: int = 0
+    collapse_reentries: int = 0
     orchestration_stop_reason: Optional[str] = None
     executed_regime_stages: List[Stage] = field(default_factory=list)
     switch_history: List[SwitchDecisionRecord] = field(default_factory=list)
@@ -121,11 +123,14 @@ class RouterState:
         contradictions: Optional[List[str]] = None,
         assumptions: Optional[List[str]] = None,
         uncertainties: Optional[List[str]] = None,
+        substantive_assumptions: Optional[List[str]] = None,
     ) -> None:
         if contradictions is not None:
             self.contradictions = contradictions
         if assumptions is not None:
             self.assumptions = assumptions
+        if substantive_assumptions is not None:
+            self.substantive_assumptions = substantive_assumptions
         if uncertainties is not None:
             self.uncertainties = uncertainties
 
@@ -432,6 +437,9 @@ def router_state_from_jsonable(payload: object, resolve_stage: Callable[[Stage],
         uncertainties=[str(v) for v in payload.get("uncertainties", []) if isinstance(v, str)],
         contradictions=[str(v) for v in payload.get("contradictions", []) if isinstance(v, str)],
         assumptions=[str(v) for v in payload.get("assumptions", []) if isinstance(v, str)],
+        substantive_assumptions=[
+            str(v) for v in payload.get("substantive_assumptions", payload.get("assumptions", [])) if isinstance(v, str)
+        ],
         risks=[str(v) for v in payload.get("risks", []) if isinstance(v, str)],
         stage_goal=str(payload.get("stage_goal", "")),
         planned_switch_condition=(
@@ -458,6 +466,7 @@ def router_state_from_jsonable(payload: object, resolve_stage: Callable[[Stage],
         max_switches=int(payload.get("max_switches", 0)),
         switches_attempted=int(payload.get("switches_attempted", 0)),
         switches_executed=int(payload.get("switches_executed", 0)),
+        collapse_reentries=int(payload.get("collapse_reentries", 0)),
         orchestration_stop_reason=(
             str(payload.get("orchestration_stop_reason")) if payload.get("orchestration_stop_reason") is not None else None
         ),

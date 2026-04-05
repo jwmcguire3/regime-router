@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from typing import List, Optional, Set
 
-from ..control import EscalationPolicy, MisroutingDetector, RegimeOutputContract, SwitchOrchestrator
+from ..control import EscalationPolicy, MisroutingDetector, RegimeOutputContract, SwitchOrchestrationResult, SwitchOrchestrator
 from ..models import RegimeExecutionResult, RoutingDecision, RoutingFeatures
 from ..orchestration.stop_policy import StopPolicy
 from ..state import Handoff, RouterState
 
 
 class SessionRuntime:
+    MAX_COLLAPSE_REENTRIES = 1
+
     def __init__(
         self,
         *,
@@ -144,19 +146,28 @@ class SessionRuntime:
                 state.orchestration_stop_reason = "loop_prevented_same_stage"
                 break
             if orchestrated.next_regime.stage in state.executed_regime_stages:
-                state.recommended_next_regime = prior_recommended_next
-                state.record_switch_decision(
-                    switch_index=switch_index,
-                    from_stage=state.current_regime.stage,
-                    to_stage=orchestrated.next_regime.stage,
-                    switch_recommended=True,
-                    switch_executed=False,
-                    reason="Switch denied to avoid re-entering a previously executed stage.",
-                    planned_switch_condition=state.planned_switch_condition,
-                    observed_switch_cause=state.observed_switch_cause or state.switch_trigger,
-                )
-                state.orchestration_stop_reason = "loop_prevented_prior_stage"
-                break
+                if self._allow_collapse_reentry(state):
+                    orchestrated = SwitchOrchestrationResult(
+                        next_regime=orchestrated.next_regime,
+                        switch_recommended_now=True,
+                        reason_for_switch="collapse_recovery",
+                        updated_state=state,
+                    )
+                    state.collapse_reentries += 1
+                else:
+                    state.recommended_next_regime = prior_recommended_next
+                    state.record_switch_decision(
+                        switch_index=switch_index,
+                        from_stage=state.current_regime.stage,
+                        to_stage=orchestrated.next_regime.stage,
+                        switch_recommended=True,
+                        switch_executed=False,
+                        reason="Switch denied to avoid re-entering a previously executed stage.",
+                        planned_switch_condition=state.planned_switch_condition,
+                        observed_switch_cause=state.observed_switch_cause or state.switch_trigger,
+                    )
+                    state.orchestration_stop_reason = "loop_prevented_prior_stage"
+                    break
             state.record_switch_decision(
                 switch_index=switch_index,
                 from_stage=state.current_regime.stage,
@@ -181,3 +192,10 @@ class SessionRuntime:
             prior_handoff = compute_forward_handoff(current_result, state, orchestrated.next_regime)
             state.latest_forward_handoff = prior_handoff
         return current_result
+
+    def _allow_collapse_reentry(self, state: RouterState) -> bool:
+        observed_cause = (state.observed_switch_cause or "").lower()
+        collapse_triggered = "collapse" in observed_cause
+        if not collapse_triggered:
+            return False
+        return state.collapse_reentries < self.MAX_COLLAPSE_REENTRIES
