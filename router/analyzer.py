@@ -151,18 +151,15 @@ class TaskAnalyzer:
         )
         primary = ranked[0][0] if ranked else Stage.EXPLORATION
         runner_up = next((stage for stage, _ in ranked if stage != primary), Stage.SYNTHESIS)
+        pre_policy_primary_regime = primary
+        pre_policy_runner_up_regime = runner_up
 
-        notes: List[str] = []
-        has_decision_markers = bool(routing_features.detected_markers.get("decision_tradeoff_commitment"))
-        if primary == Stage.OPERATOR and routing_features.decision_pressure == 0 and not has_decision_markers:
-            primary = Stage.EXPLORATION
-            notes.append("operator proposed without decision evidence; demoted to exploration")
-        if primary == Stage.BUILDER and routing_features.recurrence_potential == 0:
-            primary = Stage.EXPLORATION
-            notes.append("builder proposed without recurrence potential; demoted to exploration")
-        if primary == Stage.ADVERSARIAL and routing_features.fragility_pressure == 0:
-            primary = Stage.EXPLORATION
-            notes.append("adversarial proposed without fragility pressure; demoted to exploration")
+        primary, runner_up, policy_warnings, policy_actions = self._apply_routing_policy(
+            primary=primary,
+            runner_up=runner_up,
+            analyzer_result=analyzer_result,
+            routing_features=routing_features,
+        )
 
         if primary == runner_up:
             runner_up = Stage.SYNTHESIS if primary != Stage.SYNTHESIS else Stage.EXPLORATION
@@ -174,6 +171,24 @@ class TaskAnalyzer:
             confidence_level = Severity.MEDIUM.value
         else:
             confidence_level = Severity.LOW.value
+
+        score_gap_raw = (ranked[0][1] - ranked[1][1]) if len(ranked) > 1 else 0.0
+        if (
+            pre_policy_primary_regime == Stage.OPERATOR
+            and routing_features.decision_pressure == 0
+            and not routing_features.detected_markers.get("decision_tradeoff_commitment")
+            and confidence_score < 0.8
+        ):
+            confidence_level = self._degrade_confidence_level(confidence_level)
+            policy_actions.append("operator confidence softened by one tier")
+        if (
+            pre_policy_primary_regime == Stage.ADVERSARIAL
+            and routing_features.fragility_pressure == 0
+            and confidence_score < 0.5
+            and score_gap_raw <= 0.15
+        ):
+            confidence_level = self._degrade_confidence_level(confidence_level)
+            policy_actions.append("adversarial confidence softened by one tier")
 
         top_score = int(round(ranked[0][1])) if ranked else 0
         runner_up_score = int(round(next((score for stage, score in ranked if stage == runner_up), 0.0)))
@@ -220,14 +235,23 @@ class TaskAnalyzer:
         stage_progression = list(Stage)
         likely_endpoint = analyzer_result.likely_endpoint_regime
         endpoint_confidence = analyzer_result.endpoint_confidence
+        builder_endpoint_softened = False
 
-        if likely_endpoint == Stage.BUILDER and analyzer_result.recurrence_potential == 0:
+        if (
+            likely_endpoint == Stage.BUILDER
+            and analyzer_result.recurrence_potential == 0
+            and analyzer_result.confidence < 0.8
+        ):
             likely_endpoint = Stage.OPERATOR
-            notes.append("builder endpoint proposed without recurrence potential; demoted to operator")
+            builder_endpoint_softened = True
+            policy_actions.append("builder endpoint softened to operator")
 
-        if stage_progression.index(likely_endpoint) < stage_progression.index(primary):
+        if (
+            stage_progression.index(likely_endpoint) < stage_progression.index(primary)
+            and not builder_endpoint_softened
+        ):
             likely_endpoint = primary
-            notes.append("endpoint proposed before primary regime; clamped to primary")
+            policy_actions.append("endpoint proposed before primary regime; clamped to primary")
 
         summary_parts = [
             f"Analyzer confidence={confidence_score:.2f}",
@@ -235,13 +259,16 @@ class TaskAnalyzer:
             f"candidates={[stage.value for stage in analyzer_result.candidate_regimes]}",
             f"endpoint={likely_endpoint.value}@{endpoint_confidence:.2f}",
         ]
-        summary_parts.extend(notes)
+        summary_parts.extend(policy_warnings)
+        summary_parts.extend(policy_actions)
         return RoutingDecision(
             bottleneck=analyzer_result.bottleneck_label,
             primary_regime=primary,
             runner_up_regime=runner_up,
             why_primary_wins_now=why_primary_wins_now,
             switch_trigger=switch_trigger,
+            pre_policy_primary_regime=pre_policy_primary_regime,
+            pre_policy_runner_up_regime=pre_policy_runner_up_regime,
             likely_endpoint_regime=likely_endpoint.value,
             endpoint_confidence=endpoint_confidence,
             confidence=confidence,
@@ -249,7 +276,45 @@ class TaskAnalyzer:
             analyzer_used=True,
             analyzer_summary="; ".join(summary_parts),
             inference_quality="analyzer_led",
+            policy_warnings=policy_warnings,
+            policy_actions=policy_actions,
         )
+
+    def _apply_routing_policy(
+        self,
+        *,
+        primary: Stage,
+        runner_up: Stage,
+        analyzer_result: TaskAnalyzerOutput,
+        routing_features: RoutingFeatures,
+    ) -> tuple[Stage, Stage, list[str], list[str]]:
+        policy_warnings: list[str] = []
+        policy_actions: list[str] = []
+
+        has_decision_markers = bool(routing_features.detected_markers.get("decision_tradeoff_commitment"))
+        if primary == Stage.OPERATOR and routing_features.decision_pressure == 0 and not has_decision_markers:
+            policy_warnings.append("operator support weak; soft guardrail only")
+            if runner_up not in {Stage.EXPLORATION, primary}:
+                runner_up = Stage.EXPLORATION
+                policy_actions.append("runner-up softened toward exploration")
+
+        if primary == Stage.BUILDER and routing_features.recurrence_potential == 0:
+            policy_warnings.append("builder support weak; advisory only")
+
+        if primary == Stage.ADVERSARIAL and routing_features.fragility_pressure == 0:
+            policy_warnings.append("adversarial support weak; advisory only")
+
+        if runner_up == primary:
+            runner_up = Stage.SYNTHESIS if primary != Stage.SYNTHESIS else Stage.EXPLORATION
+
+        return primary, runner_up, policy_warnings, policy_actions
+
+    def _degrade_confidence_level(self, level: str) -> str:
+        if level == Severity.HIGH.value:
+            return Severity.MEDIUM.value
+        if level == Severity.MEDIUM.value:
+            return Severity.LOW.value
+        return Severity.LOW.value
 
     def _build_user_prompt(
         self,
