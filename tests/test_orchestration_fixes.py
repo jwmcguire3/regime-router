@@ -55,6 +55,7 @@ def _operator_output(*, regime: str, control_failures: list[str] | None = None) 
         },
     }
     validation = {
+        "is_valid": True,
         "parsed": payload,
         "valid_json": True,
         "required_keys_present": True,

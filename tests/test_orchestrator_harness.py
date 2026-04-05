@@ -46,16 +46,58 @@ def make_state(
 
 
 def make_output(stage: Stage, completion_signal: str = "", failure_signal: str = "") -> RegimeOutputContract:
+    artifact_by_stage = {
+        Stage.EXPLORATION: {
+            "candidate_frames": ["frame one angle", "frame two angle", "frame three angle"],
+            "selection_criteria": "maximize signal-to-noise",
+            "unresolved_axes": ["timeline"],
+        },
+        Stage.SYNTHESIS: {
+            "central_claim": "Proposed frame",
+            "organizing_idea": "Tie evidence to decision pressure",
+            "supporting_structure": "Structured support",
+            "pressure_points": ["known weak point"],
+        },
+        Stage.EPISTEMIC: {
+            "supported_claims": ["supported claim"],
+            "plausible_but_unproven": ["still uncertain claim"],
+            "omitted_due_to_insufficient_support": ["omitted claim"],
+            "contradictions": ["open contradiction"],
+        },
+        Stage.ADVERSARIAL: {
+            "top_destabilizers": ["stress objection"],
+            "survivable_revisions": ["revise assumption boundary"],
+            "residual_risks": ["residual risk"],
+        },
+        Stage.OPERATOR: {
+            "decision": "Choose path A",
+            "rationale": "Path A best fits constraints.",
+            "tradeoff_accepted": "Accept slower rollout",
+            "next_actions": ["step one"],
+            "fallback_trigger": "metric worsens by 10%",
+            "review_point": "review in one week",
+        },
+        Stage.BUILDER: {
+            "system_shape": "single-use scaffold",
+        },
+    }
     parsed = {
         "regime": stage.value,
         "purpose": "test",
         "artifact_type": "test_artifact",
-        "artifact": {},
+        "artifact": artifact_by_stage.get(stage, {}),
         "completion_signal": completion_signal,
         "failure_signal": failure_signal,
         "recommended_next_regime": "operator",
     }
-    return RegimeOutputContract(stage=stage, raw_response=json.dumps(parsed), validation={"parsed": parsed})
+    return RegimeOutputContract(
+        stage=stage,
+        raw_response=json.dumps(parsed),
+        validation={
+            "is_valid": True,
+            "parsed": parsed,
+        },
+    )
 
 
 def make_detection(
