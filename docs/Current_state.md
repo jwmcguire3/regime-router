@@ -33,13 +33,13 @@ This document describes the implementation and operating behavior that currently
 
 ### 1.1 Recent commit-backed updates (last 15 commits)
 
-A review of commits `5d5eca6` through `528b34b` confirms the following are now true in the current codebase:
+A review of commits `a854334` through `091e5ab` confirms the following are now true in the current codebase:
 
-- **Analyzer-led planning remains the primary path**, with analyzer/feature signals integrated into routing quality markers and planner behavior.
-- **Runtime model clients are lazily initialized** in `CognitiveRouterRuntime`, so construction does not immediately require provider credentials until a model-backed operation is invoked.
-- **Stop policy now includes artifact-aware completion semantics** with additional regression coverage.
-- **Executor/runtime behavior includes explicit invalid-output recovery fallback handling** in orchestration and state progression paths.
-- **Downstream handoff discipline was strengthened in prompts**, and continuity expectations are now regression-tested.
+- **Stop-policy completion logic was aligned with stage/artifact state**, and this behavior is now covered by explicit control-surface tests.
+- **Qualified re-entry policy exists in transition logic**, allowing bounded collapse-related exceptions while still preventing open-ended prior-stage loops.
+- **Analyzer hard stage demotions were replaced with policy guardrails**: weak feature support now yields warnings/advisories and softer confidence handling instead of unconditional primary-stage overrides.
+- **Policy/re-entry observability fields were added** so pre-policy choices, warnings, and actions are inspectable in routing decisions and state traces.
+- **Control-surface governance docs were added/updated** (`control_surface_map.csv`, policy/spec docs, and demotion audit) to keep behavior changes auditable against implementation.
 
 This section is intentionally commit-derived so that the rest of the document can be read with the correct operational assumptions.
 
@@ -467,7 +467,7 @@ It:
 1. sorts stage scores,
 2. chooses the highest-scoring stage as primary,
 3. chooses the highest different stage as runner-up,
-4. applies structural demotion rules,
+4. applies routing policy guardrails,
 5. maps confidence to low/medium/high,
 6. generates `why_primary_wins_now`,
 7. generates `switch_trigger`,
@@ -475,15 +475,18 @@ It:
 9. carries endpoint inference into the routing decision,
 10. applies endpoint demotion and endpoint clamping rules.
 
-### 7.7 Structural demotion rules
+### 7.7 Routing policy guardrails (replacing hard demotions)
 
-Even when the analyzer proposes a stage, the result can be demoted if the task does not show the right feature evidence.
+Analyzer proposals are now passed through policy guardrails instead of unconditional hard demotions.
 
-Current demotion rules are:
+Current guardrail behavior is:
 
-- operator is demoted to exploration if decision pressure is zero and no decision markers are present,
-- builder is demoted to exploration if recurrence potential is zero,
-- adversarial is demoted to exploration if fragility pressure is zero.
+- **operator weak support** (`decision_pressure == 0` and no decision markers): add an advisory warning and soften the runner-up toward exploration when needed,
+- **builder weak support** (`recurrence_potential == 0`): add advisory warning only (primary stage is not forcibly rewritten),
+- **adversarial weak support** (`fragility_pressure == 0`): add advisory warning only (primary stage is not forcibly rewritten),
+- **confidence softening** can still apply for weak operator/adversarial support under low-confidence conditions.
+
+This keeps analyzer intent visible while preserving deterministic policy pressure through warnings/actions and confidence shaping.
 
 ### 7.8 Endpoint rules
 
