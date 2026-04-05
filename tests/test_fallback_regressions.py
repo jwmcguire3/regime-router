@@ -13,7 +13,7 @@ from router.orchestration.switch_orchestrator import SwitchOrchestrationResult
 from router.orchestration.transition_rules import assumption_or_frame_collapse
 from router.routing import RegimeComposer
 from router.runtime.session_runtime import SessionRuntime
-from router.runtime.state_updater import build_router_state
+from router.runtime.state_updater import build_router_state, update_router_state_from_execution
 from router.state import Handoff, RouterState
 
 
@@ -220,3 +220,51 @@ def test_reentry_exploration_fallback_blocked_by_prior_stage_guard():
     assert state.orchestration_stop_reason == "loop_prevented_prior_stage"
     assert state.switch_history[-1].reason == "Switch denied to avoid re-entering a previously executed stage."
 
+
+@pytest.mark.xfail(
+    reason="Gap: invalid/empty post-repair output has no normalized fallback signal and stops as switch_not_recommended"
+)
+def test_invalid_output_recovery_empty_output_does_not_count_as_progress_and_falls_back():
+    state = _make_state(Stage.OPERATOR)
+    runtime = SessionRuntime(
+        misrouting_detector=_NoopDetector(),
+        escalation_policy=_NoopEscalation(),
+        switch_orchestrator=_CountingOrchestrator(next_stage=None),
+        stop_policy=StopPolicy(),
+    )
+    initial_result = _make_result(
+        Stage.OPERATOR,
+        is_valid=False,
+        completion_signal="",
+        failure_signal="",
+    )
+
+    _run_loop(runtime, state, initial_result)
+
+    assert state.orchestration_stop_reason != "switch_not_recommended"
+    assert state.switch_history[-1].switch_recommended is True
+    assert state.switch_history[-1].to_stage == Stage.EXPLORATION
+
+
+@pytest.mark.xfail(reason="Gap: state bookkeeping marks any is_valid=True run as completion, even when unusable/no completion signal")
+def test_unusable_output_preserves_truthful_failure_bookkeeping():
+    composer = RegimeComposer()
+    state = _make_state(Stage.OPERATOR)
+    unusable_result = _make_result(
+        Stage.OPERATOR,
+        is_valid=True,
+        completion_signal="",
+        failure_signal="decision_not_actionable_under_constraints",
+    )
+
+    update_router_state_from_execution(
+        state,
+        unusable_result,
+        reason_entered="switch",
+        composer=composer,
+    )
+
+    assert state.prior_regimes
+    step = state.prior_regimes[-1]
+    assert step.completion_signal_seen is False
+    assert step.failure_signal_seen is True
