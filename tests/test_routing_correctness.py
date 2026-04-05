@@ -188,6 +188,25 @@ class TestAdversarialRouting:
         decision = _route_with_mocked_analyzer(task, expected_primary, expected_runner_up or Stage.SYNTHESIS)
         assert decision.confidence.level == "high"
 
+    @pytest.mark.parametrize(
+        "task,expected_markers",
+        [
+            ("Poke holes in this plan", {"poke holes", "poke holes in this"}),
+            (
+                "Attack that assumption from every angle",
+                {"attack that assumption", "attack that assumption from every angle"},
+            ),
+            ("Show me the three fastest ways it fails", {"ways it fails", "fastest ways it fails"}),
+        ],
+    )
+    def test_adversarial_intent_phrases_raise_fragility_pressure(self, task, expected_markers):
+        features = extract_routing_features(task)
+
+        assert features.fragility_pressure >= 2
+        assert "fragility_launch_trust" in features.detected_markers
+        detected = set(features.detected_markers["fragility_launch_trust"])
+        assert expected_markers & detected
+
 
 class TestOperatorRouting:
     CASES = [
