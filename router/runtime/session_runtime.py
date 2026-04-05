@@ -3,7 +3,16 @@ from __future__ import annotations
 from typing import List, Optional, Set
 
 from ..control import EscalationPolicy, MisroutingDetector, RegimeOutputContract, SwitchOrchestrationResult, SwitchOrchestrator
-from ..models import ReentryDecision, ReentryJustification, RegimeExecutionResult, RoutingDecision, RoutingFeatures, Stage
+from ..models import (
+    ControlAuthority,
+    PolicyEvent,
+    ReentryDecision,
+    ReentryJustification,
+    RegimeExecutionResult,
+    RoutingDecision,
+    RoutingFeatures,
+    Stage,
+)
 from ..routing import RegimeComposer
 from ..orchestration.stop_policy import StopPolicy
 from ..state import Handoff, RouterState
@@ -249,15 +258,83 @@ class SessionRuntime:
         if same_stage and state.switch_history:
             last = state.switch_history[-1]
             if last.to_stage == next_stage and (last.observed_switch_cause or "") == cause:
+                state.record_policy_event(
+                    PolicyEvent(
+                        rule_name="reentry_denied_same_stage_unchanged_cause",
+                        authority=ControlAuthority.HARD_VETO.value,
+                        consumed_features=["next_stage", "switch_history.last.to_stage", "observed_switch_cause"],
+                        action="block_reentry",
+                        detail=f"Same-stage reentry denied for {next_stage.value}: previous transition had unchanged cause '{cause}'.",
+                    )
+                )
                 return ReentryDecision(allowed=False, reason="Switch denied: same-stage retry has unchanged brief/cause.")
         if is_prior_stage and trivial_delta:
+            state.record_policy_event(
+                PolicyEvent(
+                    rule_name="reentry_denied_trivial_delta",
+                    authority=ControlAuthority.HARD_VETO.value,
+                    consumed_features=["next_stage", "executed_regime_stages", "last_state_delta"],
+                    action="block_reentry",
+                    detail=f"Prior stage {next_stage.value} denied: no material state delta ({last_delta or 'empty'}).",
+                )
+            )
             return ReentryDecision(allowed=False, reason="Switch denied: previously visited stage without material state delta.")
         if self._is_ping_pong(state, next_stage):
+            state.record_policy_event(
+                PolicyEvent(
+                    rule_name="reentry_denied_ping_pong",
+                    authority=ControlAuthority.HARD_VETO.value,
+                    consumed_features=["next_stage", "switch_history", "observed_switch_cause", "last_state_delta"],
+                    action="block_reentry",
+                    detail=f"Reentry to {next_stage.value} denied due to ping-pong oscillation for cause '{cause}'.",
+                )
+            )
             return ReentryDecision(allowed=False, reason="Switch denied: ping-pong oscillation detected for same cause/target.")
         if same_stage or is_prior_stage:
             if not self._justification_complete(justification):
+                state.record_policy_event(
+                    PolicyEvent(
+                        rule_name="reentry_denied_missing_justification",
+                        authority=ControlAuthority.HARD_VETO.value,
+                        consumed_features=[
+                            "next_stage",
+                            "same_stage_or_prior_stage",
+                            "last_reentry_justification.defect_class",
+                            "last_reentry_justification.repair_target",
+                            "last_reentry_justification.contract_delta",
+                            "last_reentry_justification.state_delta",
+                        ],
+                        action="block_reentry",
+                        detail=f"Reentry to {next_stage.value} denied: required justification fields are incomplete.",
+                    )
+                )
                 return ReentryDecision(allowed=False, reason="Switch denied: reentry justification is missing required fields.")
+            state.record_policy_event(
+                PolicyEvent(
+                    rule_name="reentry_allowed_with_justification",
+                    authority=ControlAuthority.SOFT_GUARDRAIL.value,
+                    consumed_features=[
+                        "next_stage",
+                        "same_stage_or_prior_stage",
+                        "last_reentry_justification.defect_class",
+                        "last_reentry_justification.repair_target",
+                        "last_reentry_justification.contract_delta",
+                        "last_reentry_justification.state_delta",
+                    ],
+                    action="allow_reentry",
+                    detail=f"Reentry to {next_stage.value} allowed with complete justification for '{reason_for_switch}'.",
+                )
+            )
             return ReentryDecision(allowed=True, reason=reason_for_switch, justification=justification)
+        state.record_policy_event(
+            PolicyEvent(
+                rule_name="reentry_allowed_forward_progression",
+                authority=ControlAuthority.ADVISORY_ONLY.value,
+                consumed_features=["current_stage", "next_stage", "executed_regime_stages"],
+                action="allow_reentry",
+                detail=f"Forward progression from {current_stage.value} to {next_stage.value} allowed for '{reason_for_switch}'.",
+            )
+        )
         return ReentryDecision(allowed=True, reason=reason_for_switch, justification=justification)
 
     def _justification_complete(self, justification: Optional[ReentryJustification]) -> bool:

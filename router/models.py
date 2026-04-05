@@ -122,6 +122,7 @@ class RoutingDecision:
     inference_quality: str = "fallback"
     policy_warnings: List[str] = field(default_factory=list)
     policy_actions: List[str] = field(default_factory=list)
+    policy_events: List["PolicyEvent"] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
