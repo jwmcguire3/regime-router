@@ -1,102 +1,71 @@
 # AGENTS.md
 
-## Purpose
-This repository is a provider-aware cognitive router with:
-- persisted CLI settings
-- a Python CLI entrypoint
-- a PowerShell wrapper
-- provider-specific runtime client creation
-- JSON run persistence
-- wrapper and CLI tests
+## Project overview
 
-The current task is to add DeepSeek as a first-class provider while preserving existing OpenAI and Ollama behavior.
+The Cognitive Router is a Python runtime that selects and sequences reasoning regimes based on the current bottleneck. It routes by bottleneck (not topic), uses one dominant regime at a time, switches on failure profile, and preserves state through typed handoffs.
 
-## Goal
-Implement first-class `deepseek` provider support across settings, CLI, runtime, wrapper, and tests.
+There are six regimes: Exploration, Synthesis, Epistemic, Adversarial, Operator, Builder.
 
-Platform default after this change:
-- provider: `deepseek`
-- model: `deepseek-reasoner`
-- base URL: `https://api.deepseek.com`
-- API key env var: `DEEPSEEK_API_KEY`
+The architecture is analyzer-led and mostly deterministic after planning. The safety valve is explicit fallback to Exploration when the active frame becomes invalid.
 
-DeepSeek should reuse the existing OpenAI-compatible HTTP client rather than introducing a separate provider client unless a real compatibility issue requires it.
+The current repo is provider-aware and currently defaults to the DeepSeek/OpenAI-compatible path in settings and runtime defaults. Treat provider settings as existing repo reality, not as something to migrate in these routing/orchestration tasks.
 
-## Required behavior
-1. `deepseek` must be accepted anywhere provider selection/validation currently accepts `ollama` and `openai`.
-2. Fresh/default settings should resolve to DeepSeek Reasoner.
-3. Existing settings files should remain backward compatible.
-4. Switching providers should preserve custom models where appropriate and swap defaults where the current model is still the previous provider default.
-5. Runtime provider resolution must not silently fall back to Ollama for unknown providers.
-6. Wrapper first-run initialization must align with Python-side defaults.
-7. User-facing text should stop implying that all compatible-provider settings are OpenAI-only when that is no longer true.
+## Key architectural constraints
 
-## Provider semantics
-- `ollama` -> local Ollama client
-- `openai` -> OpenAI-compatible client targeting actual OpenAI defaults
-- `deepseek` -> OpenAI-compatible client targeting DeepSeek defaults
+- Route by bottleneck, not by domain label.
+- One dominant regime at a time unless mixed control is explicitly justified.
+- Minimize switches — regime changes are costly.
+- Preserve contradictions, assumptions, and unresolved questions across switches.
+- External scaffolding controls LLM behavior; do not rely on the model to self-verify.
+- The TaskAnalyzer is the primary proposer (v2 architecture). Router.route() is the feature-led fallback path.
 
-Do not fake DeepSeek by keeping `provider="openai"` internally. It must be a real provider option.
+## Repository layout
 
-## Files likely involved
-- `router/settings.py`
-- `router/cli.py`
-- `router/runtime/__init__.py`
-- `router.ps1`
-- `tests/test_router_wrapper.py`
-- any existing settings/runtime tests
+- `router/routing.py` — Router class, top-level route() method
+- `router/routing/feature_extraction.py` — RoutingFeatures extraction from task text
+- `router/routing/composer.py` — RegimeComposer wrapper and fallback composition path
+- `router/routing/grammar_composer.py` — grammar-driven regime composition
+- `router/analyzer.py` — TaskAnalyzer, decision_from_analysis
+- `router/models.py` — RoutingDecision, RoutingFeatures, Regime, Stage, and all typed models
+- `router/runtime/planner.py` — Planner orchestration
+- `router/runtime/session_runtime.py` — Session loop, bounded orchestration
+- `router/runtime/state_updater.py` — build_router_state, update_router_state_from_execution, compute_forward_handoff
+- `router/runtime/__init__.py` — CognitiveRouterRuntime
+- `router/orchestration/switch_orchestrator.py` — Switch decisions
+- `router/orchestration/transition_rules.py` — Transition conditions including collapse detection
+- `router/orchestration/stop_policy.py` — Stop/continue decisions
+- `router/orchestration/misrouting_detector.py` — Misrouting signal detection
+- `router/state.py` — RouterState, Handoff, serialization/restoration helpers
+- `router/settings.py` — provider-aware defaults and persisted settings surface
 
-## Constraints
-- Preserve backward compatibility for persisted settings JSON.
-- Keep changes small and targeted.
-- Do not introduce a new DeepSeek client class unless required by a demonstrated compatibility gap.
-- Prefer explicit failure for unsupported providers.
-- Do not change unrelated routing/orchestration logic.
-- Do not rewrite large sections of the codebase just to rename config fields.
-- If field names like `openai_base_url` remain for compatibility, update help text/comments to clarify they are used for OpenAI-compatible providers.
+## Testing
 
-## Done when
-- `deepseek` is selectable in settings and wrapper menus
-- fresh defaults are DeepSeek Reasoner
-- runtime instantiates the OpenAI-compatible client for DeepSeek
-- tests cover DeepSeek defaults/provider transitions
-- no silent fallback routes `deepseek` to Ollama
-- OpenAI and Ollama support remain intact
+```bash
+# Run focused tests
+pytest tests/ -k "test_name_pattern" -x -v
 
-## Validation expectations
-At minimum, run the relevant test subset for modified files.
-If practical, also perform a live or mocked smoke check for:
-- `deepseek-reasoner` chat completion path
-- model listing against DeepSeek base URL
+# Run a specific test module
+pytest tests/test_module.py -x -v
 
-## Implementation guidance
-- Keep edits surgical.
-- Prefer extending existing provider/default helpers over adding new abstraction layers.
-- Add comments only where the intent would otherwise be unclear.
-- If a runtime/API incompatibility is found, surface the exact failure and patch only that incompatibility.
+# Run full suite
+pytest tests/ -x -v
+```
 
-## Test discipline
-Every behavior change must be accompanied by tests in the same task unless the code path is impossible to test directly.
+Always run the smallest relevant test subset first. Only run the full suite if focused tests pass.
 
-For each task:
-1. identify the affected test surface
-2. add or update tests first or alongside the implementation
-3. run the smallest relevant test subset for the touched area
-4. confirm adjacent existing tests still pass
-5. do not mark the task done without reporting what was run
+## Code style
 
-Do not defer all testing to the final integration pass.
+- Python 3.10+, type hints on all public methods
+- Prefer explicit control logic over inferred heuristics
+- Define small explicit vocabularies rather than inventing ad-hoc strings
+- Keep test names descriptive and coupled to the behavior they verify
+- No prompt rewrites when the problem is control logic
+- No repo-wide redesigns — scope changes to the stated objective
 
-## Minimum validation rule
-For any touched file:
-- run focused tests for that behavior
-- run any pre-existing tests that cover adjacent behavior
-- after merge, run the full existing test suite
+## What not to do
 
-## Reporting rule
-When finishing a task, report:
-- files changed
-- tests added/updated
-- commands run
-- pass/fail result
-- any remaining untested risk
+- Do not rewrite handoff/state serialization code unless a task directly requires it
+- Do not introduce new regime types
+- Do not change the model provider configuration or current DeepSeek/OpenAI-compatible defaults as part of these routing/orchestration tasks
+- Do not add dependencies without explicit justification
+- Do not combine unrelated concerns in a single change
