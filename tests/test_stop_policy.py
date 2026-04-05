@@ -12,13 +12,19 @@ from router.runtime.session_runtime import SessionRuntime
 from router.state import Handoff, RouterState
 
 
-def _state_for(stage: Stage, *, recurrence_potential: float = 0.0) -> RouterState:
+def _state_for(
+    stage: Stage,
+    *,
+    recurrence_potential: float = 0.0,
+    task_summary: str = "stop policy test",
+    task_classification_endpoint: Stage = Stage.OPERATOR,
+) -> RouterState:
     composer = RegimeComposer()
     regime = composer.compose(stage)
     runner_up = composer.compose(Stage.SYNTHESIS if stage != Stage.SYNTHESIS else Stage.EPISTEMIC)
     return RouterState(
         task_id="task-stop-policy",
-        task_summary="stop policy test",
+        task_summary=task_summary,
         current_bottleneck="test bottleneck",
         current_regime=regime,
         runner_up_regime=runner_up,
@@ -35,7 +41,7 @@ def _state_for(stage: Stage, *, recurrence_potential: float = 0.0) -> RouterStat
         decision_pressure=1.0,
         evidence_quality=1.0,
         recurrence_potential=recurrence_potential,
-        task_classification={"likely_endpoint_regime": Stage.OPERATOR.value},
+        task_classification={"likely_endpoint_regime": task_classification_endpoint.value},
     )
 
 
@@ -155,6 +161,89 @@ def _run_loop(state: RouterState, initial_result: RegimeExecutionResult, *, max_
         handoff_from_state=lambda s: Handoff("", "", [], [], [], [], "", None, ""),
         compute_forward_handoff=lambda result, st, regime: Handoff("", "", [], [], [], [], "", None, ""),
     )
+
+
+
+def test_artifact_aware_completion_framework_request_not_satisfied_by_dominant_frame():
+    state = _state_for(
+        Stage.SYNTHESIS,
+        task_summary="Deliver a finished framework document with reusable sections and operating guidance.",
+        task_classification_endpoint=Stage.SYNTHESIS,
+    )
+    decision = StopPolicy().should_stop(
+        router_state=state,
+        validation_result=_result(
+            Stage.SYNTHESIS,
+            is_valid=True,
+            completion_signal="coherent_frame_stable",
+            failure_signal="",
+        ).validation,
+        routing_decision=_decision(Stage.SYNTHESIS),
+        current_stage=Stage.SYNTHESIS,
+    )
+    assert decision.should_stop is False
+
+
+def test_artifact_aware_completion_worksheet_or_spec_not_satisfied_by_candidate_frame_set():
+    state = _state_for(
+        Stage.EXPLORATION,
+        task_summary="Produce a final worksheet spec the team can execute directly.",
+        task_classification_endpoint=Stage.EXPLORATION,
+    )
+    decision = StopPolicy().should_stop(
+        router_state=state,
+        validation_result=_result(
+            Stage.EXPLORATION,
+            is_valid=True,
+            completion_signal="exploration_ready_for_selection",
+            failure_signal="",
+        ).validation,
+        routing_decision=_decision(Stage.EXPLORATION),
+        current_stage=Stage.EXPLORATION,
+    )
+    assert decision.should_stop is False
+
+
+def test_artifact_aware_completion_task_explicitly_rejects_frame_as_final_output():
+    state = _state_for(
+        Stage.SYNTHESIS,
+        task_summary=(
+            "A frame or interpretation is not the final output. Provide the final deliverable as a completed memo."
+        ),
+        task_classification_endpoint=Stage.SYNTHESIS,
+    )
+    decision = StopPolicy().should_stop(
+        router_state=state,
+        validation_result=_result(
+            Stage.SYNTHESIS,
+            is_valid=True,
+            completion_signal="coherent_frame_stable",
+            failure_signal="",
+        ).validation,
+        routing_decision=_decision(Stage.SYNTHESIS),
+        current_stage=Stage.SYNTHESIS,
+    )
+    assert decision.should_stop is False
+
+
+def test_stop_policy_respects_requested_deliverable_beyond_decision_packet():
+    state = _state_for(
+        Stage.OPERATOR,
+        task_summary="Return a reusable implementation spec document, not only an operator decision packet.",
+        task_classification_endpoint=Stage.OPERATOR,
+    )
+    decision = StopPolicy().should_stop(
+        router_state=state,
+        validation_result=_result(
+            Stage.OPERATOR,
+            is_valid=True,
+            completion_signal="decision_committed_with_actions",
+            failure_signal="",
+        ).validation,
+        routing_decision=_decision(Stage.OPERATOR),
+        current_stage=Stage.OPERATOR,
+    )
+    assert decision.should_stop is False
 
 
 def test_stop_at_operator_default():
