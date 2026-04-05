@@ -16,6 +16,8 @@ from .transition_rules import (
     signal_from_output,
 )
 
+BAD_OUTPUT_CAUSE = "invalid_output_unrecoverable"
+
 
 @dataclass(frozen=True)
 class SwitchOrchestrationResult:
@@ -44,6 +46,7 @@ class SwitchOrchestrator:
         failure_signal = signal_from_output(output, key="failure_signal")
         semantic_failure = operator_semantic_failure(output)
         bounded = switches_used >= max_switches
+        bad_output_cause = _normalized_bad_output_cause(output)
 
         if bounded:
             state.observed_switch_cause = "switch_bound_reached"
@@ -52,6 +55,27 @@ class SwitchOrchestrator:
                 next_regime=None,
                 switch_recommended_now=False,
                 reason_for_switch="Switch limit reached; execution remains on current regime.",
+                updated_state=state,
+            )
+
+        if bad_output_cause:
+            if state.current_regime.stage == Stage.EXPLORATION:
+                state.observed_switch_cause = bad_output_cause
+                state.switch_trigger = bad_output_cause
+                return SwitchOrchestrationResult(
+                    next_regime=None,
+                    switch_recommended_now=False,
+                    reason_for_switch="Exploration produced unrecoverable invalid output; stopping to avoid churn.",
+                    updated_state=state,
+                )
+            next_regime = self._resolve_stage(state, Stage.EXPLORATION)
+            state.recommended_next_regime = next_regime
+            state.observed_switch_cause = bad_output_cause
+            state.switch_trigger = bad_output_cause
+            return SwitchOrchestrationResult(
+                next_regime=next_regime,
+                switch_recommended_now=True,
+                reason_for_switch="Unrecoverable invalid output detected; fallback to exploration.",
                 updated_state=state,
             )
 
@@ -116,3 +140,19 @@ class SwitchOrchestrator:
 
     def _resolve_stage(self, state: RouterState, stage: Stage) -> Regime:
         return state.resolve_regime(stage, self._composer.compose)
+
+
+def _normalized_bad_output_cause(output: RegimeOutputContract) -> str:
+    validation = output.validation
+    if "is_valid" not in validation:
+        return ""
+    if validation.get("is_valid", False):
+        return ""
+    raw_response = str(output.raw_response or "").strip()
+    if not raw_response:
+        return BAD_OUTPUT_CAUSE
+    if validation.get("repair_attempted", False) and not validation.get("repair_succeeded", False):
+        return BAD_OUTPUT_CAUSE
+    if not validation.get("valid_json", False):
+        return BAD_OUTPUT_CAUSE
+    return ""
