@@ -57,6 +57,10 @@ def extract_structural_signals(task: str) -> List[str]:
     return _feature_extraction_module.extract_structural_signals(task)
 
 
+def explain_feature_matches(features: RoutingFeatures) -> Dict[str, List[str]]:
+    return _feature_extraction_module.explain_feature_matches(features)
+
+
 def infer_risk_profile(task: str, risk_profile: Optional[Set[str]]) -> Set[str]:
     return _risk_inference_module.infer_risk_profile(task, risk_profile)
 

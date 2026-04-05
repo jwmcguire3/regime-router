@@ -132,3 +132,32 @@ def test_planner_no_model_calls() -> None:
     assert regime is not None
     assert handoff is not None
     assert state is not None
+
+
+def test_planner_threads_analyzer_evidence_quality_into_router_state() -> None:
+    planner = _planner()
+    analyzer = FixedDecisionAnalyzer(_decision())
+    analyzer_result = _analysis()
+    analyzer_result = TaskAnalyzerOutput(
+        bottleneck_label=analyzer_result.bottleneck_label,
+        candidate_regimes=analyzer_result.candidate_regimes,
+        stage_scores=analyzer_result.stage_scores,
+        structural_signals=analyzer_result.structural_signals,
+        decision_pressure=analyzer_result.decision_pressure,
+        evidence_quality=7,
+        recurrence_potential=analyzer_result.recurrence_potential,
+        confidence=analyzer_result.confidence,
+        rationale=analyzer_result.rationale,
+        likely_endpoint_regime=analyzer_result.likely_endpoint_regime,
+        endpoint_confidence=analyzer_result.endpoint_confidence,
+    )
+
+    _, _, _, state, _ = planner.plan(
+        "Write a deterministic parser.",
+        router_state=None,
+        use_task_analyzer=True,
+        task_analyzer=analyzer,
+        analyzer_result=analyzer_result,
+    )
+
+    assert state.evidence_quality == 7.0

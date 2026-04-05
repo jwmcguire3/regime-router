@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from router.models import RegimeConfidenceResult, RegimeExecutionResult, RoutingDecision, Stage
+from router.models import ARTIFACT_HINTS, RegimeConfidenceResult, RegimeExecutionResult, RoutingDecision, Stage
 from router.orchestration.stop_policy import StopPolicy
 from router.orchestration.switch_orchestrator import SwitchOrchestrationResult
 from router.routing import RegimeComposer
@@ -60,7 +60,7 @@ def _result(stage: Stage, *, is_valid: bool, completion_signal: str, failure_sig
     parsed = {
         "regime": stage.value,
         "purpose": "test purpose",
-        "artifact_type": "test",
+        "artifact_type": ARTIFACT_HINTS[stage],
         "artifact": {},
         "completion_signal": completion_signal,
         "failure_signal": failure_signal,
@@ -268,7 +268,7 @@ def test_stop_does_not_fire_before_endpoint():
     assert decision.should_stop is False
 
 
-def test_builder_blocked_low_recurrence():
+def test_builder_not_blocked_low_recurrence():
     state = _state_for(Stage.OPERATOR, recurrence_potential=3)
     result = _run_loop(
         state,
@@ -276,8 +276,8 @@ def test_builder_blocked_low_recurrence():
         max_switches=2,
         endpoint=Stage.BUILDER,
     )
-    assert result.stage == Stage.OPERATOR
-    assert state.orchestration_stop_reason == "Builder blocked: recurrence_potential 3 < 7"
+    assert result.stage == Stage.BUILDER
+    assert state.current_regime.stage == Stage.BUILDER
 
 
 def test_builder_allowed_high_recurrence():

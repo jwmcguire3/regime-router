@@ -107,6 +107,7 @@ class RuntimePlanner:
                 bottleneck,
                 handoff_expected=handoff_expected,
                 classification=classification,
+                analyzer_result=None,
             )
             return decision, regime, handoff, state, classification
 
@@ -144,6 +145,7 @@ class RuntimePlanner:
         *,
         handoff_expected: bool,
         classification: TaskClassification,
+        analyzer_result: Optional[TaskAnalyzerOutput] = None,
     ) -> Tuple[RoutingDecision, Regime, Handoff, RouterState]:
         decision = RoutingDecision(
             bottleneck=task,
@@ -163,6 +165,7 @@ class RuntimePlanner:
             risks=set(),
             features=extract_routing_features(task),
             composer=self.composer,
+            analyzer_result=analyzer_result,
         )
         state.task_classification = {
             "route_type": classification.route_type,
