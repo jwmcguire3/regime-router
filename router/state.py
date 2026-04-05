@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, List, Mapping, Optional, Set
+from typing import Callable, Dict, List, Mapping, Optional, Set
 
 from .models import (
     FunctionType,
@@ -68,6 +68,11 @@ class RouterState:
     switch_trigger: Optional[str] = None  # legacy alias for observed_switch_cause
     recommended_next_regime: Optional[Regime] = None
     decision_pressure: float = 0.0
+    fragility_pressure: float = 0.0
+    possibility_space_need: float = 0.0
+    detected_markers: Dict[str, List[str]] = field(default_factory=dict)
+    structural_signals: List[str] = field(default_factory=list)
+    evidence_demand: float = 0.0
     evidence_quality: float = 0.0
     recurrence_potential: float = 0.0
     prior_regimes: List[RegimeStep] = field(default_factory=list)
