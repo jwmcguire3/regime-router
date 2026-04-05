@@ -5,6 +5,7 @@ from typing import Mapping, Optional
 
 from ..models import RoutingDecision, Stage
 from ..state import RouterState
+from .collapse_detector import CollapseDetector
 
 BUILDER_RECURRENCE_THRESHOLD = 7
 STAGE_PROGRESSION = [
@@ -25,6 +26,9 @@ class StopDecision:
 
 
 class StopPolicy:
+    def __init__(self, collapse_detector: Optional[CollapseDetector] = None) -> None:
+        self._collapse_detector = collapse_detector or CollapseDetector()
+
     def should_stop(
         self,
         router_state: RouterState,
@@ -32,6 +36,9 @@ class StopPolicy:
         routing_decision: Optional[RoutingDecision],
         current_stage: Stage,
     ) -> StopDecision:
+        if self._collapse_signal_present(router_state, validation_result):
+            return StopDecision(should_stop=False, reason="collapse_override_active")
+
         if self._builder_blocked(router_state):
             recurrence_label = self._format_recurrence(router_state.recurrence_potential)
             return StopDecision(
@@ -51,6 +58,20 @@ class StopPolicy:
         if (artifact_complete and at_or_past_endpoint) or (artifact_complete and operator_default):
             return StopDecision(should_stop=True, reason=f"artifact_complete_at_or_past_endpoint:{endpoint.value}")
         return StopDecision(should_stop=False, reason="endpoint_not_reached")
+
+    def _collapse_signal_present(
+        self,
+        state: RouterState,
+        validation_result: Mapping[str, object],
+    ) -> bool:
+        parsed = validation_result.get("parsed", {})
+        if not isinstance(parsed, dict):
+            return False
+        artifact = parsed.get("artifact", {})
+        artifact_mapping: Mapping[str, object] = artifact if isinstance(artifact, dict) else {}
+        failure_signal = str(parsed.get("failure_signal", "")).strip()
+        detection = self._collapse_detector.detect(state, validation_result, artifact_mapping, failure_signal)
+        return detection.collapse_detected
 
     def _should_defer_stop_for_forward_recommendation(
         self,

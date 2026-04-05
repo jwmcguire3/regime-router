@@ -64,6 +64,7 @@ def build_router_state(
         uncertainties=[],
         contradictions=[],
         assumptions=[f"Structural signals observed: {', '.join(signals) if signals else 'none'}"],
+        substantive_assumptions=[],
         risks=sorted(risks) + [primary_failure],
         stage_goal=stage_goal,
         planned_switch_condition=decision.switch_trigger,
@@ -98,6 +99,9 @@ def update_router_state_from_execution(
     if isinstance(parsed, dict):
         completion_signal = str(parsed.get("completion_signal", "")).strip()
         failure_signal = str(parsed.get("failure_signal", "")).strip()
+        explicit_assumptions = _extract_assumptions(parsed)
+        if explicit_assumptions:
+            state.substantive_assumptions = list(explicit_assumptions)
 
         if structurally_trustworthy:
             state.apply_dominant_frame(
@@ -118,6 +122,7 @@ def update_router_state_from_execution(
         state.update_inference_state(
             contradictions=state.contradictions + semantic_failures,
             assumptions=state.assumptions + ["Validation semantic failures were observed and should shape next regime."],
+            substantive_assumptions=list(state.substantive_assumptions),
         )
 
     is_valid = bool(result.validation.get("is_valid", False))
@@ -421,6 +426,8 @@ def compute_forward_handoff(
     explicit_assumptions = _extract_assumptions(parsed)
     contradictions = explicit_contradictions if explicit_contradictions else list(router_state.contradictions)
     assumptions = explicit_assumptions if explicit_assumptions else list(router_state.assumptions)
+    if explicit_assumptions:
+        router_state.substantive_assumptions = list(explicit_assumptions)
     next_stage = _determine_next_stage(result, router_state)
     if composer is None:
         from ..routing import RegimeComposer
