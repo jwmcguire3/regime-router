@@ -6,6 +6,7 @@ from typing import Mapping, Optional
 from ..models import ARTIFACT_HINTS, RoutingDecision, Stage
 from ..state import RouterState
 from .collapse_detector import CollapseDetector
+from .misrouting_rules import failure_signal_active
 
 STAGE_PROGRESSION = [
     Stage.EXPLORATION,
@@ -58,7 +59,7 @@ class StopPolicy:
         if self._collapse_signal_present(router_state, validation_result):
             return StopDecision(should_stop=False, reason="collapse_override_active")
 
-        artifact_complete = self._artifact_complete(validation_result)
+        artifact_complete = self._artifact_complete(router_state, validation_result, current_stage)
         if not artifact_complete:
             return StopDecision(should_stop=False, reason="artifact_incomplete")
         artifact_matches_current_stage = self._artifact_matches_current_stage(validation_result, current_stage)
@@ -111,17 +112,24 @@ class StopPolicy:
             return _STAGE_RANK[next_stage] <= _STAGE_RANK[endpoint]
         return self._has_qualified_reentry_justification(state)
 
-    def _artifact_complete(self, validation_result: Mapping[str, object]) -> bool:
+    def _artifact_complete(
+        self,
+        state: RouterState,
+        validation_result: Mapping[str, object],
+        current_stage: Stage,
+    ) -> bool:
         if not bool(validation_result.get("is_valid", False)):
             return False
         parsed = validation_result.get("parsed", {})
         if not isinstance(parsed, dict):
             return False
         completion_signal = str(parsed.get("completion_signal", "")).strip()
-        failure_signal = str(parsed.get("failure_signal", "")).strip()
         if not completion_signal:
             return False
-        if failure_signal and completion_signal == failure_signal:
+        artifact = parsed.get("artifact", {})
+        if not isinstance(artifact, dict):
+            return False
+        if artifact and failure_signal_active(current_stage, state, artifact):
             return False
         return True
 
