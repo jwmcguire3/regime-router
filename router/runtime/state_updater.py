@@ -90,7 +90,7 @@ def build_router_state(
         detected_markers=dict(getattr(features, "detected_markers", {})),
         structural_signals=list(getattr(features, "structural_signals", [])),
         recurrence_potential=float(getattr(features, "recurrence_potential", 0)),
-        policy_events=[],
+        policy_events=list(decision.policy_events),
         last_reentry_justification=None,
         last_state_delta=None,
         last_contract_delta=None,

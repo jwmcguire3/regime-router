@@ -6,7 +6,16 @@ import textwrap
 from typing import Dict, List, Optional, Set, Tuple
 
 from .llm import ModelClient
-from .models import RegimeConfidenceResult, RoutingDecision, RoutingFeatures, Severity, Stage, TaskAnalyzerOutput
+from .models import (
+    ControlAuthority,
+    PolicyEvent,
+    RegimeConfidenceResult,
+    RoutingDecision,
+    RoutingFeatures,
+    Severity,
+    Stage,
+    TaskAnalyzerOutput,
+)
 
 
 class TaskAnalyzer:
@@ -154,7 +163,7 @@ class TaskAnalyzer:
         pre_policy_primary_regime = primary
         pre_policy_runner_up_regime = runner_up
 
-        primary, runner_up, policy_warnings, policy_actions = self._apply_routing_policy(
+        primary, runner_up, policy_warnings, policy_actions, policy_events = self._apply_routing_policy(
             primary=primary,
             runner_up=runner_up,
             analyzer_result=analyzer_result,
@@ -179,16 +188,48 @@ class TaskAnalyzer:
             and not routing_features.detected_markers.get("decision_tradeoff_commitment")
             and confidence_score < 0.8
         ):
+            prior_confidence_level = confidence_level
             confidence_level = self._degrade_confidence_level(confidence_level)
             policy_actions.append("operator confidence softened by one tier")
+            policy_events.append(
+                PolicyEvent(
+                    rule_name="operator_confidence_softened",
+                    authority=ControlAuthority.SOFT_GUARDRAIL.value,
+                    consumed_features=["pre_policy_primary_regime", "decision_pressure", "decision_tradeoff_commitment", "confidence"],
+                    action="soften_confidence_tier",
+                    detail=(
+                        "operator confidence softened by one tier: pre_policy_primary=operator, "
+                        f"decision_pressure={routing_features.decision_pressure}, "
+                        "decision_tradeoff_commitment=false, "
+                        f"analyzer_confidence={confidence_score:.2f}, "
+                        f"confidence_before={prior_confidence_level}, confidence_after={confidence_level}"
+                    ),
+                )
+            )
         if (
             pre_policy_primary_regime == Stage.ADVERSARIAL
             and routing_features.fragility_pressure == 0
             and confidence_score < 0.5
             and score_gap_raw <= 0.15
         ):
+            prior_confidence_level = confidence_level
             confidence_level = self._degrade_confidence_level(confidence_level)
             policy_actions.append("adversarial confidence softened by one tier")
+            policy_events.append(
+                PolicyEvent(
+                    rule_name="adversarial_confidence_softened",
+                    authority=ControlAuthority.ADVISORY_ONLY.value,
+                    consumed_features=["pre_policy_primary_regime", "fragility_pressure", "confidence", "score_gap_raw"],
+                    action="soften_confidence_tier",
+                    detail=(
+                        "adversarial confidence softened by one tier: pre_policy_primary=adversarial, "
+                        f"fragility_pressure={routing_features.fragility_pressure}, "
+                        f"analyzer_confidence={confidence_score:.2f}, "
+                        f"score_gap_raw={score_gap_raw:.2f}, "
+                        f"confidence_before={prior_confidence_level}, confidence_after={confidence_level}"
+                    ),
+                )
+            )
 
         top_score = int(round(ranked[0][1])) if ranked else 0
         runner_up_score = int(round(next((score for stage, score in ranked if stage == runner_up), 0.0)))
@@ -245,13 +286,39 @@ class TaskAnalyzer:
             likely_endpoint = Stage.OPERATOR
             builder_endpoint_softened = True
             policy_actions.append("builder endpoint softened to operator")
+            policy_events.append(
+                PolicyEvent(
+                    rule_name="builder_endpoint_softened_to_operator",
+                    authority=ControlAuthority.SOFT_GUARDRAIL.value,
+                    consumed_features=["likely_endpoint_regime", "recurrence_potential", "confidence"],
+                    action="soften_endpoint_to_operator",
+                    detail=(
+                        "builder endpoint softened to operator: likely_endpoint=builder, "
+                        f"recurrence_potential={analyzer_result.recurrence_potential}, "
+                        f"analyzer_confidence={analyzer_result.confidence:.2f}"
+                    ),
+                )
+            )
 
         if (
             stage_progression.index(likely_endpoint) < stage_progression.index(primary)
             and not builder_endpoint_softened
         ):
+            prior_endpoint = likely_endpoint
             likely_endpoint = primary
             policy_actions.append("endpoint proposed before primary regime; clamped to primary")
+            policy_events.append(
+                PolicyEvent(
+                    rule_name="endpoint_clamped_to_primary",
+                    authority=ControlAuthority.HARD_VETO.value,
+                    consumed_features=["likely_endpoint_regime", "primary_regime"],
+                    action="clamp_endpoint_to_primary",
+                    detail=(
+                        "endpoint proposed before primary regime; clamped to primary: "
+                        f"endpoint_before={prior_endpoint.value}, primary={primary.value}"
+                    ),
+                )
+            )
 
         summary_parts = [
             f"Analyzer confidence={confidence_score:.2f}",
@@ -278,6 +345,7 @@ class TaskAnalyzer:
             inference_quality="analyzer_led",
             policy_warnings=policy_warnings,
             policy_actions=policy_actions,
+            policy_events=policy_events,
         )
 
     def _apply_routing_policy(
@@ -287,27 +355,65 @@ class TaskAnalyzer:
         runner_up: Stage,
         analyzer_result: TaskAnalyzerOutput,
         routing_features: RoutingFeatures,
-    ) -> tuple[Stage, Stage, list[str], list[str]]:
+    ) -> tuple[Stage, Stage, list[str], list[str], list[PolicyEvent]]:
         policy_warnings: list[str] = []
         policy_actions: list[str] = []
+        policy_events: list[PolicyEvent] = []
 
         has_decision_markers = bool(routing_features.detected_markers.get("decision_tradeoff_commitment"))
         if primary == Stage.OPERATOR and routing_features.decision_pressure == 0 and not has_decision_markers:
             policy_warnings.append("operator support weak; soft guardrail only")
+            policy_events.append(
+                PolicyEvent(
+                    rule_name="operator_weak_support",
+                    authority=ControlAuthority.ADVISORY_ONLY.value,
+                    consumed_features=["decision_pressure", "decision_tradeoff_commitment"],
+                    action="advisory_warning",
+                    detail="operator proposed without decision_pressure or decision markers",
+                )
+            )
             if runner_up not in {Stage.EXPLORATION, primary}:
+                prior_runner_up = runner_up
                 runner_up = Stage.EXPLORATION
                 policy_actions.append("runner-up softened toward exploration")
+                policy_events.append(
+                    PolicyEvent(
+                        rule_name="runner_up_softened_toward_exploration",
+                        authority=ControlAuthority.SOFT_GUARDRAIL.value,
+                        consumed_features=["primary_regime", "runner_up_regime", "decision_pressure", "decision_tradeoff_commitment"],
+                        action="soften_runner_up",
+                        detail=f"runner_up changed from {prior_runner_up.value} to exploration due to weak operator support",
+                    )
+                )
 
         if primary == Stage.BUILDER and routing_features.recurrence_potential == 0:
             policy_warnings.append("builder support weak; advisory only")
+            policy_events.append(
+                PolicyEvent(
+                    rule_name="builder_weak_support",
+                    authority=ControlAuthority.ADVISORY_ONLY.value,
+                    consumed_features=["recurrence_potential"],
+                    action="advisory_warning",
+                    detail="builder proposed without recurrence_potential support",
+                )
+            )
 
         if primary == Stage.ADVERSARIAL and routing_features.fragility_pressure == 0:
             policy_warnings.append("adversarial support weak; advisory only")
+            policy_events.append(
+                PolicyEvent(
+                    rule_name="adversarial_weak_support",
+                    authority=ControlAuthority.ADVISORY_ONLY.value,
+                    consumed_features=["fragility_pressure"],
+                    action="advisory_warning",
+                    detail="adversarial proposed without fragility_pressure support",
+                )
+            )
 
         if runner_up == primary:
             runner_up = Stage.SYNTHESIS if primary != Stage.SYNTHESIS else Stage.EXPLORATION
 
-        return primary, runner_up, policy_warnings, policy_actions
+        return primary, runner_up, policy_warnings, policy_actions, policy_events
 
     def _degrade_confidence_level(self, level: str) -> str:
         if level == Severity.HIGH.value:
