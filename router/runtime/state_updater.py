@@ -14,6 +14,7 @@ from ..models import (
     Stage,
     TaskAnalyzerOutput,
 )
+from ..orchestration.canonical_status import canonical_status_from_validation
 from ..state import Handoff, RouterState
 
 if TYPE_CHECKING:
@@ -115,11 +116,7 @@ def update_router_state_from_execution(
         and result.validation.get("artifact_type_matches", False)
         and result.validation.get("contract_controls_valid", False)
     )
-    completion_signal = ""
-    failure_signal = ""
     if isinstance(parsed, dict):
-        completion_signal = str(parsed.get("completion_signal", "")).strip()
-        failure_signal = str(parsed.get("failure_signal", "")).strip()
         explicit_assumptions = _extract_assumptions(parsed)
         if explicit_assumptions:
             state.substantive_assumptions = list(explicit_assumptions)
@@ -146,24 +143,33 @@ def update_router_state_from_execution(
             substantive_assumptions=list(state.substantive_assumptions),
         )
 
-    is_valid = bool(result.validation.get("is_valid", False))
-    artifact_complete = bool(completion_signal) and is_valid and completion_signal != failure_signal
+    artifact_mapping = parsed.get("artifact", {}) if isinstance(parsed, dict) else {}
+    if not isinstance(artifact_mapping, dict):
+        artifact_mapping = {}
+    canonical = canonical_status_from_validation(
+        validation_result=result.validation,
+        current_stage=state.current_regime.stage,
+        artifact=artifact_mapping,
+        state=state,
+    )
+    artifact_complete = canonical.terminal_signal == "completion"
+    failure_signal_seen = canonical.terminal_signal in ("failure", "contradictory")
     summary_chunks = [
         "Execution yielded a completed artifact."
         if artifact_complete
         else "Execution output was incomplete or invalid."
     ]
-    if completion_signal:
-        summary_chunks.append(f"completion_signal={completion_signal}")
-    if failure_signal:
-        summary_chunks.append(f"failure_signal={failure_signal}")
-    if not is_valid:
+    if canonical.completion_signal:
+        summary_chunks.append(f"completion_signal={canonical.completion_signal}")
+    if canonical.failure_signal:
+        summary_chunks.append(f"failure_signal={canonical.failure_signal}")
+    if not canonical.is_valid:
         summary_chunks.append("validation_failed=true")
     state.record_regime_step(
         regime=state.current_regime,
         reason_entered=reason_entered,
         completion_signal_seen=artifact_complete,
-        failure_signal_seen=bool(failure_signal) or not is_valid,
+        failure_signal_seen=failure_signal_seen,
         outcome_summary=" ".join(summary_chunks),
     )
     state.last_state_delta = _compute_state_delta(
@@ -176,7 +182,7 @@ def update_router_state_from_execution(
         state.last_state_delta = "semantic_failures_introduced"
     if semantic_failures:
         state.last_contract_delta = "contract_invalidated_by_semantic_failure"
-    elif completion_signal and failure_signal and completion_signal != failure_signal:
+    elif canonical.control_conflict:
         state.last_contract_delta = "contract_invalidated_by_control_conflict"
     else:
         current_recommended_next = state.recommended_next_regime.stage if state.recommended_next_regime is not None else None
