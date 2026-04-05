@@ -62,7 +62,7 @@ class RuntimePlanner:
             "classification_source": classification.classification_source,
         }
         if use_task_analyzer and task_analyzer is not None:
-            if hasattr(task_analyzer, "analyze") and hasattr(task_analyzer, "decision_from_analysis"):
+            if hasattr(task_analyzer, "decision_from_analysis"):
                 decision = task_analyzer.decision_from_analysis(
                     task=bottleneck,
                     analyzer_result=analyzer_result,
@@ -100,6 +100,7 @@ class RuntimePlanner:
             and analyzer_result.confidence > 0.9
             and len(analyzer_result.candidate_regimes) == 1
             and not (features.evidence_demand > 0 and features.decision_pressure > 0)
+            and not (features.fragility_pressure > 0)
         )
         if should_fastpath_direct:
             decision, regime, handoff, state = self.plan_direct(
