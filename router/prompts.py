@@ -156,6 +156,16 @@ class PromptBuilder:
                 element_instructions = ["Build on this context. Do not re-derive what is already established."]
 
             element_section = "\n\n".join(element_instructions)
+            downstream_discipline = textwrap.dedent(
+                """
+                Downstream execution discipline:
+                - Preserve the original task and use this context to constrain how you solve it.
+                - Treat stable elements as settled unless a concrete break condition appears in this stage.
+                - Reopen only the explicitly broken elements and repair them with new task-grounded evidence.
+                - Avoid re-deriving do-not-relitigate elements unless you can show they are broken now.
+                - Your response must directly advance the minimum useful artifact above.
+                """
+            ).strip()
 
             prior_handoff_section = textwrap.dedent(
                 f"""
@@ -177,6 +187,8 @@ class PromptBuilder:
                 {f"Prior artifact summary: {prior_handoff.prior_artifact_summary}" if prior_handoff.prior_artifact_summary else ""}
 
                 {element_section}
+
+                {downstream_discipline}
                 """
             ).rstrip()
         return textwrap.dedent(
