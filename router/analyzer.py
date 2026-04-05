@@ -361,7 +361,12 @@ class TaskAnalyzer:
         policy_events: list[PolicyEvent] = []
 
         has_decision_markers = bool(routing_features.detected_markers.get("decision_tradeoff_commitment"))
-        if primary == Stage.OPERATOR and routing_features.decision_pressure == 0 and not has_decision_markers:
+        if (
+            primary == Stage.OPERATOR
+            and routing_features.decision_pressure == 0
+            and not has_decision_markers
+            and analyzer_result.confidence < 0.8
+        ):
             policy_warnings.append("operator support weak; soft guardrail only")
             policy_events.append(
                 PolicyEvent(
@@ -386,7 +391,11 @@ class TaskAnalyzer:
                     )
                 )
 
-        if primary == Stage.BUILDER and routing_features.recurrence_potential == 0:
+        if (
+            primary == Stage.BUILDER
+            and routing_features.recurrence_potential == 0
+            and analyzer_result.confidence < 0.8
+        ):
             policy_warnings.append("builder support weak; advisory only")
             policy_events.append(
                 PolicyEvent(
@@ -398,7 +407,11 @@ class TaskAnalyzer:
                 )
             )
 
-        if primary == Stage.ADVERSARIAL and routing_features.fragility_pressure == 0:
+        if (
+            primary == Stage.ADVERSARIAL
+            and routing_features.fragility_pressure == 0
+            and analyzer_result.confidence < 0.8
+        ):
             policy_warnings.append("adversarial support weak; advisory only")
             policy_events.append(
                 PolicyEvent(
