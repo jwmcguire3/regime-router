@@ -1,6 +1,6 @@
 # Cognitive Router — Current State Detailed Standalone
 
-Last updated: April 5, 2026
+Last updated: April 5, 2026 (repo-alignment pass against current code)
 
 ## 1. What this system is
 
@@ -11,7 +11,7 @@ It is a constrained staged-execution system. The runtime does not simply send a 
 The current runtime combines five layers of control:
 
 1. **task-shape inspection** through deterministic classification and structural feature extraction,
-2. **route proposal** through analyzer-led bottleneck assessment,
+2. **route proposal** through analyzer-led assessment when enabled, with deterministic feature-led fallback when analyzer use is disabled or unavailable,
 3. **behavioral regime composition** through typed line primitives,
 4. **external validation and bounded repair** of model outputs,
 5. **stateful orchestration** across one or more regime steps with handoff continuity and stop-policy control.
@@ -30,6 +30,18 @@ These are behavior families with stage-specific contracts, failure tendencies, c
 The runtime owns the control plane. The model is used for analysis proposals and staged artifact generation, but the runtime outside the model determines the active regime, validates outputs, chooses repair mode, computes handoffs, records state, and decides whether execution should stop or continue.
 
 This document describes the implementation and operating behavior that currently exists.
+
+### 1.1 Recent commit-backed updates (last 15 commits)
+
+A review of commits `5d5eca6` through `528b34b` confirms the following are now true in the current codebase:
+
+- **Analyzer-led planning remains the primary path**, with analyzer/feature signals integrated into routing quality markers and planner behavior.
+- **Runtime model clients are lazily initialized** in `CognitiveRouterRuntime`, so construction does not immediately require provider credentials until a model-backed operation is invoked.
+- **Stop policy now includes artifact-aware completion semantics** with additional regression coverage.
+- **Executor/runtime behavior includes explicit invalid-output recovery fallback handling** in orchestration and state progression paths.
+- **Downstream handoff discipline was strengthened in prompts**, and continuity expectations are now regression-tested.
+
+This section is intentionally commit-derived so that the rest of the document can be read with the correct operational assumptions.
 
 ---
 
@@ -85,7 +97,7 @@ The runtime constructs and wires together:
 - `EscalationPolicy()`
 - `SwitchOrchestrator()`
 - `StopPolicy()`
-- a model client created by `create_model_client(...)`
+- lazy model client plumbing via `create_model_client(...)` + `_ensure_model_client(...)`
 - `TaskAnalyzer(...)`
 - `TaskClassifier()`
 - `RuntimePlanner(...)`
@@ -123,7 +135,9 @@ The classifier extracts a deterministic direct-vs-regime signal from the task te
 
 `router/analyzer.py` contains `TaskAnalyzer`.
 
-This is the primary route proposer for staged tasks. It receives the task, deterministic features, task signals, risk profile, and the classifier signal, and returns structured route analysis in strict JSON.
+When enabled and available, this is the primary route proposer for staged tasks. It receives the task, deterministic features, task signals, risk profile, and the classifier signal, and returns structured route analysis in strict JSON.
+
+If analyzer use is disabled (or analyzer output is unavailable), planning falls back to deterministic feature-led routing through `Router.route(...)`.
 
 ### 3.5 Regime composition
 
@@ -177,7 +191,7 @@ This includes:
 
 The runtime is provider-aware.
 
-The active model client is created by `create_model_client(...)` inside the runtime. The currently supported providers are:
+The active model client is created lazily by `create_model_client(...)` (via `_ensure_model_client(...)`) inside the runtime. The currently supported providers are:
 
 - `ollama`
 - `openai`
@@ -221,7 +235,7 @@ The settings and runtime layers currently define:
 
 The system supports provider-aware model listing and provider-aware model defaulting through runtime settings and the CLI surface.
 
-Note on defaults: CLI/user settings default `bounded_orchestration=True`, while `CognitiveRouterRuntime.execute(...)` has a method-parameter default of `bounded_orchestration=False`.
+Note on defaults: CLI/user settings default `bounded_orchestration=True`, and `CognitiveRouterRuntime.execute(...)` also currently defaults `bounded_orchestration=True`.
 
 ---
 
@@ -1446,10 +1460,13 @@ The orchestration loop includes an explicit stop policy.
 
 The stop policy determines whether the current run should terminate before switch logic is consulted.
 
-It uses three main ideas:
+It uses several control gates:
 
+- collapse-override detection (continue if collapse is actively detected),
 - whether a valid artifact has been produced,
+- whether explicit deliverable pressure means an intermediate artifact is not yet sufficient,
 - whether the current stage is at or past the inferred endpoint,
+- whether a forward recommendation should defer stopping,
 - whether builder entry is justified by recurrence.
 
 ### 20.2 StopDecision
@@ -1461,13 +1478,16 @@ It uses three main ideas:
 
 ### 20.3 Standard stopping rules
 
-The stop policy checks conditions equivalent to:
+The stop policy currently checks conditions equivalent to:
 
-1. **artifact complete**: validation is valid and the completion signal is stage-appropriate,
-2. **at or past endpoint**: current stage is at or beyond the inferred endpoint in stage order,
-3. **operator default**: if the inferred endpoint is operator and the current stage is operator and the artifact is valid, stop.
+1. **collapse override**: if collapse is detected, do not stop yet (`collapse_override_active`),
+2. **builder gate**: if operator is trying to move to builder but `recurrence_potential < 7`, stop with a builder-block reason,
+3. **artifact complete**: validation must be valid and include completion/failure control fields in a non-contradictory way,
+4. **deliverable pressure gate**: continue when the task asks for explicit final/concrete deliverables but the current stage artifact is still intermediate,
+5. **endpoint check**: stop when artifact is complete and stage rank is at or past endpoint,
+6. **forward recommendation deferral**: continue if there is a valid forward regime recommendation that still advances toward endpoint.
 
-The loop stops when the valid artifact satisfies the endpoint-based rule.
+The loop stops when completion + endpoint logic wins and no defer gate applies.
 
 ### 20.4 Builder gate
 
@@ -1493,19 +1513,32 @@ When bounded orchestration is enabled, the system can move from one regime to an
 
 ### 21.1 Orchestration loop
 
-The runtime’s orchestration loop currently:
+`CognitiveRouterRuntime.execute(...)` performs one stage first, updates state/handoff, and then enters `SessionRuntime.run_orchestration_loop(...)`.
 
-1. inspects the current result,
-2. updates state from the current step,
-3. computes a forward handoff,
-4. evaluates stop policy,
-5. if stop policy permits continuation, runs misrouting detection,
-6. evaluates escalation policy,
-7. asks the switch orchestrator whether to switch,
-8. records switch attempts and decisions,
-9. if a switch is approved, composes the next regime,
-10. executes the next regime with the prior handoff threaded into the user prompt,
-11. repeats until stop policy ends the run, the hard bound is reached, or no switch is justified.
+So the older three-step phrasing:
+
+1. inspect current result,
+2. update state from current step,
+3. compute forward handoff,
+
+still happens, but it is now split across two locations:
+
+- **before** the loop, right after first-stage execution in `execute(...)`,
+- **inside** the loop only after each newly executed switched stage.
+
+Inside the orchestration loop, the runtime currently:
+
+1. evaluates stop policy before switch logic,
+2. enforces `max_switches` as a hard limit,
+3. runs misrouting detection and escalation evaluation,
+4. asks the switch orchestrator whether to switch,
+5. applies builder gate checks before executing a recommended switch,
+6. applies unrecoverable-invalid-output fallback behavior (attempt exploration fallback unless already in exploration, in which case stop),
+7. blocks same-stage and prior-stage re-entry loops (with a bounded collapse-reentry exception),
+8. records switch decisions in state history,
+9. executes the next regime with prior handoff context,
+10. updates state and recomputes forward handoff,
+11. repeats until stop-policy stop, switch-limit stop, loop prevention stop, unrecoverable-invalid-output stop, or switch-not-recommended stop.
 
 ### 21.2 State limits
 
@@ -1607,7 +1640,7 @@ These support structured recording of regime failures and candidate revisions.
 
 The current runtime provides:
 
-- analyzer-led route proposal,
+- analyzer-led route proposal when enabled, with deterministic feature-led fallback,
 - classifier-assisted direct-path gating,
 - regime composition from typed primitives,
 - stage-specific output contracts,
@@ -1636,4 +1669,4 @@ The system currently treats stage outputs as contractual artifacts and uses them
 
 ## 25. Short operational summary
 
-The current Cognitive Router accepts a task, extracts deterministic signals, calls the analyzer, turns the analysis into a routing decision with both entry-stage and likely endpoint information, chooses either direct fast-path execution or staged regime execution, validates model output against an external contract, computes deterministic state and handoff summaries, and may continue through a bounded multi-stage loop that uses stop policy, misrouting detection, escalation policy, and switch orchestration to decide whether another stage should run.
+The current Cognitive Router accepts a task, extracts deterministic signals, obtains analyzer-led routing when enabled (or deterministic feature-led routing when not), chooses either direct fast-path execution or staged regime execution, validates model output against an external contract with bounded repair, computes deterministic state and handoff summaries, and may continue through a bounded multi-stage loop that uses stop policy, misrouting detection, escalation policy, invalid-output recovery rules, and switch orchestration to decide whether another stage should run.
