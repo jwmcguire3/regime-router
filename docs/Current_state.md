@@ -1,6 +1,6 @@
 # Cognitive Router — Current State Detailed Standalone
 
-Last updated: April 5, 2026
+Last updated: April 5, 2026 (post-review of the latest 15 commits through `528b34b`)
 
 ## 1. What this system is
 
@@ -30,6 +30,18 @@ These are behavior families with stage-specific contracts, failure tendencies, c
 The runtime owns the control plane. The model is used for analysis proposals and staged artifact generation, but the runtime outside the model determines the active regime, validates outputs, chooses repair mode, computes handoffs, records state, and decides whether execution should stop or continue.
 
 This document describes the implementation and operating behavior that currently exists.
+
+### 1.1 Recent commit-backed updates (last 15 commits)
+
+A review of commits `5d5eca6` through `528b34b` confirms the following are now true in the current codebase:
+
+- **Analyzer-led planning remains the primary path**, with analyzer/feature signals integrated into routing quality markers and planner behavior.
+- **Runtime model clients are lazily initialized** in `CognitiveRouterRuntime`, so construction does not immediately require provider credentials until a model-backed operation is invoked.
+- **Stop policy now includes artifact-aware completion semantics** with additional regression coverage.
+- **Executor/runtime behavior includes explicit invalid-output recovery fallback handling** in orchestration and state progression paths.
+- **Downstream handoff discipline was strengthened in prompts**, and continuity expectations are now regression-tested.
+
+This section is intentionally commit-derived so that the rest of the document can be read with the correct operational assumptions.
 
 ---
 
@@ -85,7 +97,7 @@ The runtime constructs and wires together:
 - `EscalationPolicy()`
 - `SwitchOrchestrator()`
 - `StopPolicy()`
-- a model client created by `create_model_client(...)`
+- lazy model client plumbing via `create_model_client(...)` + `_ensure_model_client(...)`
 - `TaskAnalyzer(...)`
 - `TaskClassifier()`
 - `RuntimePlanner(...)`
@@ -177,7 +189,7 @@ This includes:
 
 The runtime is provider-aware.
 
-The active model client is created by `create_model_client(...)` inside the runtime. The currently supported providers are:
+The active model client is created lazily by `create_model_client(...)` (via `_ensure_model_client(...)`) inside the runtime. The currently supported providers are:
 
 - `ollama`
 - `openai`
@@ -221,7 +233,7 @@ The settings and runtime layers currently define:
 
 The system supports provider-aware model listing and provider-aware model defaulting through runtime settings and the CLI surface.
 
-Note on defaults: CLI/user settings default `bounded_orchestration=True`, while `CognitiveRouterRuntime.execute(...)` has a method-parameter default of `bounded_orchestration=False`.
+Note on defaults: CLI/user settings default `bounded_orchestration=True`, and `CognitiveRouterRuntime.execute(...)` also currently defaults `bounded_orchestration=True`.
 
 ---
 
