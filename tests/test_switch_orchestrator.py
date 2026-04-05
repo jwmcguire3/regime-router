@@ -57,7 +57,17 @@ def _output(
         "recommended_next_regime": "operator",
         "artifact": artifact,
     }
-    validation = {"parsed": parsed}
+    validation = {
+        "parsed": parsed,
+        "is_valid": True,
+        "valid_json": True,
+        "required_keys_present": True,
+        "artifact_fields_present": True,
+        "artifact_type_matches": True,
+        "contract_controls_valid": True,
+        "semantic_valid": True,
+        "semantic_failures": [],
+    }
     if validation_overrides:
         validation.update(validation_overrides)
     return RegimeOutputContract(stage=stage, raw_response=json.dumps(parsed), validation=validation)
@@ -73,7 +83,7 @@ def test_exploration_completion_moves_to_synthesis():
         Stage.EXPLORATION,
         {"candidate_frames": ["a b", "c d", "e f"], "selection_criteria": "best criterion", "unresolved_axes": []},
         completion_signal="exploration_ready_for_selection",
-        failure_signal="branch_sprawl_without_differentiation",
+        failure_signal="",
     )
     result = SwitchOrchestrator(RegimeComposer()).orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
     assert result.switch_recommended_now is True
@@ -132,7 +142,7 @@ def test_epistemic_completion_moves_to_operator():
             "decision_relevant_conclusions": ["what is true enough now"],
         },
         completion_signal="support_separation_completed",
-        failure_signal="evidence_quality_insufficient",
+        failure_signal="",
     )
     result = SwitchOrchestrator(RegimeComposer()).orchestrate(state, output, _detect(state, output), switches_used=0, max_switches=2)
     assert result.next_regime is not None
