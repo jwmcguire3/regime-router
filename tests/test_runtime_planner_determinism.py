@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from router.analyzer import TaskAnalyzer
-from router.classifier import TaskClassifier
 from router.control import EscalationPolicy
 from router.llm import ModelClient
-from router.models import RegimeConfidenceResult, RoutingDecision, RoutingFeatures, Stage, TaskAnalyzerOutput
+from router.models import RegimeConfidenceResult, RoutingDecision, Stage, TaskAnalyzerOutput
 from router.routing import RegimeComposer, Router
 from router.runtime.planner import RuntimePlanner
 
@@ -22,10 +21,6 @@ class FixedDecisionAnalyzer:
     def analyze(
         self,
         task: str,
-        routing_features: RoutingFeatures,
-        task_signals: List[str],
-        risk_profile: Set[str],
-        classifier_signal: Optional[Dict[str, object]] = None,
     ) -> Optional[TaskAnalyzerOutput]:
         return None
 
@@ -34,7 +29,6 @@ class FixedDecisionAnalyzer:
         *,
         task: str,
         analyzer_result: Optional[TaskAnalyzerOutput],
-        routing_features: RoutingFeatures,
     ) -> RoutingDecision:
         return self.decision
 
@@ -52,7 +46,6 @@ def _planner() -> RuntimePlanner:
         router=Router(),
         composer=RegimeComposer(),
         escalation_policy=EscalationPolicy(),
-        task_classifier=TaskClassifier(),
     )
 
 
@@ -83,6 +76,9 @@ def _analysis() -> TaskAnalyzerOutput:
         },
         structural_signals=[],
         decision_pressure=0,
+        fragility_pressure=0,
+        possibility_space_need=0,
+        synthesis_pressure=0,
         evidence_quality=0,
         recurrence_potential=0,
         confidence=0.95,
@@ -96,17 +92,13 @@ def test_planner_deterministic() -> None:
     args = dict(
         bottleneck="Write a deterministic parser.",
         router_state=None,
-        use_task_analyzer=True,
         task_analyzer=analyzer,
-        risk_profile={"high_stakes"},
         handoff_expected=True,
-        task_signals=["explicit_output"],
-        risks_inferred=True,
         analyzer_result=_analysis(),
     )
 
-    first_decision, first_regime, first_handoff, first_state, _ = planner.plan(**args)
-    second_decision, second_regime, second_handoff, second_state, _ = planner.plan(**args)
+    first_decision, first_regime, first_handoff, first_state = planner.plan(**args)
+    second_decision, second_regime, second_handoff, second_state = planner.plan(**args)
 
     assert first_decision == second_decision
     assert first_regime == second_regime
@@ -120,10 +112,9 @@ def test_planner_no_model_calls() -> None:
     planner = _planner()
     analyzer = TaskAnalyzer(model_client=ExplodingModelClient(), model="unused")
 
-    decision, regime, handoff, state, _ = planner.plan(
+    decision, regime, handoff, state = planner.plan(
         "Summarize this meeting notes list.",
         router_state=None,
-        use_task_analyzer=True,
         task_analyzer=analyzer,
         analyzer_result=_analysis(),
     )
@@ -144,6 +135,9 @@ def test_planner_threads_analyzer_evidence_quality_into_router_state() -> None:
         stage_scores=analyzer_result.stage_scores,
         structural_signals=analyzer_result.structural_signals,
         decision_pressure=analyzer_result.decision_pressure,
+        fragility_pressure=analyzer_result.fragility_pressure,
+        possibility_space_need=analyzer_result.possibility_space_need,
+        synthesis_pressure=analyzer_result.synthesis_pressure,
         evidence_quality=7,
         recurrence_potential=analyzer_result.recurrence_potential,
         confidence=analyzer_result.confidence,
@@ -152,10 +146,9 @@ def test_planner_threads_analyzer_evidence_quality_into_router_state() -> None:
         endpoint_confidence=analyzer_result.endpoint_confidence,
     )
 
-    _, _, _, state, _ = planner.plan(
+    _, _, _, state = planner.plan(
         "Write a deterministic parser.",
         router_state=None,
-        use_task_analyzer=True,
         task_analyzer=analyzer,
         analyzer_result=analyzer_result,
     )

@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from router.classifier import TaskClassifier
 from router.control import EscalationPolicy
-from router.models import RegimeConfidenceResult, RoutingDecision, RoutingFeatures, Stage, TaskAnalyzerOutput
+from router.models import RegimeConfidenceResult, RoutingDecision, Stage, TaskAnalyzerOutput
 from router.routing import RegimeComposer, Router
 from router.runtime.planner import RuntimePlanner
 
@@ -20,21 +19,10 @@ class StubAnalyzer:
         self.analyze_calls: List[Dict[str, object]] = []
         self.decision_calls: List[Dict[str, object]] = []
 
-    def analyze(
-        self,
-        task: str,
-        routing_features: RoutingFeatures,
-        task_signals: List[str],
-        risk_profile: Set[str],
-        classifier_signal: Optional[Dict[str, object]] = None,
-    ) -> Optional[TaskAnalyzerOutput]:
+    def analyze(self, task: str) -> Optional[TaskAnalyzerOutput]:
         self.analyze_calls.append(
             {
                 "task": task,
-                "routing_features": routing_features,
-                "task_signals": task_signals,
-                "risk_profile": risk_profile,
-                "classifier_signal": classifier_signal,
             }
         )
         return self.output
@@ -44,13 +32,11 @@ class StubAnalyzer:
         *,
         task: str,
         analyzer_result: Optional[TaskAnalyzerOutput],
-        routing_features: RoutingFeatures,
     ) -> RoutingDecision:
         self.decision_calls.append(
             {
                 "task": task,
                 "analyzer_result": analyzer_result,
-                "routing_features": routing_features,
             }
         )
         return self.decision
@@ -92,6 +78,9 @@ def _analysis(*, confidence: float, candidates: List[Stage]) -> TaskAnalyzerOutp
         },
         structural_signals=[],
         decision_pressure=0,
+        fragility_pressure=0,
+        possibility_space_need=0,
+        synthesis_pressure=0,
         evidence_quality=0,
         recurrence_potential=0,
         confidence=confidence,
@@ -104,7 +93,6 @@ def _planner() -> RuntimePlanner:
         router=Router(),
         composer=RegimeComposer(),
         escalation_policy=EscalationPolicy(),
-        task_classifier=TaskClassifier(),
     )
 
 
@@ -116,7 +104,6 @@ def test_analyzer_decision_consumes_supplied_analysis() -> None:
     planner.plan(
         "write a function",
         router_state=None,
-        use_task_analyzer=True,
         task_analyzer=analyzer,
         analyzer_result=analyzer_result,
     )
@@ -126,72 +113,30 @@ def test_analyzer_decision_consumes_supplied_analysis() -> None:
     assert analyzer.decision_calls[0]["analyzer_result"] == analyzer_result
 
 
-def test_direct_fastpath_requires_all_three() -> None:
+def test_audit_adds_warning_and_softens_confidence() -> None:
     planner = _planner()
-
-    direct_analyzer = StubAnalyzer(output=_analysis(confidence=0.95, candidates=[Stage.SYNTHESIS]), decision=_decision())
-    decision, regime, *_ = planner.plan(
-        "write a function",
+    analyzer = StubAnalyzer(output=_analysis(confidence=0.95, candidates=[Stage.OPERATOR]), decision=_decision(primary=Stage.OPERATOR))
+    decision, *_ = planner.plan(
+        "Decide now using evidence from multiple conflicting sources.",
         router_state=None,
-        use_task_analyzer=True,
-        task_analyzer=direct_analyzer,
-        analyzer_result=_analysis(confidence=0.95, candidates=[Stage.SYNTHESIS]),
-    )
-    assert decision.primary_regime is None
-    assert regime.name == "Direct Passthrough"
-
-    low_conf_analyzer = StubAnalyzer(output=_analysis(confidence=0.9, candidates=[Stage.SYNTHESIS]), decision=_decision())
-    decision, regime, *_ = planner.plan(
-        "write a function",
-        router_state=None,
-        use_task_analyzer=True,
-        task_analyzer=low_conf_analyzer,
-        analyzer_result=_analysis(confidence=0.9, candidates=[Stage.SYNTHESIS]),
-    )
-    assert decision.primary_regime == Stage.SYNTHESIS
-    assert regime.name != "Direct Passthrough"
-
-    multi_candidate_analyzer = StubAnalyzer(
-        output=_analysis(confidence=0.95, candidates=[Stage.SYNTHESIS, Stage.EXPLORATION]), decision=_decision()
-    )
-    decision, regime, *_ = planner.plan(
-        "write a function",
-        router_state=None,
-        use_task_analyzer=True,
-        task_analyzer=multi_candidate_analyzer,
-        analyzer_result=_analysis(confidence=0.95, candidates=[Stage.SYNTHESIS, Stage.EXPLORATION]),
-    )
-    assert decision.primary_regime == Stage.SYNTHESIS
-    assert regime.name != "Direct Passthrough"
-
-    structural_tension_analyzer = StubAnalyzer(output=_analysis(confidence=0.95, candidates=[Stage.SYNTHESIS]), decision=_decision())
-    decision, regime, *_ = planner.plan(
-        "write a function and decide now using evidence",
-        router_state=None,
-        use_task_analyzer=True,
-        task_analyzer=structural_tension_analyzer,
-        analyzer_result=_analysis(confidence=0.95, candidates=[Stage.SYNTHESIS]),
-    )
-    assert decision.primary_regime == Stage.SYNTHESIS
-    assert regime.name != "Direct Passthrough"
-
-
-def test_direct_pattern_task_with_structural_tension_not_fastpathed_even_when_classifier_direct() -> None:
-    analyzer = StubAnalyzer(output=_analysis(confidence=0.99, candidates=[Stage.SYNTHESIS]), decision=_decision())
-    planner = RuntimePlanner(
-        router=Router(),
-        composer=RegimeComposer(),
-        escalation_policy=EscalationPolicy(),
-        task_classifier=TaskClassifier(),
-    )
-
-    decision, regime, *_ = planner.plan(
-        "write a function and decide now using evidence",
-        router_state=None,
-        use_task_analyzer=True,
         task_analyzer=analyzer,
-        analyzer_result=_analysis(confidence=0.99, candidates=[Stage.SYNTHESIS]),
+        analyzer_result=_analysis(confidence=0.95, candidates=[Stage.OPERATOR]),
     )
 
-    assert decision.primary_regime == Stage.SYNTHESIS
-    assert regime.name != "Direct Passthrough"
+    assert decision.confidence.level == "medium"
+    assert decision.policy_warnings
+
+
+def test_audit_keeps_confidence_when_no_warning_triggered() -> None:
+    planner = _planner()
+    analyzer = StubAnalyzer(output=_analysis(confidence=0.95, candidates=[Stage.SYNTHESIS]), decision=_decision())
+
+    decision, *_ = planner.plan(
+        "Summarize these ideas into a coherent framing.",
+        router_state=None,
+        task_analyzer=analyzer,
+        analyzer_result=_analysis(confidence=0.95, candidates=[Stage.SYNTHESIS]),
+    )
+
+    assert decision.confidence.level == "high"
+    assert decision.policy_warnings == []

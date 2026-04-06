@@ -146,25 +146,16 @@ def test_every_task_reaches_analyzer(runtime_factory, monkeypatch):
     analyzed = []
     original_analyze = runtime.task_analyzer.analyze
 
-    def spy_analyze(task, **kwargs):
+    def spy_analyze(task):
         analyzed.append(task)
-        return original_analyze(task, **kwargs)
-
-    classified = []
-    original_classify = runtime.task_classifier.classify
-
-    def spy_classify(task):
-        classified.append(task)
-        return original_classify(task)
+        return original_analyze(task)
 
     monkeypatch.setattr(runtime.task_analyzer, "analyze", spy_analyze)
-    monkeypatch.setattr(runtime.task_classifier, "classify", spy_classify)
 
     for task in tasks:
         runtime.plan(task)
 
     assert analyzed == tasks
-    assert set(tasks).issubset(set(classified))
 
 
 def test_handoff_continuity_across_switch(runtime_factory, monkeypatch):

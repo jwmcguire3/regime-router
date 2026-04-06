@@ -4,16 +4,14 @@ import os
 from typing import Dict, List, Optional, Set, Tuple, cast
 
 from ..analyzer import TaskAnalyzer
-from ..classifier import TaskClassification, TaskClassifier
 from ..control import EscalationPolicy, EvolutionEngine, MisroutingDetector, SwitchOrchestrator
-from ..models import Regime, RegimeExecutionResult, RoutingDecision, RoutingFeatures
+from ..models import Regime, RegimeExecutionResult, RoutingDecision
 from ..prompts import PromptBuilder
-from ..routing import RegimeComposer, Router, extract_routing_features, extract_structural_signals, infer_risk_profile
+from ..routing import RegimeComposer, Router
 from ..settings import DEFAULT_DEEPSEEK_API_KEY_ENV, DEFAULT_DEEPSEEK_BASE_URL, DEFAULT_DEEPSEEK_MODEL
 from ..state import Handoff, RouterState
 from ..validation import OutputValidator
 from ..llm import ModelClient, OllamaModelClient, OpenAIModelClient
-from ..execution.direct_execution import execute_direct_task
 from ..execution.executor import RegimeExecutor
 from ..execution.repair_policy import select_repair_mode
 from ..orchestration.collapse_detector import CollapseDetector
@@ -77,14 +75,12 @@ class CognitiveRouterRuntime:
         self.model_client: Optional[ModelClient] = None
         self.use_task_analyzer = use_task_analyzer
         self.task_analyzer: Optional[TaskAnalyzer] = None
-        self.task_classifier = TaskClassifier()
         self.router_state: Optional[RouterState] = None
 
         self.planner = RuntimePlanner(
             router=self.router,
             composer=self.composer,
             escalation_policy=self.escalation_policy,
-            task_classifier=self.task_classifier,
         )
         self.executor: Optional[RegimeExecutor] = None
         self.session_runtime = SessionRuntime(
@@ -136,46 +132,24 @@ class CognitiveRouterRuntime:
     def plan(
         self,
         bottleneck: str,
-        risk_profile: Optional[Set[str]] = None,
         handoff_expected: bool = True,
-        task_signals: Optional[List[str]] = None,
-        risks_inferred: bool = False,
     ) -> Tuple[RoutingDecision, Regime, Handoff]:
         analyzer_result = None
         if self.use_task_analyzer:
             self._ensure_model_client()
         if self.use_task_analyzer and self.task_analyzer is not None:
-            features = extract_routing_features(bottleneck)
-            signals = task_signals if task_signals is not None else features.structural_signals
-            risks = set(risk_profile or set()) if risks_inferred else infer_risk_profile(bottleneck, risk_profile)
-            classification = self.task_classifier.classify(bottleneck)
-            classifier_signal = {
-                "route_type": classification.route_type,
-                "confidence": classification.confidence,
-                "classification_source": classification.classification_source,
-            }
             try:
-                analyzer_result = self.task_analyzer.analyze(
-                    bottleneck,
-                    routing_features=features,
-                    task_signals=signals,
-                    risk_profile=risks,
-                    classifier_signal=classifier_signal,
-                )
+                analyzer_result = self.task_analyzer.analyze(bottleneck)
             except Exception as exc:  # pragma: no cover - defensive runtime fallback
                 if hasattr(self.task_analyzer, "last_error_summary"):
                     self.task_analyzer.last_error_summary = f"Analyzer call failed: {exc}"
                 analyzer_result = None
 
-        decision, regime, handoff, state, _classification = self.planner.plan(
+        decision, regime, handoff, state = self.planner.plan(
             bottleneck,
             router_state=self.router_state,
-            use_task_analyzer=self.use_task_analyzer,
             task_analyzer=self.task_analyzer,
-            risk_profile=risk_profile,
             handoff_expected=handoff_expected,
-            task_signals=task_signals,
-            risks_inferred=risks_inferred,
             analyzer_result=analyzer_result,
         )
         self.router_state = state
@@ -190,22 +164,18 @@ class CognitiveRouterRuntime:
         bounded_orchestration: bool = True,
         max_switches: int = 2,
     ) -> Tuple[RoutingDecision, Regime, RegimeExecutionResult, Handoff]:
-        task_signals = extract_structural_signals(task)
-        routing_features = extract_routing_features(task)
-        inferred_risks = infer_risk_profile(task, risk_profile)
         decision, regime, handoff = self.plan(
             task,
-            risk_profile=inferred_risks,
             handoff_expected=handoff_expected,
-            task_signals=task_signals,
-            risks_inferred=True,
         )
+        state_risk_profile: Set[str] = set(self.router_state.risk_tags) if self.router_state is not None else set(risk_profile or set())
+        state_task_signals: List[str] = list(self.router_state.structural_signals) if self.router_state is not None else []
         result = self._execute_regime_once(
             task=task,
             model=model,
             regime=regime,
-            task_signals=task_signals,
-            risk_profile=inferred_risks,
+            task_signals=state_task_signals,
+            risk_profile=state_risk_profile,
         )
         if self.router_state is not None:
             self.router_state.orchestration_enabled = bounded_orchestration
@@ -224,9 +194,6 @@ class CognitiveRouterRuntime:
                 task=task,
                 model=model,
                 initial_result=result,
-                task_signals=task_signals,
-                risk_profile=inferred_risks,
-                routing_features=routing_features,
                 max_switches=max_switches,
                 routing_decision=decision,
             )
@@ -245,9 +212,6 @@ class CognitiveRouterRuntime:
         task: str,
         model: str,
         initial_result: RegimeExecutionResult,
-        task_signals: List[str],
-        risk_profile: Set[str],
-        routing_features: RoutingFeatures,
         max_switches: int,
         routing_decision: Optional[RoutingDecision],
     ) -> RegimeExecutionResult:
@@ -258,9 +222,6 @@ class CognitiveRouterRuntime:
             task=task,
             model=model,
             initial_result=initial_result,
-            task_signals=task_signals,
-            risk_profile=risk_profile,
-            routing_features=routing_features,
             max_switches=max_switches,
             routing_decision=routing_decision,
             execute_regime_once=self._execute_regime_once,
@@ -269,24 +230,6 @@ class CognitiveRouterRuntime:
             compute_forward_handoff=self._compute_forward_handoff,
         )
         return result
-
-    def _plan_direct(
-        self,
-        task: str,
-        *,
-        handoff_expected: bool,
-        classification: TaskClassification,
-    ) -> Tuple[RoutingDecision, Regime, Handoff]:
-        decision, regime, handoff, state = self.planner.plan_direct(
-            task,
-            handoff_expected=handoff_expected,
-            classification=classification,
-        )
-        self.router_state = state
-        return decision, regime, handoff
-
-    def _execute_direct_task(self, *, task: str, model: str, regime: Regime) -> RegimeExecutionResult:
-        return execute_direct_task(model_client=self._ensure_model_client(), task=task, model=model, regime=regime)
 
     def _execute_regime_once(
         self,
