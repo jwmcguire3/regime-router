@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from typing import List, Optional, Set, Tuple
+from typing import Optional, Tuple
 
 from ..analyzer import TaskAnalyzer
-from ..classifier import TaskClassification, TaskClassifier
 from ..control import EscalationPolicy
-from ..models import Regime, RoutingDecision, TaskAnalyzerOutput
-from ..routing import RegimeComposer, Router, extract_routing_features, infer_risk_profile
+from ..models import Regime, RegimeConfidenceResult, RoutingDecision, Severity, Stage, TaskAnalyzerOutput
+from ..routing import RegimeComposer, Router, extract_routing_features
 from ..state import Handoff, RouterState
 from .state_updater import build_router_state, handoff_from_state
 
@@ -24,27 +23,20 @@ class RuntimePlanner:
         router: Router,
         composer: RegimeComposer,
         escalation_policy: EscalationPolicy,
-        task_classifier: TaskClassifier,
     ) -> None:
         self.router = router
         self.composer = composer
         self.escalation_policy = escalation_policy
-        self.task_classifier = task_classifier
 
     def plan(
         self,
         bottleneck: str,
         *,
         router_state: Optional[RouterState],
-        use_task_analyzer: bool,
         task_analyzer: Optional[TaskAnalyzer],
-        risk_profile: Optional[Set[str]] = None,
         handoff_expected: bool = True,
-        task_signals: Optional[List[str]] = None,
-        risks_inferred: bool = False,
         analyzer_result: Optional[TaskAnalyzerOutput] = None,
-    ) -> Tuple[RoutingDecision, Regime, Handoff, RouterState, TaskClassification]:
-        classification = self.task_classifier.classify(bottleneck)
+    ) -> Tuple[RoutingDecision, Regime, Handoff, RouterState]:
         features = extract_routing_features(bottleneck)
         escalation = self.escalation_policy.evaluate(
             state=router_state,
@@ -54,70 +46,24 @@ class RuntimePlanner:
             regime_confidence=router_state.regime_confidence if router_state else None,
             misrouting_result=None,
         )
-        signals = task_signals if task_signals is not None else features.structural_signals
-        risks = set(risk_profile or set()) if risks_inferred else infer_risk_profile(bottleneck, risk_profile)
-        classifier_signal = {
-            "route_type": classification.route_type,
-            "confidence": classification.confidence,
-            "classification_source": classification.classification_source,
-        }
-        if use_task_analyzer and task_analyzer is not None:
-            if hasattr(task_analyzer, "decision_from_analysis"):
-                decision = task_analyzer.decision_from_analysis(
-                    task=bottleneck,
-                    analyzer_result=analyzer_result,
-                    routing_features=features,
-                )
-            else:
-                try:
-                    decision = task_analyzer.propose_route(
-                        bottleneck,
-                        routing_features=features,
-                        task_signals=signals,
-                        risk_profile=risks,
-                        classifier_signal=classifier_signal,
-                    )
-                except TypeError:
-                    decision = task_analyzer.propose_route(
-                        bottleneck,
-                        routing_features=features,
-                        task_signals=signals,
-                        risk_profile=risks,
-                    )
+        if analyzer_result is not None and task_analyzer is not None:
+            decision = task_analyzer.decision_from_analysis(task=bottleneck, analyzer_result=analyzer_result)
+            self._audit_analyzer_decision(decision, bottleneck)
         else:
             decision = self.router.route(
                 bottleneck,
-                task_signals=signals,
-                risk_profile=risks,
+                task_signals=features.structural_signals,
+                risk_profile=set(),
                 routing_features=features,
                 escalation_policy_result=escalation,
             )
-
-        should_fastpath_direct = bool(
-            use_task_analyzer
-            and analyzer_result is not None
-            and classification.route_type == "direct"
-            and analyzer_result.confidence > 0.9
-            and len(analyzer_result.candidate_regimes) == 1
-            and not (features.evidence_demand > 0 and features.decision_pressure > 0)
-            and not (features.fragility_pressure > 0)
-        )
-        if should_fastpath_direct:
-            decision, regime, handoff, state = self.plan_direct(
-                bottleneck,
-                handoff_expected=handoff_expected,
-                classification=classification,
-                analyzer_result=None,
-            )
-            return decision, regime, handoff, state, classification
-
-        regime = self.composer.compose(decision.primary_regime, risk_profile=risks, handoff_expected=handoff_expected)
+        regime = self.composer.compose(decision.primary_regime, risk_profile=set(), handoff_expected=handoff_expected)
         state = build_router_state(
             bottleneck=decision.bottleneck,
             decision=decision,
             regime=regime,
-            signals=signals,
-            risks=risks,
+            signals=features.structural_signals,
+            risks=set(),
             features=features,
             composer=self.composer,
             analyzer_result=analyzer_result,
@@ -129,50 +75,36 @@ class RuntimePlanner:
             "switch_pressure_adjustment": escalation.switch_pressure_adjustment,
             "signals": escalation.debug_signals,
         }
-        state.task_classification = {
-            "route_type": classification.route_type,
-            "confidence": classification.confidence,
-            "reason": classification.reason,
-            "likely_endpoint_regime": decision.likely_endpoint_regime,
-            "endpoint_confidence": decision.endpoint_confidence,
-        }
-        handoff = handoff_from_state(state)
-        return decision, regime, handoff, state, classification
-
-    def plan_direct(
-        self,
-        task: str,
-        *,
-        handoff_expected: bool,
-        classification: TaskClassification,
-        analyzer_result: Optional[TaskAnalyzerOutput] = None,
-    ) -> Tuple[RoutingDecision, Regime, Handoff, RouterState]:
-        decision = RoutingDecision(
-            bottleneck=task,
-            primary_regime=None,
-            runner_up_regime=None,
-            why_primary_wins_now="Direct execution — no reasoning bottleneck detected.",
-            switch_trigger="Execute immediately; no regime switching needed.",
-        )
-        regime = self.composer.compose(None, risk_profile=set(), handoff_expected=handoff_expected)
-        regime.name = "Direct Passthrough"
-        regime.likely_failure_if_overused = "May skip deeper reasoning when hidden ambiguity exists."
-        state = build_router_state(
-            bottleneck=task,
-            decision=decision,
-            regime=regime,
-            signals=[],
-            risks=set(),
-            features=extract_routing_features(task),
-            composer=self.composer,
-            analyzer_result=analyzer_result,
-        )
-        state.task_classification = {
-            "route_type": classification.route_type,
-            "confidence": classification.confidence,
-            "reason": classification.reason,
-            "likely_endpoint_regime": decision.likely_endpoint_regime,
-            "endpoint_confidence": decision.endpoint_confidence,
-        }
         handoff = handoff_from_state(state)
         return decision, regime, handoff, state
+
+    def _audit_analyzer_decision(self, decision: RoutingDecision, task: str) -> None:
+        features = extract_routing_features(task)
+        warnings: list[str] = []
+        if decision.primary_regime == Stage.OPERATOR and features.evidence_demand > 0:
+            warnings.append("Analyzer selected operator while lexical audit detected non-zero evidence demand.")
+        if decision.primary_regime == Stage.BUILDER and features.recurrence_potential == 0:
+            warnings.append("Analyzer selected builder while lexical audit detected zero recurrence potential.")
+        if decision.primary_regime in {Stage.OPERATOR, Stage.SYNTHESIS} and features.fragility_pressure > 0:
+            warnings.append("Analyzer selected non-adversarial primary while lexical audit detected fragility pressure.")
+        if not warnings:
+            return
+        decision.policy_warnings.extend(warnings)
+        current_level = decision.confidence.level
+        softened_level = current_level
+        if current_level == Severity.HIGH.value:
+            softened_level = Severity.MEDIUM.value
+        elif current_level == Severity.MEDIUM.value:
+            softened_level = Severity.LOW.value
+        if softened_level == current_level:
+            return
+        decision.confidence = RegimeConfidenceResult(
+            level=softened_level,
+            rationale=f"{decision.confidence.rationale} Softened by lexical audit.",
+            top_stage_score=decision.confidence.top_stage_score,
+            runner_up_score=decision.confidence.runner_up_score,
+            score_gap=decision.confidence.score_gap,
+            nontrivial_stage_count=decision.confidence.nontrivial_stage_count,
+            weak_lexical_dependence=decision.confidence.weak_lexical_dependence,
+            structural_feature_state=decision.confidence.structural_feature_state,
+        )
