@@ -294,25 +294,4 @@ def next_stage(
         if suggested_builder and _looks_like_reusable_structure(state, output, detection):
             return Stage.BUILDER
         return None
-    if (
-        escalation
-        and escalation.escalation_direction == "stricter"
-        and escalation.switch_pressure_adjustment >= 2
-        and detection.recommended_next_stage is not None
-    ):
-        target = detection.recommended_next_stage
-        if target in DEFAULT_FORWARD_PATHWAYS.get(current_stage, set()):
-            return target
-        if target in CONDITIONAL_REENTRY_PATHWAYS.get(current_stage, set()):
-            defect_class = defect_class_from_context(
-                state=state,
-                current_stage=current_stage,
-                next_stage=target,
-                completion_signal=completion_signal,
-                failure_signal=failure_signal,
-                detection=detection,
-                output=output,
-            )
-            if defect_class:
-                return target
     return None
