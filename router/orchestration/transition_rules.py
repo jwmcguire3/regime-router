@@ -189,6 +189,49 @@ def _looks_like_reusable_structure(state: RouterState, output: RegimeOutputContr
     return False
 
 
+def _escalation_preferred_forward(
+    current_stage: Stage,
+    normal_next: Stage,
+    escalation: EscalationPolicyResult,
+) -> Optional[Stage]:
+    """Check if escalation biases prefer a different forward-pathway stage.
+
+    Only redirects when:
+    - escalation direction is "stricter"
+    - switch_pressure_adjustment >= 2
+    - a biased stage is in the forward pathway from current_stage
+    - the biased stage is NOT the already-selected normal_next
+    - the biased stage has weight >= 1
+
+    Returns the preferred stage, or None to keep normal_next.
+    """
+    if escalation.escalation_direction != "stricter":
+        return None
+    if escalation.switch_pressure_adjustment < 2:
+        return None
+
+    forward = DEFAULT_FORWARD_PATHWAYS.get(current_stage, set())
+    if not forward:
+        return None
+
+    stage_order = list(Stage)
+    candidates = sorted(
+        escalation.preferred_regime_biases.items(),
+        key=lambda item: (-item[1], stage_order.index(item[0])),
+    )
+
+    for biased_stage, weight in candidates:
+        if weight < 1:
+            continue
+        if biased_stage == normal_next:
+            continue
+        if biased_stage not in forward:
+            continue
+        return biased_stage
+
+    return None
+
+
 def next_stage(
     state: RouterState,
     detection: MisroutingDetectionResult,
