@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import textwrap
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .llm import ModelClient
 from .models import (
@@ -11,7 +11,6 @@ from .models import (
     PolicyEvent,
     RegimeConfidenceResult,
     RoutingDecision,
-    RoutingFeatures,
     Severity,
     Stage,
     TaskAnalyzerOutput,
@@ -24,19 +23,12 @@ class TaskAnalyzer:
         self.model = model
         self.last_error_summary: Optional[str] = None
 
-    def analyze(
-        self,
-        task: str,
-        routing_features: RoutingFeatures,
-        task_signals: List[str],
-        risk_profile: Set[str],
-        classifier_signal: Optional[Dict[str, object]] = None,
-    ) -> Optional[TaskAnalyzerOutput]:
+    def analyze(self, task: str) -> Optional[TaskAnalyzerOutput]:
         self.last_error_summary = None
         response = self.model_client.generate(
             model=self.model,
             system=self._build_system_prompt(),
-            prompt=self._build_user_prompt(task, routing_features, task_signals, risk_profile, classifier_signal),
+            prompt=self._build_user_prompt(task),
             stream=False,
             temperature=0.0,
             num_predict=500,
@@ -89,10 +81,14 @@ class TaskAnalyzer:
               },
               "structural_signals": ["string"],
               "decision_pressure": integer 0-10,
+              "fragility_pressure": integer 0-10,
+              "possibility_space_need": integer 0-10,
+              "synthesis_pressure": integer 0-10,
               "evidence_quality": integer 0-10,
               "recurrence_potential": integer 0-10,
               "confidence": number 0-1,
               "rationale": "short string",
+              "risk_tags": ["string"],
               "likely_endpoint_regime": "exploration|synthesis|epistemic|adversarial|operator|builder",
               "endpoint_confidence": number 0-1
             }
@@ -107,19 +103,11 @@ class TaskAnalyzer:
             """
         ).strip()
 
-    def propose_route(
-        self,
-        task: str,
-        routing_features: RoutingFeatures,
-        task_signals: List[str],
-        risk_profile: Set[str],
-        classifier_signal: Optional[Dict[str, object]] = None,
-    ) -> RoutingDecision:
-        analyzer_result = self.analyze(task, routing_features, task_signals, risk_profile, classifier_signal)
+    def propose_route(self, task: str) -> RoutingDecision:
+        analyzer_result = self.analyze(task)
         return self.decision_from_analysis(
             task=task,
             analyzer_result=analyzer_result,
-            routing_features=routing_features,
         )
 
     def decision_from_analysis(
@@ -127,7 +115,6 @@ class TaskAnalyzer:
         *,
         task: str,
         analyzer_result: Optional[TaskAnalyzerOutput],
-        routing_features: RoutingFeatures,
     ) -> RoutingDecision:
         if analyzer_result is None:
             summary = self.last_error_summary or "Analyzer failed without a detailed error summary."
@@ -167,7 +154,6 @@ class TaskAnalyzer:
             primary=primary,
             runner_up=runner_up,
             analyzer_result=analyzer_result,
-            routing_features=routing_features,
         )
 
         if primary == runner_up:
@@ -181,56 +167,6 @@ class TaskAnalyzer:
         else:
             confidence_level = Severity.LOW.value
 
-        score_gap_raw = (ranked[0][1] - ranked[1][1]) if len(ranked) > 1 else 0.0
-        if (
-            pre_policy_primary_regime == Stage.OPERATOR
-            and routing_features.decision_pressure == 0
-            and not routing_features.detected_markers.get("decision_tradeoff_commitment")
-            and confidence_score < 0.8
-        ):
-            prior_confidence_level = confidence_level
-            confidence_level = self._degrade_confidence_level(confidence_level)
-            policy_actions.append("operator confidence softened by one tier")
-            policy_events.append(
-                PolicyEvent(
-                    rule_name="operator_confidence_softened",
-                    authority=ControlAuthority.SOFT_GUARDRAIL.value,
-                    consumed_features=["pre_policy_primary_regime", "decision_pressure", "decision_tradeoff_commitment", "confidence"],
-                    action="soften_confidence_tier",
-                    detail=(
-                        "operator confidence softened by one tier: pre_policy_primary=operator, "
-                        f"decision_pressure={routing_features.decision_pressure}, "
-                        "decision_tradeoff_commitment=false, "
-                        f"analyzer_confidence={confidence_score:.2f}, "
-                        f"confidence_before={prior_confidence_level}, confidence_after={confidence_level}"
-                    ),
-                )
-            )
-        if (
-            pre_policy_primary_regime == Stage.ADVERSARIAL
-            and routing_features.fragility_pressure == 0
-            and confidence_score < 0.5
-            and score_gap_raw <= 0.15
-        ):
-            prior_confidence_level = confidence_level
-            confidence_level = self._degrade_confidence_level(confidence_level)
-            policy_actions.append("adversarial confidence softened by one tier")
-            policy_events.append(
-                PolicyEvent(
-                    rule_name="adversarial_confidence_softened",
-                    authority=ControlAuthority.ADVISORY_ONLY.value,
-                    consumed_features=["pre_policy_primary_regime", "fragility_pressure", "confidence", "score_gap_raw"],
-                    action="soften_confidence_tier",
-                    detail=(
-                        "adversarial confidence softened by one tier: pre_policy_primary=adversarial, "
-                        f"fragility_pressure={routing_features.fragility_pressure}, "
-                        f"analyzer_confidence={confidence_score:.2f}, "
-                        f"score_gap_raw={score_gap_raw:.2f}, "
-                        f"confidence_before={prior_confidence_level}, confidence_after={confidence_level}"
-                    ),
-                )
-            )
-
         top_score = int(round(ranked[0][1])) if ranked else 0
         runner_up_score = int(round(next((score for stage, score in ranked if stage == runner_up), 0.0)))
         nontrivial_stage_count = sum(1 for _, score in ranked if score > 0)
@@ -242,7 +178,7 @@ class TaskAnalyzer:
             score_gap=max(0, top_score - runner_up_score),
             nontrivial_stage_count=nontrivial_stage_count,
             weak_lexical_dependence=False,
-            structural_feature_state="rich" if routing_features.structural_signals else "sparse",
+            structural_feature_state="rich" if analyzer_result.structural_signals else "sparse",
         )
 
         stage_reasons = {
@@ -354,17 +290,14 @@ class TaskAnalyzer:
         primary: Stage,
         runner_up: Stage,
         analyzer_result: TaskAnalyzerOutput,
-        routing_features: RoutingFeatures,
     ) -> tuple[Stage, Stage, list[str], list[str], list[PolicyEvent]]:
         policy_warnings: list[str] = []
         policy_actions: list[str] = []
         policy_events: list[PolicyEvent] = []
 
-        has_decision_markers = bool(routing_features.detected_markers.get("decision_tradeoff_commitment"))
         if (
             primary == Stage.OPERATOR
-            and routing_features.decision_pressure == 0
-            and not has_decision_markers
+            and analyzer_result.decision_pressure == 0
             and analyzer_result.confidence < 0.8
         ):
             policy_warnings.append("operator support weak; soft guardrail only")
@@ -372,9 +305,9 @@ class TaskAnalyzer:
                 PolicyEvent(
                     rule_name="operator_weak_support",
                     authority=ControlAuthority.ADVISORY_ONLY.value,
-                    consumed_features=["decision_pressure", "decision_tradeoff_commitment"],
+                    consumed_features=["decision_pressure"],
                     action="advisory_warning",
-                    detail="operator proposed without decision_pressure or decision markers",
+                    detail="operator proposed without decision_pressure support",
                 )
             )
             if runner_up not in {Stage.EXPLORATION, primary}:
@@ -385,7 +318,7 @@ class TaskAnalyzer:
                     PolicyEvent(
                         rule_name="runner_up_softened_toward_exploration",
                         authority=ControlAuthority.SOFT_GUARDRAIL.value,
-                        consumed_features=["primary_regime", "runner_up_regime", "decision_pressure", "decision_tradeoff_commitment"],
+                        consumed_features=["primary_regime", "runner_up_regime", "decision_pressure"],
                         action="soften_runner_up",
                         detail=f"runner_up changed from {prior_runner_up.value} to exploration due to weak operator support",
                     )
@@ -393,7 +326,7 @@ class TaskAnalyzer:
 
         if (
             primary == Stage.BUILDER
-            and routing_features.recurrence_potential == 0
+            and analyzer_result.recurrence_potential == 0
             and analyzer_result.confidence < 0.8
         ):
             policy_warnings.append("builder support weak; advisory only")
@@ -409,7 +342,7 @@ class TaskAnalyzer:
 
         if (
             primary == Stage.ADVERSARIAL
-            and routing_features.fragility_pressure == 0
+            and analyzer_result.fragility_pressure == 0
             and analyzer_result.confidence < 0.8
         ):
             policy_warnings.append("adversarial support weak; advisory only")
@@ -428,52 +361,13 @@ class TaskAnalyzer:
 
         return primary, runner_up, policy_warnings, policy_actions, policy_events
 
-    def _degrade_confidence_level(self, level: str) -> str:
-        if level == Severity.HIGH.value:
-            return Severity.MEDIUM.value
-        if level == Severity.MEDIUM.value:
-            return Severity.LOW.value
-        return Severity.LOW.value
-
-    def _build_user_prompt(
-        self,
-        task: str,
-        routing_features: RoutingFeatures,
-        task_signals: List[str],
-        risk_profile: Set[str],
-        classifier_signal: Optional[Dict[str, object]] = None,
-    ) -> str:
-        classifier_route_type = "unknown"
-        classifier_confidence = "n/a"
-        classifier_source = "n/a"
-        if classifier_signal is not None:
-            classifier_route_type = str(classifier_signal.get("route_type", classifier_route_type))
-            confidence = classifier_signal.get("confidence")
-            classifier_confidence = f"{confidence}" if confidence is not None else classifier_confidence
-            classifier_source = str(classifier_signal.get("classification_source", classifier_source))
-
-        feature_blob = {
-            "structural_signals": routing_features.structural_signals,
-            "decision_pressure": routing_features.decision_pressure,
-            "evidence_demand": routing_features.evidence_demand,
-            "fragility_pressure": routing_features.fragility_pressure,
-            "recurrence_potential": routing_features.recurrence_potential,
-            "possibility_space_need": routing_features.possibility_space_need,
-            "detected_markers": routing_features.detected_markers,
-            "task_signals": task_signals,
-            "risk_profile": sorted(risk_profile),
-        }
+    def _build_user_prompt(self, task: str) -> str:
         return textwrap.dedent(
             f"""
             Analyze this task bottleneck and return schema-compliant JSON only.
 
             task:
             {task}
-
-            Classifier assessment: {classifier_route_type}, confidence: {classifier_confidence}, source: {classifier_source}
-
-            deterministic_features:
-            {json.dumps(feature_blob, ensure_ascii=False)}
             """
         ).strip()
 
@@ -584,6 +478,9 @@ class TaskAnalyzer:
             "stage_scores",
             "structural_signals",
             "decision_pressure",
+            "fragility_pressure",
+            "possibility_space_need",
+            "synthesis_pressure",
             "evidence_quality",
             "recurrence_potential",
             "confidence",
@@ -661,18 +558,11 @@ class TaskAnalyzer:
             "stage_scores",
             "structural_signals",
             "decision_pressure",
-            "evidence_quality",
-            "recurrence_potential",
-            "confidence",
-            "rationale",
         }
         if not required.issubset(payload.keys()):
             return None
         if not isinstance(payload["bottleneck_label"], str) or not payload["bottleneck_label"].strip():
             return None
-        if not isinstance(payload["rationale"], str):
-            return None
-
         candidates_raw = payload["candidate_regimes"]
         if not isinstance(candidates_raw, list):
             return None
@@ -701,14 +591,29 @@ class TaskAnalyzer:
         if not isinstance(signals_raw, list) or any(not isinstance(s, str) for s in signals_raw):
             return None
 
-        int_fields = ("decision_pressure", "evidence_quality", "recurrence_potential")
+        int_fields = (
+            "decision_pressure",
+            "fragility_pressure",
+            "possibility_space_need",
+            "synthesis_pressure",
+            "evidence_quality",
+            "recurrence_potential",
+        )
         for field_name in int_fields:
-            value = payload[field_name]
+            value = payload.get(field_name, 0)
             if not isinstance(value, int) or value < 0 or value > 10:
                 return None
 
-        confidence = payload["confidence"]
+        confidence = payload.get("confidence", 0.0)
         if not isinstance(confidence, (int, float)) or confidence < 0 or confidence > 1:
+            return None
+
+        rationale = payload.get("rationale", "")
+        if not isinstance(rationale, str):
+            return None
+
+        risk_tags_raw = payload.get("risk_tags", [])
+        if not isinstance(risk_tags_raw, list) or any(not isinstance(tag, str) for tag in risk_tags_raw):
             return None
 
         endpoint_stage_raw = payload.get("likely_endpoint_regime", Stage.OPERATOR.value)
@@ -729,10 +634,14 @@ class TaskAnalyzer:
             stage_scores=stage_scores,
             structural_signals=[s for s in signals_raw if s.strip()],
             decision_pressure=payload["decision_pressure"],
-            evidence_quality=payload["evidence_quality"],
-            recurrence_potential=payload["recurrence_potential"],
+            fragility_pressure=payload.get("fragility_pressure", 0),
+            possibility_space_need=payload.get("possibility_space_need", 0),
+            synthesis_pressure=payload.get("synthesis_pressure", 0),
+            evidence_quality=payload.get("evidence_quality", 0),
+            recurrence_potential=payload.get("recurrence_potential", 0),
             confidence=float(confidence),
-            rationale=payload["rationale"].strip(),
+            rationale=rationale.strip(),
+            risk_tags=[tag.strip() for tag in risk_tags_raw if tag.strip()],
             likely_endpoint_regime=likely_endpoint_regime,
             endpoint_confidence=float(endpoint_confidence),
         )

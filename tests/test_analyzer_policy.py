@@ -8,7 +8,7 @@ from typing import Dict, List
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from router.analyzer import TaskAnalyzer
-from router.models import RoutingFeatures, Stage
+from router.models import Stage
 
 
 class StubModelClient:
@@ -24,28 +24,12 @@ class StubModelClient:
         return {"models": []}
 
 
-def _features(
-    *,
-    decision_pressure: int = 1,
-    fragility_pressure: int = 1,
-    recurrence_potential: int = 1,
-    markers: Dict[str, List[str]] | None = None,
-) -> RoutingFeatures:
-    return RoutingFeatures(
-        structural_signals=["expansion_when_defined"],
-        decision_pressure=decision_pressure,
-        evidence_demand=0,
-        fragility_pressure=fragility_pressure,
-        recurrence_potential=recurrence_potential,
-        possibility_space_need=0,
-        detected_markers=markers or {},
-    )
-
-
 def _analysis_output(
     *,
     top_stage: Stage,
     confidence: float = 0.6,
+    decision_pressure: int = 5,
+    fragility_pressure: int = 5,
     recurrence_potential: int = 5,
     likely_endpoint_regime: Stage = Stage.OPERATOR,
 ) -> Dict[str, object]:
@@ -63,11 +47,15 @@ def _analysis_output(
         "candidate_regimes": [top_stage.value, Stage.SYNTHESIS.value],
         "stage_scores": scores,
         "structural_signals": ["decision_tradeoff_commitment"],
-        "decision_pressure": 5,
+        "decision_pressure": decision_pressure,
+        "fragility_pressure": fragility_pressure,
+        "possibility_space_need": 3,
+        "synthesis_pressure": 2,
         "evidence_quality": 5,
         "recurrence_potential": recurrence_potential,
         "confidence": confidence,
         "rationale": "Policy behavior under test.",
+        "risk_tags": ["high_stakes"],
         "likely_endpoint_regime": likely_endpoint_regime.value,
         "endpoint_confidence": 0.7,
     }
@@ -78,9 +66,9 @@ def _analyzer(payload: Dict[str, object]) -> TaskAnalyzer:
 
 
 def test_operator_primary_not_hard_demoted_when_decision_support_absent() -> None:
-    analyzer = _analyzer(_analysis_output(top_stage=Stage.OPERATOR, confidence=0.62))
+    analyzer = _analyzer(_analysis_output(top_stage=Stage.OPERATOR, confidence=0.62, decision_pressure=0))
 
-    decision = analyzer.propose_route("task", _features(decision_pressure=0, markers={}), [], set())
+    decision = analyzer.propose_route("task")
 
     assert decision.primary_regime == Stage.OPERATOR
     assert "operator support weak; soft guardrail only" in decision.policy_warnings
@@ -88,9 +76,9 @@ def test_operator_primary_not_hard_demoted_when_decision_support_absent() -> Non
 
 
 def test_adversarial_primary_not_hard_demoted_when_fragility_support_absent() -> None:
-    analyzer = _analyzer(_analysis_output(top_stage=Stage.ADVERSARIAL, confidence=0.45))
+    analyzer = _analyzer(_analysis_output(top_stage=Stage.ADVERSARIAL, confidence=0.45, fragility_pressure=0))
 
-    decision = analyzer.propose_route("task", _features(fragility_pressure=0), [], set())
+    decision = analyzer.propose_route("task")
 
     assert decision.primary_regime == Stage.ADVERSARIAL
     assert "adversarial support weak; advisory only" in decision.policy_warnings
@@ -99,7 +87,7 @@ def test_adversarial_primary_not_hard_demoted_when_fragility_support_absent() ->
 def test_builder_primary_not_hard_demoted_when_recurrence_support_absent() -> None:
     analyzer = _analyzer(_analysis_output(top_stage=Stage.BUILDER, confidence=0.7, recurrence_potential=0))
 
-    decision = analyzer.propose_route("task", _features(recurrence_potential=0), [], set())
+    decision = analyzer.propose_route("task")
 
     assert decision.primary_regime == Stage.BUILDER
     assert "builder support weak; advisory only" in decision.policy_warnings
@@ -110,16 +98,16 @@ def test_builder_primary_not_hard_demoted_when_recurrence_support_absent() -> No
 def test_operator_weak_support_warning_suppressed_at_high_confidence() -> None:
     analyzer = _analyzer(_analysis_output(top_stage=Stage.OPERATOR, confidence=0.8))
 
-    decision = analyzer.propose_route("task", _features(decision_pressure=0, markers={}), [], set())
+    decision = analyzer.propose_route("task")
 
     assert decision.primary_regime == Stage.OPERATOR
     assert "operator support weak; soft guardrail only" not in decision.policy_warnings
 
 
 def test_adversarial_weak_support_warning_suppressed_at_high_confidence() -> None:
-    analyzer = _analyzer(_analysis_output(top_stage=Stage.ADVERSARIAL, confidence=0.85))
+    analyzer = _analyzer(_analysis_output(top_stage=Stage.ADVERSARIAL, confidence=0.85, fragility_pressure=0))
 
-    decision = analyzer.propose_route("task", _features(fragility_pressure=0), [], set())
+    decision = analyzer.propose_route("task")
 
     assert decision.primary_regime == Stage.ADVERSARIAL
     assert "adversarial support weak; advisory only" not in decision.policy_warnings
@@ -128,7 +116,7 @@ def test_adversarial_weak_support_warning_suppressed_at_high_confidence() -> Non
 def test_builder_weak_support_warning_suppressed_at_high_confidence() -> None:
     analyzer = _analyzer(_analysis_output(top_stage=Stage.BUILDER, confidence=0.9, recurrence_potential=0))
 
-    decision = analyzer.propose_route("task", _features(recurrence_potential=0), [], set())
+    decision = analyzer.propose_route("task")
 
     assert decision.primary_regime == Stage.BUILDER
     assert "builder support weak; advisory only" not in decision.policy_warnings
@@ -143,7 +131,7 @@ def test_builder_endpoint_softened_when_support_absent_and_confidence_not_high()
         )
     )
 
-    decision = analyzer.propose_route("task", _features(recurrence_potential=0), [], set())
+    decision = analyzer.propose_route("task")
 
     assert decision.primary_regime == Stage.BUILDER
     assert decision.likely_endpoint_regime == Stage.OPERATOR.value
@@ -151,9 +139,9 @@ def test_builder_endpoint_softened_when_support_absent_and_confidence_not_high()
 
 
 def test_pre_policy_and_post_policy_routing_are_serialized() -> None:
-    analyzer = _analyzer(_analysis_output(top_stage=Stage.OPERATOR, confidence=0.62))
+    analyzer = _analyzer(_analysis_output(top_stage=Stage.OPERATOR, confidence=0.62, decision_pressure=0))
 
-    decision = analyzer.propose_route("task", _features(decision_pressure=0, markers={}), [], set())
+    decision = analyzer.propose_route("task")
 
     assert decision.pre_policy_primary_regime == Stage.OPERATOR
     assert decision.pre_policy_runner_up_regime is not None
