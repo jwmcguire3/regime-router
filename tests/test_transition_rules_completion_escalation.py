@@ -158,3 +158,14 @@ def test_operator_completion_branch_remains_unchanged_by_escalation_injection():
         canonical=_canonical("completion"),
     )
     assert chosen is None
+
+
+def test_stricter_escalation_no_longer_uses_recommended_target_outside_completion_branches():
+    chosen = next_stage(
+        _state_for(Stage.SYNTHESIS),
+        _detection_for(Stage.SYNTHESIS, recommended_next=Stage.ADVERSARIAL),
+        _escalation_biases({Stage.ADVERSARIAL: 3}),
+        _output(Stage.SYNTHESIS),
+        canonical=_canonical("neither"),
+    )
+    assert chosen is None
