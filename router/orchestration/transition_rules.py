@@ -264,7 +264,12 @@ def next_stage(
             return recommended if defect_class else None
 
     if current_stage == Stage.EXPLORATION and canonical.terminal_signal == "completion":
-        return Stage.SYNTHESIS
+        normal_next = Stage.SYNTHESIS
+        if escalation:
+            preferred = _escalation_preferred_forward(current_stage, normal_next, escalation)
+            if preferred is not None:
+                return preferred
+        return normal_next
     if current_stage == Stage.SYNTHESIS and canonical.terminal_signal in ("failure", "contradictory"):
         if recommended == Stage.ADVERSARIAL:
             return Stage.ADVERSARIAL
@@ -276,7 +281,12 @@ def next_stage(
     ):
         return Stage.EPISTEMIC
     if current_stage in {Stage.EPISTEMIC, Stage.ADVERSARIAL} and canonical.terminal_signal == "completion":
-        return Stage.OPERATOR
+        normal_next = Stage.OPERATOR
+        if escalation:
+            preferred = _escalation_preferred_forward(current_stage, normal_next, escalation)
+            if preferred is not None:
+                return preferred
+        return normal_next
     if current_stage == Stage.OPERATOR and canonical.terminal_signal == "completion":
         suggested_builder = recommended == Stage.BUILDER or (
             state.recommended_next_regime is not None and state.recommended_next_regime.stage == Stage.BUILDER
