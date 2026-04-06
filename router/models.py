@@ -181,10 +181,14 @@ class TaskAnalyzerOutput:
     stage_scores: Dict[Stage, float]
     structural_signals: List[str]
     decision_pressure: int
+    fragility_pressure: int
+    possibility_space_need: int
+    synthesis_pressure: int
     evidence_quality: int
     recurrence_potential: int
     confidence: float
     rationale: str
+    risk_tags: List[str] = field(default_factory=list)
     likely_endpoint_regime: Stage = Stage.OPERATOR
     endpoint_confidence: float = 0.7
 
