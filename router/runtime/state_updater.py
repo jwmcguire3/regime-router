@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 import hashlib
 import re
 
@@ -35,33 +35,41 @@ def resolve_next_regime(state: RouterState, stage: Stage, composer: "RegimeCompo
     return state.resolve_regime(stage, composer.compose)
 
 
+def _bounded_pressure(value: float) -> float:
+    return max(0.0, min(10.0, value))
+
+
+def _humanize_risk_tag(tag: str) -> str:
+    normalized = re.sub(r"[_\s]+", " ", tag).strip()
+    if not normalized:
+        return ""
+    return normalized[0].upper() + normalized[1:]
+
+
 def build_router_state(
     *,
     bottleneck: str,
     decision: RoutingDecision,
     regime: Regime,
-    signals: List[str],
-    risks: Set[str],
-    features: object,
     composer: "RegimeComposer",
     analyzer_result: Optional[TaskAnalyzerOutput] = None,
+    **_ignored: object,
 ) -> RouterState:
     task_hash = hashlib.sha1(bottleneck.encode("utf-8")).hexdigest()[:12]
-    normalized_bottleneck = bottleneck.strip() if isinstance(bottleneck, str) and bottleneck.strip() else bottleneck
     stage_goal = regime.tail_line.text if regime.tail_line else "Produce the minimum useful typed artifact for this regime."
-    runner_up_regime = composer.compose(decision.runner_up_regime, risk_profile=risks) if decision.runner_up_regime else None
+    risk_tags = set(analyzer_result.risk_tags) if analyzer_result is not None else set()
+    runner_up_regime = (
+        composer.compose(decision.runner_up_regime, risk_profile=risk_tags) if decision.runner_up_regime else None
+    )
     primary_name = decision.primary_regime.value if decision.primary_regime else "direct"
     primary_failure = (
         CANONICAL_FAILURE_IF_OVERUSED[decision.primary_regime]
         if decision.primary_regime
         else "Bypassing routing can miss hidden reasoning bottlenecks."
     )
-    raw_structural_signals = getattr(features, "structural_signals", [])
-    structural_signals = (
-        [str(value) for value in raw_structural_signals if isinstance(value, str)]
-        if isinstance(raw_structural_signals, (list, tuple, set))
-        else []
-    )
+    structural_signals = list(analyzer_result.structural_signals) if analyzer_result is not None else []
+    human_risks = [_humanize_risk_tag(tag) for tag in sorted(risk_tags)]
+    human_risks = [risk for risk in human_risks if risk]
     return RouterState(
         task_id=f"task-{task_hash}",
         task_summary=bottleneck[:180],
@@ -82,20 +90,22 @@ def build_router_state(
         contradictions=[],
         assumptions=[],
         substantive_assumptions=[],
-        risks=sorted(risks) + [primary_failure],
+        risks=human_risks + [primary_failure],
         stage_goal=stage_goal,
         planned_switch_condition=decision.switch_trigger,
         observed_switch_cause=None,
         switch_trigger=decision.switch_trigger,
         recommended_next_regime=runner_up_regime,
-        decision_pressure=float(getattr(features, "decision_pressure", 0)),
-        evidence_demand=float(getattr(features, "evidence_demand", 0)),
+        decision_pressure=float(analyzer_result.decision_pressure) if analyzer_result is not None else 0.0,
+        evidence_demand=0.0,
         evidence_quality=float(analyzer_result.evidence_quality) if analyzer_result is not None else 0.0,
-        fragility_pressure=float(getattr(features, "fragility_pressure", 0)),
-        possibility_space_need=float(getattr(features, "possibility_space_need", 0)),
-        detected_markers=dict(getattr(features, "detected_markers", {})),
+        fragility_pressure=float(analyzer_result.fragility_pressure) if analyzer_result is not None else 0.0,
+        possibility_space_need=float(analyzer_result.possibility_space_need) if analyzer_result is not None else 0.0,
+        synthesis_pressure=float(analyzer_result.synthesis_pressure) if analyzer_result is not None else 0.0,
+        detected_markers={},
         structural_signals=structural_signals,
-        recurrence_potential=float(getattr(features, "recurrence_potential", 0)),
+        risk_tags=risk_tags,
+        recurrence_potential=float(analyzer_result.recurrence_potential) if analyzer_result is not None else 0.0,
         policy_events=list(decision.policy_events),
         last_reentry_justification=None,
         last_state_delta=None,
@@ -127,6 +137,7 @@ def update_router_state_from_execution(
         explicit_assumptions = _extract_assumptions(parsed)
         if explicit_assumptions:
             state.substantive_assumptions = list(explicit_assumptions)
+        _update_pressures_from_execution(state, parsed)
 
         if structurally_trustworthy:
             state.apply_dominant_frame(
@@ -197,6 +208,49 @@ def update_router_state_from_execution(
             state.last_contract_delta = "next_stage_contract_changed"
         else:
             state.last_contract_delta = "artifact_contract_advanced"
+
+
+def _update_pressures_from_execution(state: RouterState, parsed: object) -> None:
+    if not isinstance(parsed, dict):
+        return
+    artifact = parsed.get("artifact", {})
+    if not isinstance(artifact, dict):
+        return
+
+    candidate_frames = artifact.get("candidate_frames")
+    if isinstance(candidate_frames, list) and len([v for v in candidate_frames if str(v).strip()]) >= 2:
+        state.synthesis_pressure = _bounded_pressure(state.synthesis_pressure + 1.0)
+        state.possibility_space_need = _bounded_pressure(state.possibility_space_need - 1.0)
+
+    central_claim = artifact.get("central_claim")
+    if isinstance(central_claim, str) and central_claim.strip():
+        state.synthesis_pressure = _bounded_pressure(state.synthesis_pressure - 1.0)
+
+    contradictions = artifact.get("contradictions")
+    contradiction_count = 0
+    if isinstance(contradictions, list):
+        contradiction_count = len([v for v in contradictions if str(v).strip()])
+    elif isinstance(contradictions, str) and contradictions.strip():
+        contradiction_count = 1
+    if contradiction_count > 0:
+        state.evidence_demand = _bounded_pressure(state.evidence_demand + 1.0)
+
+    decision = artifact.get("decision")
+    tradeoff_accepted = artifact.get("tradeoff_accepted")
+    if isinstance(decision, str) and decision.strip() and isinstance(tradeoff_accepted, str) and tradeoff_accepted.strip():
+        state.decision_pressure = _bounded_pressure(state.decision_pressure - 1.0)
+
+    top_destabilizers = artifact.get("top_destabilizers")
+    if isinstance(top_destabilizers, list) and any(str(v).strip() for v in top_destabilizers):
+        state.fragility_pressure = _bounded_pressure(state.fragility_pressure + 1.0)
+    elif isinstance(top_destabilizers, str) and top_destabilizers.strip():
+        state.fragility_pressure = _bounded_pressure(state.fragility_pressure + 1.0)
+
+    survivable_revisions = artifact.get("survivable_revisions")
+    if isinstance(survivable_revisions, list) and any(str(v).strip() for v in survivable_revisions):
+        state.fragility_pressure = _bounded_pressure(state.fragility_pressure - 1.0)
+    elif isinstance(survivable_revisions, str) and survivable_revisions.strip():
+        state.fragility_pressure = _bounded_pressure(state.fragility_pressure - 1.0)
 
 
 def handoff_from_state(state: Optional[RouterState]) -> Handoff:
