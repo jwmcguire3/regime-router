@@ -151,9 +151,6 @@ def _run_loop(state: RouterState, initial_result: RegimeExecutionResult, *, max_
         task="task",
         model="model",
         initial_result=initial_result,
-        task_signals=[],
-        risk_profile=set(),
-        routing_features=type("RF", (), {})(),
         max_switches=max_switches,
         routing_decision=_decision(endpoint),
         execute_regime_once=execute_regime_once,
@@ -314,9 +311,6 @@ def test_stop_reason_recorded():
         task="task",
         model="model",
         initial_result=initial_result,
-        task_signals=[],
-        risk_profile=set(),
-        routing_features=type("RF", (), {})(),
         max_switches=2,
         routing_decision=_decision(Stage.OPERATOR),
         execute_regime_once=lambda **kwargs: initial_result,
@@ -325,3 +319,33 @@ def test_stop_reason_recorded():
         compute_forward_handoff=lambda result, st, regime: Handoff("", "", [], [], [], [], "", None, ""),
     )
     assert state.orchestration_stop_reason == "artifact_complete_at_or_past_endpoint:operator"
+
+
+def test_orchestration_execution_inputs_come_from_state():
+    state = _state_for(Stage.OPERATOR)
+    state.structural_signals = ["sig_from_state"]
+    state.risk_tags = {"risk_from_state"}
+    runtime = _runtime_with(Stage.BUILDER)
+    captured: dict[str, object] = {}
+
+    def execute_regime_once(**kwargs):
+        captured["task_signals"] = kwargs["task_signals"]
+        captured["risk_profile"] = kwargs["risk_profile"]
+        next_regime = kwargs["regime"]
+        return _result(next_regime.stage, is_valid=False, completion_signal="", failure_signal="")
+
+    runtime.run_orchestration_loop(
+        state=state,
+        task="task",
+        model="model",
+        initial_result=_result(Stage.OPERATOR, is_valid=False, completion_signal="", failure_signal=""),
+        max_switches=1,
+        routing_decision=_decision(Stage.BUILDER),
+        execute_regime_once=execute_regime_once,
+        update_state_from_execution=lambda *args, **kwargs: None,
+        handoff_from_state=lambda s: Handoff("", "", [], [], [], [], "", None, ""),
+        compute_forward_handoff=lambda result, st, regime: Handoff("", "", [], [], [], [], "", None, ""),
+    )
+
+    assert captured["task_signals"] == ["sig_from_state"]
+    assert captured["risk_profile"] == {"risk_from_state"}

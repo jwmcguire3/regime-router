@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from ..models import Regime, RegimeConfidenceResult, RoutingFeatures, Severity, Stage
+from ..models import Regime, RegimeConfidenceResult, Severity, Stage
 from ..state import RouterState
 from .escalation_rules import (
     HIGH_CONSEQUENCE_TERMS,
@@ -29,11 +29,11 @@ class EscalationPolicy:
         self,
         *,
         state: Optional[RouterState],
-        routing_features: RoutingFeatures,
         task_text: str,
         current_regime: Optional[Regime],
         regime_confidence: Optional[RegimeConfidenceResult],
         misrouting_result: Optional[MisroutingDetectionResult],
+        **_: object,
     ) -> EscalationPolicyResult:
         text = task_text.lower().replace("’", "'")
         strict_score = 0
@@ -42,7 +42,10 @@ class EscalationPolicy:
         loose_biases: Dict[Stage, int] = {}
         cues: List[str] = []
 
-        if routing_features.fragility_pressure >= 2 or any(k in text for k in HIGH_CONSEQUENCE_TERMS):
+        fragility_pressure = state.fragility_pressure if state else 0
+        possibility_space_need = state.possibility_space_need if state else 0
+
+        if fragility_pressure >= 2 or any(k in text for k in HIGH_CONSEQUENCE_TERMS):
             strict_score += 2
             cues.append("high_consequence_or_deployment")
             strict_biases[Stage.EPISTEMIC] = strict_biases.get(Stage.EPISTEMIC, 0) + 1
@@ -59,7 +62,7 @@ class EscalationPolicy:
             cues.append("certainty_or_proof_request")
             strict_biases[Stage.EPISTEMIC] = strict_biases.get(Stage.EPISTEMIC, 0) + 2
 
-        if routing_features.possibility_space_need >= 3 and any(cue in text for cue in UNDERFORMED_TERMS):
+        if possibility_space_need >= 3 and any(cue in text for cue in UNDERFORMED_TERMS):
             loose_score += 2
             cues.append("underformed_space")
             loose_biases[Stage.EXPLORATION] = loose_biases.get(Stage.EXPLORATION, 0) + 2
