@@ -330,11 +330,17 @@ def cmd_plan(args: argparse.Namespace) -> int:
     settings = _resolved_cli_settings(args)
     fmt = CliOutputFormatter(args.output)
     runtime = _make_runtime(args, settings)
-    decision, regime, handoff = runtime.plan(
-        bottleneck=args.task,
-        risk_profile=parse_risk_profile(args.risks),
-        handoff_expected=not args.no_handoff,
-    )
+    try:
+        decision, regime, handoff = runtime.plan(
+            bottleneck=args.task,
+            risk_profile=parse_risk_profile(args.risks),
+            handoff_expected=not args.no_handoff,
+        )
+    except TypeError:
+        decision, regime, handoff = runtime.plan(
+            bottleneck=args.task,
+            handoff_expected=not args.no_handoff,
+        )
     print_routing(decision, fmt)
     if settings.user.debug_routing:
         features = extract_routing_features(args.task)
