@@ -176,18 +176,12 @@ def test_collapse_assumption_guard_is_noop_after_state_build():
         bottleneck="test",
         decision=decision,
         regime=composer.compose(Stage.EXPLORATION),
-        signals=[],
-        risks=set(),
-        features=SimpleNamespace(decision_pressure=0, evidence_demand=0, recurrence_potential=0),
         composer=composer,
     )
     state_with_signals = build_router_state(
         bottleneck="test",
         decision=decision,
         regime=composer.compose(Stage.EXPLORATION),
-        signals=["marker-a"],
-        risks=set(),
-        features=SimpleNamespace(decision_pressure=0, evidence_demand=0, recurrence_potential=0),
         composer=composer,
     )
 

@@ -70,8 +70,10 @@ class RouterState:
     decision_pressure: float = 0.0
     fragility_pressure: float = 0.0
     possibility_space_need: float = 0.0
+    synthesis_pressure: float = 0.0
     detected_markers: Dict[str, List[str]] = field(default_factory=dict)
     structural_signals: List[str] = field(default_factory=list)
+    risk_tags: Set[str] = field(default_factory=set)
     evidence_demand: float = 0.0
     evidence_quality: float = 0.0
     recurrence_potential: float = 0.0
@@ -573,10 +575,12 @@ def router_state_from_jsonable(payload: object, resolve_stage: Callable[[Stage],
         decision_pressure=float(payload.get("decision_pressure", 0.0)),
         fragility_pressure=float(payload.get("fragility_pressure", 0.0)),
         possibility_space_need=float(payload.get("possibility_space_need", 0.0)),
+        synthesis_pressure=float(payload.get("synthesis_pressure", 0.0)),
         detected_markers=(
             dict(payload.get("detected_markers", {})) if isinstance(payload.get("detected_markers"), dict) else {}
         ),
         structural_signals=structural_signals,
+        risk_tags={str(v) for v in payload.get("risk_tags", []) if isinstance(v, str)},
         evidence_demand=float(payload.get("evidence_demand", 0.0)),
         evidence_quality=float(payload.get("evidence_quality", 0.0)),
         recurrence_potential=float(payload.get("recurrence_potential", 0.0)),
