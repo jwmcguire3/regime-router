@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Set
 
 from .models import (
+    STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED,
     RegimeConfidenceResult,
     RoutingDecision,
     RoutingFeatures,
@@ -28,7 +29,6 @@ def _load_routing_support_module(module_name: str, filename: str):
 
 
 _feature_extraction_module = _load_routing_support_module("router.routing.feature_extraction", "feature_extraction.py")
-_risk_inference_module = _load_routing_support_module("router.routing.risk_inference", "risk_inference.py")
 _grammar_rules_module = _load_routing_support_module("router.routing.grammar_rules", "grammar_rules.py")
 
 deduplicate_lines = _grammar_rules_module.deduplicate_lines
@@ -36,19 +36,6 @@ has_hard_conflict = _grammar_rules_module.has_hard_conflict
 has_soft_conflict = _grammar_rules_module.has_soft_conflict
 resolve_conflict = _grammar_rules_module.resolve_conflict
 validate_regime_grammar = _grammar_rules_module.validate_regime_grammar
-
-
-def _contains_any(text: str, phrases: Tuple[str, ...]) -> List[str]:
-    return _feature_extraction_module.contains_any(text, phrases)
-
-
-def _has_phrase(text: str, phrase: str) -> bool:
-    return _feature_extraction_module.has_phrase(text, phrase)
-
-
-def _score_from_matches(*matches: List[str]) -> int:
-    return _feature_extraction_module.score_from_matches(*matches)
-
 
 def extract_routing_features(task: str) -> RoutingFeatures:
     return _feature_extraction_module.extract_routing_features(task)
@@ -63,7 +50,26 @@ def explain_feature_matches(features: RoutingFeatures) -> Dict[str, List[str]]:
 
 
 def infer_risk_profile(task: str, risk_profile: Optional[Set[str]]) -> Set[str]:
-    return _risk_inference_module.infer_risk_profile(task, risk_profile)
+    inferred = set(risk_profile or set())
+    text = task.lower()
+    features = extract_routing_features(task)
+    signals = set(features.structural_signals)
+
+    if signals:
+        inferred.add("abstract_structural_task")
+    if (
+        STRUCTURAL_SIGNAL_FRAGMENTS_SPINE_MISSED in signals
+        and any(k in text for k in ("single frame", "one frame", "unif", "compress", "organizing idea"))
+    ):
+        inferred.add("false_unification")
+    if features.fragility_pressure >= 2:
+        inferred.add("fragility_pressure")
+    if features.evidence_demand >= 2:
+        inferred.add("evidence_gap")
+    if features.decision_pressure >= 2:
+        inferred.add("decision_urgency")
+
+    return inferred
 
 
 # ============================================================

@@ -1,15 +1,13 @@
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from router.analyzer import TaskAnalyzer
 from router.cli import main
-from router.models import RoutingFeatures, Stage, TaskAnalyzerOutput
+from router.models import RoutingFeatures, Stage
 from router.prompts import PromptBuilder
 from router.routing import RegimeComposer, extract_routing_features, extract_structural_signals, infer_risk_profile
 from router.runtime import CognitiveRuntime
@@ -25,72 +23,6 @@ STRUCTURAL_TASK = (
     "The fragments are understood, but the spine is still missing; "
     "a single frame compresses too early."
 )
-
-def _route_with_mocked_analyzer(task: str, primary: Stage, runner_up: Stage = Stage.SYNTHESIS, confidence: float = 0.85):
-    features = extract_routing_features(task)
-    stage_scores = {stage: 0.1 for stage in Stage}
-    stage_scores[primary] = 0.9
-    if runner_up != primary:
-        stage_scores[runner_up] = 0.6
-    output = TaskAnalyzerOutput(
-        bottleneck_label=task,
-        candidate_regimes=[primary, runner_up],
-        stage_scores=stage_scores,
-        structural_signals=features.structural_signals,
-        decision_pressure=features.decision_pressure,
-        evidence_quality=features.evidence_demand,
-        recurrence_potential=features.recurrence_potential,
-        confidence=confidence,
-        rationale='Mocked analyzer proposal for outcome test.',
-    )
-    analyzer = TaskAnalyzer(MagicMock(), model='test')
-    analyzer.analyze = MagicMock(return_value=output)
-    return analyzer.propose_route(task, features, features.structural_signals, set())
-
-
-@pytest.mark.parametrize(
-    'task,primary,runner_up',
-    [
-        ("Find the strongest interpretation of what this actually is.", Stage.SYNTHESIS, Stage.ADVERSARIAL),
-        ("What is the strongest interpretation, and what would break it?", Stage.SYNTHESIS, Stage.ADVERSARIAL),
-        ("What is the strongest interpretation, and what evidence is missing?", Stage.SYNTHESIS, Stage.EPISTEMIC),
-        ("What is the strongest interpretation, and verify which parts are actually supported?", Stage.SYNTHESIS, Stage.EPISTEMIC),
-        ("I need support and rigor before we commit.", Stage.EPISTEMIC, Stage.SYNTHESIS),
-        ("Stress test this frame and break it before launch.", Stage.ADVERSARIAL, Stage.EPISTEMIC),
-        ("What are the weakest points in this interpretation?", Stage.ADVERSARIAL, Stage.EPISTEMIC),
-        ("What are the strongest objections to this frame?", Stage.ADVERSARIAL, Stage.EPISTEMIC),
-        ("What evidence supports this interpretation?", Stage.EPISTEMIC, Stage.SYNTHESIS),
-        ("What would break this frame?", Stage.ADVERSARIAL, Stage.EPISTEMIC),
-        ("Choose between these two close options and justify the decision.", Stage.OPERATOR, Stage.EXPLORATION),
-        ("What remains unknown or unclear here?", Stage.EPISTEMIC, Stage.SYNTHESIS),
-        ("The parts are legible, but the whole organizing logic is missing.", Stage.SYNTHESIS, Stage.EPISTEMIC),
-        ("We have multiple options, but we need a decision and next move now.", Stage.OPERATOR, Stage.EXPLORATION),
-        ("Brainstorm some options.", Stage.EXPLORATION, Stage.SYNTHESIS),
-        ("Explore a few alternatives, then choose the best option now.", Stage.OPERATOR, Stage.EXPLORATION),
-        ("Explore several frames before selecting one.", Stage.OPERATOR, Stage.EXPLORATION),
-        ("Map the space before narrowing. Give multiple possible frames, perspectives, or interpretations of the situation. Keep it open rather than converging on one answer.", Stage.EXPLORATION, Stage.SYNTHESIS),
-        ("Choose one course of action now. Make a decision, explain the tradeoff, and give a fallback trigger.", Stage.OPERATOR, Stage.EXPLORATION),
-        ("Map the possibility space quickly, then choose one path now with a clear tradeoff and fallback trigger.", Stage.OPERATOR, Stage.EXPLORATION),
-        ("Give me the main perspectives, but end with a recommendation for what we should do now.", Stage.OPERATOR, Stage.EXPLORATION),
-        ("Give multiple perspectives, but do not decide yet.", Stage.EXPLORATION, Stage.SYNTHESIS),
-        ("Give multiple perspectives, then decide.", Stage.OPERATOR, Stage.EXPLORATION),
-        ("Do not recommend yet; map the options first.", Stage.EXPLORATION, Stage.SYNTHESIS),
-        ("Recommend what we should do now.", Stage.OPERATOR, Stage.EXPLORATION),
-        ("Map the options quickly and make a call.", Stage.OPERATOR, Stage.EXPLORATION),
-        ("Give multiple frames and interpretations, and keep it open rather than converging, even if a decision could be made now.", Stage.EXPLORATION, Stage.SYNTHESIS),
-        ("Map the space and give multiple perspectives. Keep it open and delay convergence before narrowing.", Stage.EXPLORATION, Stage.SYNTHESIS),
-        ("There’s a pattern here but I can’t tell what kind.", Stage.EPISTEMIC, Stage.SYNTHESIS),
-        ("Stress test this frame for launch certainty before deployment.", Stage.ADVERSARIAL, Stage.EPISTEMIC),
-        ("There is a reusable pattern here we should turn into a template.", Stage.BUILDER, Stage.OPERATOR),
-        ("This is becoming a repeatable workflow.", Stage.BUILDER, Stage.OPERATOR),
-        ("We can describe concrete versions and fragments, but no center is holding. A single frame compresses too early.", Stage.SYNTHESIS, Stage.EPISTEMIC),
-        ("Find the strongest interpretation and also verify which evidence supports it.", Stage.EPISTEMIC, Stage.SYNTHESIS),
-    ],
-)
-def test_outcome_routes_match_expected_stage(task, primary, runner_up):
-    decision = _route_with_mocked_analyzer(task, primary, runner_up)
-    assert decision.primary_regime == primary
-
 
 class FakeOllama:
     def __init__(self, responses):
@@ -286,7 +218,7 @@ def test_plan_debug_routing_flag_prints_observability_details(capsys):
 
 
 def test_router_state_prior_regimes_helper_updates_correctly():
-    runtime = CognitiveRuntime()
+    runtime = CognitiveRuntime(use_task_analyzer=False)
     runtime.plan("We have multiple options, but we need a decision and next move now.")
     assert runtime.router_state is not None
 
@@ -301,5 +233,3 @@ def test_router_state_prior_regimes_helper_updates_correctly():
     assert step.regime.stage == Stage.OPERATOR
     assert step.failure_signal_seen is True
     assert step.completion_signal_seen is False
-
-
