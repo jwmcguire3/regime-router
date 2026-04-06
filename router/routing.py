@@ -12,6 +12,7 @@ from .models import (
     Stage,
     TaskAnalyzerOutput,
 )
+from .state import RouterState
 
 if TYPE_CHECKING:
     from .control import EscalationPolicyResult
@@ -98,6 +99,105 @@ class Router:
             scores[Stage.ADVERSARIAL] = max(0, scores[Stage.ADVERSARIAL] - 2)
 
         return scores
+
+    def _score_stages_from_state(self, state: RouterState) -> Dict[Stage, int]:
+        scores: Dict[Stage, int] = {
+            Stage.EXPLORATION: int(state.possibility_space_need),
+            Stage.SYNTHESIS: int(state.synthesis_pressure),
+            Stage.EPISTEMIC: int(state.evidence_demand),
+            Stage.ADVERSARIAL: int(state.fragility_pressure),
+            Stage.OPERATOR: int(state.decision_pressure),
+            Stage.BUILDER: int(state.recurrence_potential),
+        }
+
+        if state.executed_regime_stages:
+            last_executed = state.executed_regime_stages[-1]
+            if scores[last_executed] > 0:
+                scores[last_executed] -= 1
+
+        return scores
+
+    def route_switch(self, state: RouterState) -> RoutingDecision:
+        scores = self._score_stages_from_state(state)
+        ranked = sorted(scores.items(), key=lambda item: (-item[1], list(Stage).index(item[0])))
+        primary = ranked[0][0] if ranked else Stage.EXPLORATION
+        runner_up = next((stage for stage, _ in ranked if stage != primary), Stage.SYNTHESIS)
+        top_score = ranked[0][1] if ranked else 0
+        runner_up_score = next((score for stage, score in ranked if stage == runner_up), 0)
+        nontrivial_stage_count = sum(1 for score in scores.values() if score > 0)
+        score_gap = max(0, top_score - runner_up_score)
+
+        if top_score == 0:
+            confidence = RegimeConfidenceResult(
+                level=Severity.LOW.value,
+                rationale="No positive stage signal detected from router state; using conservative fallback.",
+                top_stage_score=top_score,
+                runner_up_score=runner_up_score,
+                score_gap=score_gap,
+                nontrivial_stage_count=nontrivial_stage_count,
+                weak_lexical_dependence=False,
+                structural_feature_state="rich" if state.structural_signals else "sparse",
+            )
+            return RoutingDecision(
+                bottleneck=state.current_bottleneck,
+                primary_regime=Stage.EXPLORATION,
+                runner_up_regime=Stage.SYNTHESIS,
+                why_primary_wins_now="State scores are flat; exploration is the safest switching fallback.",
+                switch_trigger="Switch when one stage accumulates concrete state pressure above exploration fallback.",
+                likely_endpoint_regime=Stage.OPERATOR.value,
+                endpoint_confidence=0.3,
+                confidence=confidence,
+                deterministic_stage_scores=scores,
+                deterministic_score_summary=f"state-led fallback: {', '.join(f'{stage.value}={score}' for stage, score in ranked)}",
+                analyzer_enabled=False,
+                analyzer_used=False,
+                analyzer_summary="fallback: state scores were all zero",
+                inference_quality="state_led",
+            )
+
+        if top_score >= 7 or score_gap >= 3:
+            confidence_level = Severity.HIGH.value
+        elif top_score >= 4:
+            confidence_level = Severity.MEDIUM.value
+        else:
+            confidence_level = Severity.LOW.value
+
+        endpoint_stage = Stage.OPERATOR
+        endpoint_confidence = 0.55
+        if primary == Stage.BUILDER and state.recurrence_potential > 0:
+            endpoint_stage = Stage.BUILDER
+            endpoint_confidence = 0.6
+        elif primary in (Stage.EXPLORATION, Stage.SYNTHESIS, Stage.EPISTEMIC, Stage.ADVERSARIAL):
+            endpoint_confidence = 0.5
+
+        confidence = RegimeConfidenceResult(
+            level=confidence_level,
+            rationale=f"State-led routing from deterministic pressures (gap={score_gap}).",
+            top_stage_score=top_score,
+            runner_up_score=runner_up_score,
+            score_gap=score_gap,
+            nontrivial_stage_count=nontrivial_stage_count,
+            weak_lexical_dependence=False,
+            structural_feature_state="rich" if state.structural_signals else "sparse",
+        )
+        summary = ", ".join(f"{stage.value}={score}" for stage, score in ranked)
+
+        return RoutingDecision(
+            bottleneck=state.current_bottleneck,
+            primary_regime=primary,
+            runner_up_regime=runner_up,
+            why_primary_wins_now=f"{primary.value} has the highest state pressure score ({top_score}).",
+            switch_trigger=f"Switch when {runner_up.value} pressure overtakes {primary.value} by at least 1 point.",
+            likely_endpoint_regime=endpoint_stage.value,
+            endpoint_confidence=endpoint_confidence,
+            confidence=confidence,
+            deterministic_stage_scores=scores,
+            deterministic_score_summary=f"state-led stage scores: {summary}",
+            analyzer_enabled=False,
+            analyzer_used=False,
+            analyzer_summary="state_led: deterministic routing from router state",
+            inference_quality="state_led",
+        )
 
     def route(
         self,
