@@ -110,9 +110,6 @@ def _run_loop(runtime: SessionRuntime, state: RouterState, initial_result: Regim
         task="task",
         model="fake",
         initial_result=initial_result,
-        task_signals=[],
-        risk_profile=set(),
-        routing_features=SimpleNamespace(),
         max_switches=3,
         routing_decision=RoutingDecision(
             bottleneck="test",

@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from router.control import EscalationPolicy, MisroutingDetectionResult
-from router.models import RegimeConfidenceResult, RoutingFeatures, Severity, Stage
+from router.models import RegimeConfidenceResult, Severity, Stage
 from router.routing import RegimeComposer
 from router.state import RouterState
 
@@ -13,25 +13,12 @@ _POLICY = EscalationPolicy()
 _COMPOSER = RegimeComposer()
 
 
-def make_features(
-    decision_pressure: int = 0,
-    evidence_demand: int = 0,
-    fragility_pressure: int = 0,
-    recurrence_potential: int = 0,
-    possibility_space_need: int = 0,
-) -> RoutingFeatures:
-    return RoutingFeatures(
-        structural_signals=[],
-        decision_pressure=decision_pressure,
-        evidence_demand=evidence_demand,
-        fragility_pressure=fragility_pressure,
-        recurrence_potential=recurrence_potential,
-        possibility_space_need=possibility_space_need,
-        detected_markers={},
-    )
-
-
-def make_state(contradictions: list[str] | None = None) -> RouterState:
+def make_state(
+    contradictions: list[str] | None = None,
+    *,
+    fragility_pressure: float = 0,
+    possibility_space_need: float = 0,
+) -> RouterState:
     current = _COMPOSER.compose(Stage.SYNTHESIS)
     runner_up = _COMPOSER.compose(Stage.EPISTEMIC)
     return RouterState(
@@ -50,6 +37,8 @@ def make_state(contradictions: list[str] | None = None) -> RouterState:
         stage_goal="goal",
         switch_trigger=None,
         recommended_next_regime=runner_up,
+        fragility_pressure=fragility_pressure,
+        possibility_space_need=possibility_space_need,
         decision_pressure=1.0,
         evidence_quality=1.0,
         recurrence_potential=0.0,
@@ -70,7 +59,6 @@ def make_misrouting(misrouting_detected: bool) -> MisroutingDetectionResult:
 def eval_policy(
     *,
     task_text: str,
-    routing_features: RoutingFeatures,
     state: RouterState | None = None,
     current_stage: Stage = Stage.SYNTHESIS,
     regime_confidence: RegimeConfidenceResult | None = None,
@@ -78,7 +66,6 @@ def eval_policy(
 ):
     return _POLICY.evaluate(
         state=state,
-        routing_features=routing_features,
         task_text=task_text,
         current_regime=_COMPOSER.compose(current_stage),
         regime_confidence=regime_confidence,
@@ -87,7 +74,7 @@ def eval_policy(
 
 
 def test_stricter_from_high_fragility_pressure():
-    result = eval_policy(task_text="generic planning task", routing_features=make_features(fragility_pressure=2))
+    result = eval_policy(task_text="generic planning task", state=make_state(fragility_pressure=2))
     assert result.escalation_direction == "stricter"
     assert result.switch_pressure_adjustment >= 2
     assert result.preferred_regime_biases.get(Stage.EPISTEMIC, 0) >= 1
@@ -95,7 +82,7 @@ def test_stricter_from_high_fragility_pressure():
 
 
 def test_stricter_from_deployment_or_production_text():
-    result = eval_policy(task_text="prepare deployment checklist for production", routing_features=make_features())
+    result = eval_policy(task_text="prepare deployment checklist for production", state=make_state())
     assert result.escalation_direction == "stricter"
     assert result.switch_pressure_adjustment >= 2
     assert Stage.EPISTEMIC in result.preferred_regime_biases
@@ -104,7 +91,6 @@ def test_stricter_from_deployment_or_production_text():
 def test_stricter_from_two_or_more_contradictions_biases_epistemic():
     result = eval_policy(
         task_text="resolve these conflicts",
-        routing_features=make_features(),
         state=make_state(contradictions=["c1", "c2"]),
     )
     assert result.escalation_direction == "stricter"
@@ -113,7 +99,7 @@ def test_stricter_from_two_or_more_contradictions_biases_epistemic():
 
 
 def test_stricter_from_prove_or_confidence_text():
-    result = eval_policy(task_text="prove this claim with confidence", routing_features=make_features())
+    result = eval_policy(task_text="prove this claim with confidence", state=make_state())
     assert result.escalation_direction == "stricter"
     assert result.switch_pressure_adjustment >= 2
     assert result.preferred_regime_biases.get(Stage.EPISTEMIC, 0) >= 2
@@ -122,8 +108,7 @@ def test_stricter_from_prove_or_confidence_text():
 def test_stricter_combined_fragility_and_contradictions_increases_adjustment():
     result = eval_policy(
         task_text="safety review",
-        routing_features=make_features(fragility_pressure=2),
-        state=make_state(contradictions=["c1", "c2"]),
+        state=make_state(contradictions=["c1", "c2"], fragility_pressure=2),
     )
     assert result.escalation_direction == "stricter"
     assert result.switch_pressure_adjustment == 3
@@ -133,7 +118,7 @@ def test_stricter_combined_fragility_and_contradictions_increases_adjustment():
 def test_looser_from_brainstorm_or_map_space_with_high_possibility_need():
     result = eval_policy(
         task_text="brainstorm options and map the space before deciding",
-        routing_features=make_features(possibility_space_need=3),
+        state=make_state(possibility_space_need=3),
     )
     assert result.escalation_direction == "looser"
     assert result.switch_pressure_adjustment <= -2
@@ -141,7 +126,7 @@ def test_looser_from_brainstorm_or_map_space_with_high_possibility_need():
 
 
 def test_looser_from_before_narrowing_or_keep_it_open():
-    result = eval_policy(task_text="keep it open before narrowing", routing_features=make_features())
+    result = eval_policy(task_text="keep it open before narrowing", state=make_state())
     assert result.escalation_direction == "looser"
     assert result.switch_pressure_adjustment <= -2
     assert result.preferred_regime_biases.get(Stage.EXPLORATION, 0) >= 1
@@ -150,7 +135,7 @@ def test_looser_from_before_narrowing_or_keep_it_open():
 def test_looser_from_lack_of_structure_signal():
     result = eval_policy(
         task_text="we have a lack of structure and cannot characterize the space",
-        routing_features=make_features(possibility_space_need=3),
+        state=make_state(possibility_space_need=3),
     )
     assert result.escalation_direction == "looser"
     assert result.switch_pressure_adjustment <= -2
@@ -159,21 +144,21 @@ def test_looser_from_lack_of_structure_signal():
 
 
 def test_neutral_with_no_pressure_signals():
-    result = eval_policy(task_text="summarize the current status", routing_features=make_features())
+    result = eval_policy(task_text="summarize the current status", state=make_state())
     assert result.escalation_direction == "none"
     assert result.switch_pressure_adjustment == 0
     assert result.preferred_regime_biases == {}
 
 
 def test_neutral_when_strict_and_loose_signals_are_balanced():
-    result = eval_policy(task_text="prove it, but also brainstorm", routing_features=make_features())
+    result = eval_policy(task_text="prove it, but also brainstorm", state=make_state())
     assert result.escalation_direction == "none"
     assert result.switch_pressure_adjustment == 0
     assert result.preferred_regime_biases == {}
 
 
 def test_looser_biases_exploration():
-    result = eval_policy(task_text="before narrowing, map the space", routing_features=make_features(possibility_space_need=3))
+    result = eval_policy(task_text="before narrowing, map the space", state=make_state(possibility_space_need=3))
     assert result.escalation_direction == "looser"
     assert result.preferred_regime_biases.get(Stage.EXPLORATION, 0) > 0
 
@@ -181,7 +166,7 @@ def test_looser_biases_exploration():
 def test_stricter_in_exploration_adds_synthesis_bias():
     result = eval_policy(
         task_text="prove this quickly",
-        routing_features=make_features(),
+        state=make_state(),
         current_stage=Stage.EXPLORATION,
     )
     assert result.escalation_direction == "stricter"
@@ -189,8 +174,8 @@ def test_stricter_in_exploration_adds_synthesis_bias():
 
 
 def test_scope_misrouting_detected_adds_strict_pressure():
-    baseline = eval_policy(task_text="prove this", routing_features=make_features())
-    escalated = eval_policy(task_text="prove this", routing_features=make_features(), misrouting_detected=True)
+    baseline = eval_policy(task_text="prove this", state=make_state())
+    escalated = eval_policy(task_text="prove this", state=make_state(), misrouting_detected=True)
     assert baseline.escalation_direction == "stricter"
     assert escalated.escalation_direction == "stricter"
     assert escalated.switch_pressure_adjustment >= baseline.switch_pressure_adjustment
@@ -208,10 +193,10 @@ def test_scope_low_confidence_with_strict_signals_adds_strict_pressure():
         weak_lexical_dependence=False,
         structural_feature_state="rich",
     )
-    baseline = eval_policy(task_text="prove this", routing_features=make_features(), regime_confidence=high_conf)
+    baseline = eval_policy(task_text="prove this", state=make_state(), regime_confidence=high_conf)
     low_conf = eval_policy(
         task_text="prove this",
-        routing_features=make_features(),
+        state=make_state(),
         regime_confidence=RegimeConfidenceResult.low_default(),
     )
     assert low_conf.escalation_direction == "stricter"

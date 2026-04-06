@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional, Set
+from typing import Optional
 
 from ..control import EscalationPolicy, MisroutingDetector, RegimeOutputContract, SwitchOrchestrationResult, SwitchOrchestrator
 from ..models import (
@@ -10,7 +10,6 @@ from ..models import (
     ReentryJustification,
     RegimeExecutionResult,
     RoutingDecision,
-    RoutingFeatures,
     Stage,
 )
 from ..routing import RegimeComposer
@@ -42,9 +41,6 @@ class SessionRuntime:
         task: str,
         model: str,
         initial_result: RegimeExecutionResult,
-        task_signals: List[str],
-        risk_profile: Set[str],
-        routing_features: RoutingFeatures,
         max_switches: int,
         routing_decision: Optional[RoutingDecision],
         execute_regime_once,
@@ -92,7 +88,6 @@ class SessionRuntime:
             detection = self.misrouting_detector.detect(state, output_contract)
             escalation = self.escalation_policy.evaluate(
                 state=state,
-                routing_features=routing_features,
                 task_text=task,
                 current_regime=state.current_regime,
                 regime_confidence=state.regime_confidence,
@@ -232,8 +227,8 @@ class SessionRuntime:
                 task=task,
                 model=model,
                 regime=orchestrated.next_regime,
-                task_signals=task_signals,
-                risk_profile=risk_profile,
+                task_signals=state.structural_signals,
+                risk_profile=state.risk_tags,
                 prior_handoff=prior_handoff,
             )
             update_state_from_execution(state, current_result, reason_entered=orchestrated.reason_for_switch)
